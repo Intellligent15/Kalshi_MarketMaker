@@ -4,10 +4,16 @@ A C++20 research platform for simulating prediction markets and developing progr
 more sophisticated market-making strategies. The project prioritizes correctness,
 reproducibility, modularity, testability, and documented engineering decisions.
 
-Phase 3 adds a deterministic limit order book for one contract: price-time priority, matching,
-partial fills, cancellation, market-order expiry, and self-trade prevention. The book reuses the
-validated Phase 2 domain model while keeping inventory, risk, market lifecycle, persistence, and
-simulation outside the matching boundary.
+Phase 4 adds `pmm_sim`: a deterministic exchange event loop around one book per registered
+contract. It owns logical-time command ordering, global order/trade/event IDs, lifecycle gating,
+in-memory event journals, checkpoints, replay, and aggregate depth-change events. The book still
+owns only live matching state; inventory, risk, durable persistence, and strategy consumers remain
+outside the matching boundary.
+
+Phase 5 adds `pmm_agents`: a deterministic coordinator for seeded noise, momentum,
+mean-reversion, informed, and liquidity-taking baselines. Agents consume pull-based projections
+of the sequenced exchange journal and return intents; they never call an order book or mutate the
+exchange directly. Risk, inventory, PnL, durable persistence, and gateway layers remain deferred.
 
 ## Quick start
 
@@ -30,7 +36,7 @@ To validate formatting:
 
 | Path | Purpose |
 | --- | --- |
-| `cpp/` | Production C++ sources and public headers (`pmm_core` and `pmm_book`). |
+| `cpp/` | Production C++ sources and public headers (`pmm_core`, `pmm_book`, and `pmm_sim`). |
 | `tests/` | Independent C++ unit tests for foundation and core-domain behavior. |
 | `docs/` | Obsidian vault: roadmap, architecture, research, and engineering records. |
 | `configs/` | Explicit runtime and experiment configuration (introduced with functionality). |
@@ -44,6 +50,7 @@ To validate formatting:
 | `python/` | Analysis, data preparation, and future ML support code. |
 
 See the [Project Hub](docs/00%20Project%20Hub/Project%20Hub.md), the
-[Phase 3 plan](docs/01%20Roadmap/Phase%203%20Limit%20Order%20Book.md), and
-[ADR-003](docs/02%20Architecture/ADR-003%20Limit%20Order%20Book.md) for the matching semantics
-and implementation rationale.
+[Phase 3 plan](docs/01%20Roadmap/Phase%203%20Limit%20Order%20Book.md), the
+[Phase 4 plan](docs/01%20Roadmap/Phase%204%20Exchange%20Simulator.md), and
+[ADR-004](docs/02%20Architecture/ADR-004%20Exchange%20Simulator%20and%20Replay.md) for matching
+semantics and exchange/replay rationale.
