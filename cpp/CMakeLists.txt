@@ -41,6 +41,24 @@ target_include_directories(
 target_link_libraries(pmm_agents PUBLIC pmm_sim)
 pmm_enable_warnings(pmm_agents)
 
+add_library(pmm_risk src/risk/account_risk.cpp)
+target_compile_features(pmm_risk PUBLIC cxx_std_20)
+target_include_directories(
+  pmm_risk
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(pmm_risk PUBLIC pmm_sim)
+pmm_enable_warnings(pmm_risk)
+
+add_library(pmm_market_maker src/market_maker/market_maker.cpp)
+target_compile_features(pmm_market_maker PUBLIC cxx_std_20)
+target_include_directories(
+  pmm_market_maker
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(pmm_market_maker PUBLIC pmm_risk)
+pmm_enable_warnings(pmm_market_maker)
+
 add_executable(pmm_demo src/main.cpp)
 target_compile_features(pmm_demo PRIVATE cxx_std_20)
 target_include_directories(

@@ -1,0 +1,137 @@
+#include "pmm/risk/account_risk.hpp"
+
+#include <gtest/gtest.h>
+
+namespace pmm::risk {
+namespace {
+
+template <typename T>
+T Require(core::Result<T> result) {
+  EXPECT_TRUE(result.has_value()) << result.error().message;
+  return std::move(result).value();
+}
+
+void Require(core::Result<void> result) {
+  EXPECT_TRUE(result.has_value()) << result.error().message;
+}
+
+core::Market MakeMarket() {
+  const auto market_id = Require(core::MarketId::from_value(1));
+  const auto contract_id = Require(core::ContractId::from_value(10));
+  const auto grid = Require(core::PriceGrid::create(Require(core::Price::from_units(1)),
+                                                    Require(core::Price::from_units(99)),
+                                                    Require(core::Price::from_units(1))));
+  const auto contract =
+      Require(core::Contract::create(contract_id, market_id, Require(core::Price::from_units(100)),
+                                     grid, Require(core::LotSize::from_units(1))));
+  return Require(core::Market::create(market_id, "Question", contract));
+}
+
+AccountBinding Binding(core::ContractId contract_id) {
+  return AccountBinding{Require(AccountId::from_value(1)), Require(StrategyId::from_value(2)),
+                        Require(core::TraderId::from_value(3)), contract_id};
+}
+
+RiskLimits Limits() {
+  return RiskLimits{Require(core::Quantity::from_units(5)), Require(core::Quantity::from_units(5)),
+                    Require(core::Quantity::from_units(5)), Require(core::Quantity::from_units(5)),
+                    Require(core::Quantity::from_units(5)), 4};
+}
+
+TEST(AccountRisk, AdmitsBoundIntentAndProjectsAcknowledgedOrderAndFill) {
+  const core::Market market = MakeMarket();
+  sim::ExchangeSimulator exchange = Require(sim::ExchangeSimulator::create({market}));
+  AccountRiskProjection risk =
+      Require(AccountRiskProjection::create(Binding(market.contract().id()), Limits()));
+  const auto client_id = Require(ClientIntentId::from_value(1));
+  const OrderIntent intent{client_id,
+                           market.contract().id(),
+                           core::Side::Buy,
+                           Require(core::Quantity::from_units(2)),
+                           Require(core::Price::from_units(50)),
+                           true};
+  AdmissionDecision decision = risk.admit(intent, core::Timestamp::from_unix_nanoseconds(1));
+  ASSERT_TRUE(decision.approved());
+  const auto ingress =
+      Require(exchange.enqueue(*decision.command, core::Timestamp::from_unix_nanoseconds(1)));
+  Require(risk.bind_ingress(client_id, ingress));
+  Require(exchange.run_until(core::Timestamp::from_unix_nanoseconds(1)));
+  for (const auto& event : exchange.events()) {
+    Require(risk.apply(event));
+  }
+  EXPECT_EQ(risk.view().open_buy_quantity.units(), 2U);
+  EXPECT_TRUE(risk.view().pending_buy_quantity.is_zero());
+
+  const sim::SubmitOrderRequest sell{Require(core::TraderId::from_value(9)),
+                                     market.contract().id(),
+                                     core::Side::Sell,
+                                     core::OrderType::Limit,
+                                     Require(core::Quantity::from_units(2)),
+                                     Require(core::Price::from_units(50)),
+                                     core::Timestamp::from_unix_nanoseconds(2)};
+  Require(exchange.enqueue(sell, core::Timestamp::from_unix_nanoseconds(2)));
+  Require(exchange.run_until(core::Timestamp::from_unix_nanoseconds(2)));
+  for (const auto& event : exchange.read_events_after(risk.view().event_watermark, 100)) {
+    Require(risk.apply(event));
+  }
+  EXPECT_EQ(risk.view().net_position, 2);
+  EXPECT_TRUE(risk.view().open_buy_quantity.is_zero());
+}
+
+TEST(AccountRisk, RejectsExcessExposureWithoutCreatingReservation) {
+  const core::Market market = MakeMarket();
+  AccountRiskProjection risk =
+      Require(AccountRiskProjection::create(Binding(market.contract().id()), Limits()));
+  const OrderIntent intent{Require(ClientIntentId::from_value(1)),
+                           market.contract().id(),
+                           core::Side::Buy,
+                           Require(core::Quantity::from_units(6)),
+                           Require(core::Price::from_units(50)),
+                           true};
+  const AdmissionDecision decision = risk.admit(intent, core::Timestamp::from_unix_nanoseconds(1));
+  ASSERT_FALSE(decision.approved());
+  ASSERT_TRUE(decision.rejection.has_value());
+  EXPECT_EQ(decision.rejection->code, AdmissionRejectCode::OrderQuantityLimit);
+  EXPECT_TRUE(risk.view().pending_buy_quantity.is_zero());
+}
+
+TEST(AccountRisk, ReleasesAReservationWhenTheExchangeRejectsItsPostOnlyCommand) {
+  const core::Market market = MakeMarket();
+  sim::ExchangeSimulator exchange = Require(sim::ExchangeSimulator::create({market}));
+  AccountRiskProjection risk =
+      Require(AccountRiskProjection::create(Binding(market.contract().id()), Limits()));
+  const auto time = core::Timestamp::from_unix_nanoseconds(1);
+  const sim::SubmitOrderRequest offer{Require(core::TraderId::from_value(9)),
+                                      market.contract().id(),
+                                      core::Side::Sell,
+                                      core::OrderType::Limit,
+                                      Require(core::Quantity::from_units(1)),
+                                      Require(core::Price::from_units(50)),
+                                      time};
+  Require(exchange.enqueue(offer, time));
+  Require(exchange.run_until(time));
+  for (const auto& event : exchange.events()) {
+    Require(risk.apply(event));
+  }
+
+  const auto client_id = Require(ClientIntentId::from_value(1));
+  const OrderIntent intent{client_id,
+                           market.contract().id(),
+                           core::Side::Buy,
+                           Require(core::Quantity::from_units(1)),
+                           Require(core::Price::from_units(50)),
+                           true};
+  const AdmissionDecision decision = risk.admit(intent, time);
+  ASSERT_TRUE(decision.approved());
+  const auto ingress = Require(exchange.enqueue(*decision.command, time));
+  Require(risk.bind_ingress(client_id, ingress));
+  Require(exchange.run_until(time));
+  for (const auto& event : exchange.read_events_after(risk.view().event_watermark, 100)) {
+    Require(risk.apply(event));
+  }
+  EXPECT_TRUE(risk.view().pending_buy_quantity.is_zero());
+  EXPECT_TRUE(risk.live_orders().empty());
+}
+
+}  // namespace
+}  // namespace pmm::risk
