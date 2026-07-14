@@ -15,6 +15,13 @@ mean-reversion, informed, and liquidity-taking baselines. Agents consume pull-ba
 of the sequenced exchange journal and return intents; they never call an order book or mutate the
 exchange directly. Risk, inventory, PnL, durable persistence, and gateway layers remain deferred.
 
+Phase 6 adds `pmm_risk` and `pmm_market_maker`. A market maker produces identity-free,
+post-only limit intents; an external account-risk projection binds the authorized `TraderId`,
+reserves worst-case inventory exposure, and consumes the globally sequenced exchange journal.
+The baseline maker supports fixed-spread quotes, integer inventory skew, stale-quote cancellation,
+kill switches, checkpoint continuation, and ingress-correlated exchange rejections. Fees, PnL,
+collateral, settlement, durable recovery, and paper-trading claims remain deliberately deferred.
+
 ## Quick start
 
 Prerequisites: CMake 3.24+, a C++20 compiler, Git (to fetch GoogleTest for test builds),
@@ -36,7 +43,7 @@ To validate formatting:
 
 | Path | Purpose |
 | --- | --- |
-| `cpp/` | Production C++ sources and public headers (`pmm_core`, `pmm_book`, and `pmm_sim`). |
+| `cpp/` | Production C++ sources and public headers (`pmm_core`, `pmm_book`, `pmm_sim`, `pmm_risk`, and `pmm_market_maker`). |
 | `tests/` | Independent C++ unit tests for foundation and core-domain behavior. |
 | `docs/` | Obsidian vault: roadmap, architecture, research, and engineering records. |
 | `configs/` | Explicit runtime and experiment configuration (introduced with functionality). |

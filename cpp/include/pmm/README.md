@@ -7,7 +7,10 @@ available through `pmm/core/core.hpp`; the Phase 3 limit order book is available
 `pmm/agents/baseline_agents.hpp`. The book owns mutable matching state only. The simulator owns
 event ordering, lifecycle, IDs, in-memory journals, checkpoints, and replay; the agent
 coordinator owns schedules and projections. Risk, inventory, durable persistence, and gateways
-remain separate layers.
+remain separate layers. Phase 6 adds `pmm/risk/account_risk.hpp` for external account exposure
+and command admission plus `pmm/market_maker/market_maker.hpp` for deterministic passive quoting.
+The market maker cannot mutate a book, and its identity-free order intent receives the exchange
+`TraderId` only after risk admission.
 
 ```cpp
 auto exchange = pmm::sim::ExchangeSimulator::create({market});
