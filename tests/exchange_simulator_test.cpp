@@ -93,6 +93,7 @@ void ExpectEqualExecution(const book::Execution& actual, const book::Execution& 
 void ExpectEqualEvent(const ExchangeEvent& actual, const ExchangeEvent& expected) {
   EXPECT_EQ(actual.sequence, expected.sequence);
   EXPECT_EQ(actual.occurred_at, expected.occurred_at);
+  EXPECT_EQ(actual.ingress_sequence, expected.ingress_sequence);
   ASSERT_EQ(actual.payload.index(), expected.payload.index());
   std::visit(
       [&actual](const auto& expected_payload) {
@@ -128,6 +129,24 @@ void ExpectEqualEvent(const ExchangeEvent& actual, const ExchangeEvent& expected
         }
       },
       expected.payload);
+}
+
+TEST(ExchangeSimulator, CorrelatesPostOnlyRejectionToTheOriginatingIngressCommand) {
+  const core::Market market = MakeMarket();
+  ExchangeSimulator simulator = Require(ExchangeSimulator::create({market}));
+  const auto time = core::Timestamp::from_unix_nanoseconds(10);
+  Require(
+      simulator.enqueue(LimitRequest(1, market.contract().id(), core::Side::Sell, 1, 50, 1), time));
+  SubmitOrderRequest post_only = LimitRequest(2, market.contract().id(), core::Side::Buy, 1, 50, 2);
+  post_only.post_only = true;
+  const std::uint64_t ingress = Require(simulator.enqueue(post_only, time));
+  Require(simulator.run_until(time));
+
+  ASSERT_EQ(simulator.events().size(), 4U);
+  const ExchangeEvent& rejection = simulator.events().back();
+  EXPECT_EQ(rejection.ingress_sequence, ingress);
+  ASSERT_TRUE(std::holds_alternative<CommandRejected>(rejection.payload));
+  EXPECT_TRUE(simulator.snapshot(market.contract().id(), 2).value().asks.size() == 1U);
 }
 
 TEST(ExchangeSimulator, GloballySequencesSameTimeCommandsAndTradesAcrossBooks) {

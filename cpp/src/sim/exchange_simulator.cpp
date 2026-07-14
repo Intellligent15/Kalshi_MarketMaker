@@ -167,12 +167,29 @@ core::Result<ExchangeSimulator> ExchangeSimulator::replay(
     return created.error();
   }
   ExchangeSimulator replayed = std::move(created).value();
-  for (const ScheduledCommand& command : commands) {
-    const auto enqueued = replayed.enqueue(command.command, command.scheduled_at);
-    if (!enqueued) {
-      return enqueued.error();
-    }
+  if (!std::is_sorted(commands.begin(), commands.end(), command_less)) {
+    return SimulatorError(core::DomainErrorCode::InvalidOrder,
+                          "replay commands are not deterministically ordered");
   }
+  std::uint64_t maximum_ingress = 0;
+  std::vector<std::uint64_t> ingress_values;
+  ingress_values.reserve(commands.size());
+  for (const ScheduledCommand& command : commands) {
+    if (command.ingress_sequence == 0 ||
+        command.ingress_sequence == std::numeric_limits<std::uint64_t>::max()) {
+      return SimulatorError(core::DomainErrorCode::InvalidOrder,
+                            "replay command has an invalid ingress sequence");
+    }
+    ingress_values.push_back(command.ingress_sequence);
+    maximum_ingress = std::max(maximum_ingress, command.ingress_sequence);
+  }
+  std::sort(ingress_values.begin(), ingress_values.end());
+  if (std::adjacent_find(ingress_values.begin(), ingress_values.end()) != ingress_values.end()) {
+    return SimulatorError(core::DomainErrorCode::InvalidOrder,
+                          "replay commands contain duplicate ingress sequences");
+  }
+  replayed.pending_commands_ = commands;
+  replayed.next_ingress_sequence_ = maximum_ingress + 1U;
   const core::Result<void> completed = replayed.run_until(
       core::Timestamp::from_unix_nanoseconds(std::numeric_limits<std::int64_t>::max()));
   if (!completed) {
@@ -208,7 +225,7 @@ core::Result<void> ExchangeSimulator::run_next() {
   pending_commands_.erase(pending_commands_.begin());
   current_time_ = scheduled.scheduled_at;
   command_journal_.push_back(scheduled);
-  return process(scheduled.command, scheduled.scheduled_at);
+  return process(scheduled.command, scheduled.scheduled_at, scheduled.ingress_sequence);
 }
 
 core::Result<void> ExchangeSimulator::run_until(core::Timestamp inclusive_time) {
@@ -259,33 +276,35 @@ ExchangeCheckpoint ExchangeSimulator::checkpoint() const {
 }
 
 core::Result<void> ExchangeSimulator::process(const ExchangeCommand& command,
-                                              core::Timestamp occurred_at) {
+                                              core::Timestamp occurred_at,
+                                              std::uint64_t ingress_sequence) {
   return std::visit(
-      [this, occurred_at](const auto& value) -> core::Result<void> {
+      [this, occurred_at, ingress_sequence](const auto& value) -> core::Result<void> {
         using Command = std::decay_t<decltype(value)>;
         if constexpr (std::is_same_v<Command, SubmitOrderRequest>) {
-          return process_submit(value, occurred_at);
+          return process_submit(value, occurred_at, ingress_sequence);
         } else if constexpr (std::is_same_v<Command, CancelOrderRequest>) {
-          return process_cancel(value, occurred_at);
+          return process_cancel(value, occurred_at, ingress_sequence);
         } else {
-          return process_lifecycle(value, occurred_at);
+          return process_lifecycle(value, occurred_at, ingress_sequence);
         }
       },
       command);
 }
 
 core::Result<void> ExchangeSimulator::process_submit(const SubmitOrderRequest& request,
-                                                     core::Timestamp occurred_at) {
+                                                     core::Timestamp occurred_at,
+                                                     std::uint64_t ingress_sequence) {
   MarketRuntime* market = find_market_by_contract(request.contract_id);
   if (market == nullptr) {
     return append_rejection(SimulatorError(core::DomainErrorCode::InvalidContract,
                                            "order contract is not registered with this exchange"),
-                            occurred_at);
+                            occurred_at, ingress_sequence);
   }
   if (market->status != core::MarketStatus::Open) {
     return append_rejection(
         SimulatorError(core::DomainErrorCode::InvalidMarket, "market is not open for new orders"),
-        occurred_at);
+        occurred_at, ingress_sequence);
   }
 
   const std::uint64_t saved_order_id = next_order_id_;
@@ -308,7 +327,27 @@ core::Result<void> ExchangeSimulator::process_submit(const SubmitOrderRequest& r
   }
   if (!order) {
     next_order_id_ = saved_order_id;
-    return append_rejection(order.error(), occurred_at);
+    return append_rejection(order.error(), occurred_at, ingress_sequence);
+  }
+
+  if (request.post_only && request.type != core::OrderType::Limit) {
+    next_order_id_ = saved_order_id;
+    return append_rejection(SimulatorError(core::DomainErrorCode::InvalidOrder,
+                                           "post-only orders must be limit orders"),
+                            occurred_at, ingress_sequence);
+  }
+  if (request.post_only) {
+    const book::BookSnapshot top = market->book->snapshot(1);
+    const bool crosses =
+        request.side == core::Side::Buy
+            ? (!top.asks.empty() && *request.limit_price >= top.asks.front().price)
+            : (!top.bids.empty() && *request.limit_price <= top.bids.front().price);
+    if (crosses) {
+      next_order_id_ = saved_order_id;
+      return append_rejection(SimulatorError(core::DomainErrorCode::InvalidOrder,
+                                             "post-only order would take displayed liquidity"),
+                              occurred_at, ingress_sequence);
+    }
   }
 
   const auto acknowledgement_sequence = reserve_event_sequence();
@@ -321,76 +360,81 @@ core::Result<void> ExchangeSimulator::process_submit(const SubmitOrderRequest& r
   if (!report) {
     next_order_id_ = saved_order_id;
     sequencer_->restore(saved_trade_id, saved_event_sequence);
-    return append_rejection(report.error(), occurred_at);
+    return append_rejection(report.error(), occurred_at, ingress_sequence);
   }
 
-  append_event(acknowledgement_sequence.value(), occurred_at, OrderAcknowledged{order.value()});
+  append_event(acknowledgement_sequence.value(), occurred_at, ingress_sequence,
+               OrderAcknowledged{order.value()});
   for (const book::Execution& execution : report.value().executions) {
-    append_event(execution.trade.sequence(), occurred_at, TradeExecuted{execution});
+    append_event(execution.trade.sequence(), occurred_at, ingress_sequence,
+                 TradeExecuted{execution});
   }
-  append_event(reserve_event_sequence().value(), occurred_at,
+  append_event(reserve_event_sequence().value(), occurred_at, ingress_sequence,
                OrderOutcome{report.value().incoming_order_update});
   const book::BookSnapshot after = full_snapshot(*market->book);
   const std::vector<PriceLevelDelta> changed = depth_delta(before, after);
   if (!changed.empty()) {
-    append_event(reserve_event_sequence().value(), occurred_at,
+    append_event(reserve_event_sequence().value(), occurred_at, ingress_sequence,
                  BookDepthChanged{request.contract_id, changed});
   }
   return {};
 }
 
 core::Result<void> ExchangeSimulator::process_cancel(const CancelOrderRequest& request,
-                                                     core::Timestamp occurred_at) {
+                                                     core::Timestamp occurred_at,
+                                                     std::uint64_t ingress_sequence) {
   MarketRuntime* market = find_market_by_contract(request.contract_id);
   if (market == nullptr) {
     return append_rejection(SimulatorError(core::DomainErrorCode::InvalidContract,
                                            "cancel contract is not registered with this exchange"),
-                            occurred_at);
+                            occurred_at, ingress_sequence);
   }
   if (market->status == core::MarketStatus::Settled) {
     return append_rejection(
-        SimulatorError(core::DomainErrorCode::InvalidMarket, "market is settled"), occurred_at);
+        SimulatorError(core::DomainErrorCode::InvalidMarket, "market is settled"), occurred_at,
+        ingress_sequence);
   }
   const auto live_order = market->book->find_live_order(request.order_id);
   if (!live_order.has_value() || live_order->trader_id != request.trader_id) {
     return append_rejection(SimulatorError(core::DomainErrorCode::UnknownOrder,
                                            "cancel request does not own a live order"),
-                            occurred_at);
+                            occurred_at, ingress_sequence);
   }
 
   const book::BookSnapshot before = full_snapshot(*market->book);
   const auto report = market->book->cancel(request.order_id);
   if (!report) {
-    return append_rejection(report.error(), occurred_at);
+    return append_rejection(report.error(), occurred_at, ingress_sequence);
   }
-  append_event(reserve_event_sequence().value(), occurred_at,
+  append_event(reserve_event_sequence().value(), occurred_at, ingress_sequence,
                CancellationAcknowledged{report.value().order_update});
   const std::vector<PriceLevelDelta> changed = depth_delta(before, full_snapshot(*market->book));
   if (!changed.empty()) {
-    append_event(reserve_event_sequence().value(), occurred_at,
+    append_event(reserve_event_sequence().value(), occurred_at, ingress_sequence,
                  BookDepthChanged{request.contract_id, changed});
   }
   return {};
 }
 
 core::Result<void> ExchangeSimulator::process_lifecycle(const MarketLifecycleCommand& command,
-                                                        core::Timestamp occurred_at) {
+                                                        core::Timestamp occurred_at,
+                                                        std::uint64_t ingress_sequence) {
   const auto market = markets_.find(command.market_id);
   if (market == markets_.end()) {
     return append_rejection(SimulatorError(core::DomainErrorCode::InvalidMarket,
                                            "market lifecycle command targets an unknown market"),
-                            occurred_at);
+                            occurred_at, ingress_sequence);
   }
   MarketRuntime& runtime = market->second;
   if (!valid_transition(runtime.status, command.target_status)) {
     return append_rejection(
         SimulatorError(core::DomainErrorCode::InvalidMarket, "invalid market lifecycle transition"),
-        occurred_at);
+        occurred_at, ingress_sequence);
   }
 
   const core::MarketStatus previous = runtime.status;
   runtime.status = command.target_status;
-  append_event(reserve_event_sequence().value(), occurred_at,
+  append_event(reserve_event_sequence().value(), occurred_at, ingress_sequence,
                MarketStatusChanged{command.market_id, previous, runtime.status});
   if (runtime.status != core::MarketStatus::Closed) {
     return {};
@@ -403,12 +447,12 @@ core::Result<void> ExchangeSimulator::process_lifecycle(const MarketLifecycleCom
     if (!cancelled) {
       return cancelled.error();
     }
-    append_event(reserve_event_sequence().value(), occurred_at,
+    append_event(reserve_event_sequence().value(), occurred_at, ingress_sequence,
                  CancellationAcknowledged{cancelled.value().order_update});
   }
   const std::vector<PriceLevelDelta> changed = depth_delta(before, full_snapshot(*runtime.book));
   if (!changed.empty()) {
-    append_event(reserve_event_sequence().value(), occurred_at,
+    append_event(reserve_event_sequence().value(), occurred_at, ingress_sequence,
                  BookDepthChanged{runtime.market.contract().id(), changed});
   }
   return {};
@@ -432,18 +476,19 @@ core::Result<core::SequenceNumber> ExchangeSimulator::reserve_event_sequence() {
 }
 
 core::Result<void> ExchangeSimulator::append_rejection(core::DomainError error,
-                                                       core::Timestamp occurred_at) {
+                                                       core::Timestamp occurred_at,
+                                                       std::uint64_t ingress_sequence) {
   const auto sequence = reserve_event_sequence();
   if (!sequence) {
     return sequence.error();
   }
-  append_event(sequence.value(), occurred_at, CommandRejected{std::move(error)});
+  append_event(sequence.value(), occurred_at, ingress_sequence, CommandRejected{std::move(error)});
   return {};
 }
 
 void ExchangeSimulator::append_event(core::SequenceNumber sequence, core::Timestamp occurred_at,
-                                     ExchangeEventPayload payload) {
-  events_.push_back(ExchangeEvent{sequence, occurred_at, std::move(payload)});
+                                     std::uint64_t ingress_sequence, ExchangeEventPayload payload) {
+  events_.push_back(ExchangeEvent{sequence, occurred_at, ingress_sequence, std::move(payload)});
 }
 
 ExchangeSimulator::MarketRuntime* ExchangeSimulator::find_market_by_contract(

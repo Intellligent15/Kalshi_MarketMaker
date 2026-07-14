@@ -20,6 +20,8 @@ struct SubmitOrderRequest {
   core::Quantity quantity;
   std::optional<core::Price> limit_price;
   core::Timestamp submitted_at;
+  // A post-only order is rejected before matching if it would take displayed liquidity.
+  bool post_only = false;
 };
 
 struct CancelOrderRequest {
@@ -87,6 +89,8 @@ using ExchangeEventPayload =
 struct ExchangeEvent {
   core::SequenceNumber sequence;
   core::Timestamp occurred_at;
+  // Exchange-owned correlation for every event emitted by one ingress command.
+  std::uint64_t ingress_sequence;
   ExchangeEventPayload payload;
 };
 
@@ -151,19 +155,24 @@ class ExchangeSimulator final {
   ExchangeSimulator() = default;
 
   [[nodiscard]] core::Result<void> process(const ExchangeCommand& command,
-                                           core::Timestamp occurred_at);
+                                           core::Timestamp occurred_at,
+                                           std::uint64_t ingress_sequence);
   [[nodiscard]] core::Result<void> process_submit(const SubmitOrderRequest& request,
-                                                  core::Timestamp occurred_at);
+                                                  core::Timestamp occurred_at,
+                                                  std::uint64_t ingress_sequence);
   [[nodiscard]] core::Result<void> process_cancel(const CancelOrderRequest& request,
-                                                  core::Timestamp occurred_at);
+                                                  core::Timestamp occurred_at,
+                                                  std::uint64_t ingress_sequence);
   [[nodiscard]] core::Result<void> process_lifecycle(const MarketLifecycleCommand& command,
-                                                     core::Timestamp occurred_at);
+                                                     core::Timestamp occurred_at,
+                                                     std::uint64_t ingress_sequence);
   [[nodiscard]] core::Result<core::OrderId> reserve_order_id();
   [[nodiscard]] core::Result<core::SequenceNumber> reserve_event_sequence();
   [[nodiscard]] core::Result<void> append_rejection(core::DomainError error,
-                                                    core::Timestamp occurred_at);
+                                                    core::Timestamp occurred_at,
+                                                    std::uint64_t ingress_sequence);
   void append_event(core::SequenceNumber sequence, core::Timestamp occurred_at,
-                    ExchangeEventPayload payload);
+                    std::uint64_t ingress_sequence, ExchangeEventPayload payload);
   [[nodiscard]] MarketRuntime* find_market_by_contract(core::ContractId contract_id);
   [[nodiscard]] const MarketRuntime* find_market_by_contract(core::ContractId contract_id) const;
   [[nodiscard]] static bool valid_transition(core::MarketStatus from, core::MarketStatus to);
