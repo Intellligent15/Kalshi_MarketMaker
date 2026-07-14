@@ -64,6 +64,21 @@ struct BookOptions {
   std::size_t maximum_price_levels = 4096;
 };
 
+// A detached representation of live matching state. It intentionally contains no
+// persistence behavior; the exchange owns checkpoint storage and recovery.
+struct RestingOrderState {
+  Order order;
+  Quantity remaining_quantity;
+  SequenceNumber priority_sequence;
+};
+
+struct BookCheckpoint {
+  Contract contract;
+  BookOptions options;
+  std::vector<RestingOrderState> resting_orders;
+  SequenceNumber next_priority_sequence;
+};
+
 enum class OrderStatus {
   Resting,
   PartiallyFilled,
@@ -131,6 +146,15 @@ class LimitOrderBook {
   [[nodiscard]] std::optional<LiveOrderView> find_live_order(OrderId order_id) const;
   [[nodiscard]] BookSnapshot snapshot(std::size_t depth) const;
 
+  // Checkpoints contain only the book's live mutable state. Restoring one preserves
+  // price-time priority without making the book responsible for persistence.
+  [[nodiscard]] BookCheckpoint checkpoint() const;
+  [[nodiscard]] static Result<LimitOrderBook> restore(BookCheckpoint checkpoint,
+                                                      ExecutionIdSource& execution_id_source);
+
+  // Expensive diagnostic validation for tests and debug tooling. It does not mutate the book.
+  [[nodiscard]] Result<void> validate_invariants() const;
+
  private:
   struct OrderNode;
 
@@ -169,11 +193,12 @@ class LimitOrderBook {
   };
 
   LimitOrderBook(Contract contract, ExecutionIdSource& execution_id_source, BookSide bids,
-                 BookSide asks, std::uint64_t next_priority_sequence)
+                 BookSide asks, BookOptions options, std::uint64_t next_priority_sequence)
       : contract_(std::move(contract)),
         execution_id_source_(execution_id_source),
         bids_(std::move(bids)),
         asks_(std::move(asks)),
+        options_(options),
         next_priority_sequence_(next_priority_sequence) {}
 
   [[nodiscard]] Result<MatchPlan> plan_matches(const Order& incoming) const;
@@ -195,6 +220,7 @@ class LimitOrderBook {
   ExecutionIdSource& execution_id_source_;
   BookSide bids_;
   BookSide asks_;
+  BookOptions options_;
   std::unordered_map<OrderId, OrderNode, IdentifierHash> live_orders_;
   std::uint64_t next_priority_sequence_;
 };

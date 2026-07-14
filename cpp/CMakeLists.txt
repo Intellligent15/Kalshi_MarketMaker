@@ -23,6 +23,24 @@ target_include_directories(
 target_link_libraries(pmm_book PUBLIC pmm_core)
 pmm_enable_warnings(pmm_book)
 
+add_library(pmm_sim src/sim/exchange_simulator.cpp)
+target_compile_features(pmm_sim PUBLIC cxx_std_20)
+target_include_directories(
+  pmm_sim
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(pmm_sim PUBLIC pmm_book)
+pmm_enable_warnings(pmm_sim)
+
+add_library(pmm_agents src/agents/baseline_agents.cpp)
+target_compile_features(pmm_agents PUBLIC cxx_std_20)
+target_include_directories(
+  pmm_agents
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(pmm_agents PUBLIC pmm_sim)
+pmm_enable_warnings(pmm_agents)
+
 add_executable(pmm_demo src/main.cpp)
 target_compile_features(pmm_demo PRIVATE cxx_std_20)
 target_include_directories(

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <limits>
+#include <unordered_set>
 #include <utility>
 
 namespace pmm::book {
@@ -92,7 +93,7 @@ Result<LimitOrderBook> LimitOrderBook::create(Contract contract,
   }
 
   return LimitOrderBook(std::move(contract), execution_id_source, std::move(bids), std::move(asks),
-                        1);
+                        options, 1);
 }
 
 Result<SubmitReport> LimitOrderBook::submit(Order order, Timestamp received_at) {
@@ -258,6 +259,114 @@ BookSnapshot LimitOrderBook::snapshot(std::size_t depth) const {
   snapshot.bids = collect(bids_, Side::Buy);
   snapshot.asks = collect(asks_, Side::Sell);
   return snapshot;
+}
+
+BookCheckpoint LimitOrderBook::checkpoint() const {
+  std::vector<RestingOrderState> resting_orders;
+  resting_orders.reserve(live_orders_.size());
+  for (const auto& [order_id, node] : live_orders_) {
+    static_cast<void>(order_id);
+    resting_orders.push_back(RestingOrderState{
+        node.order, quantity_from_units(node.remaining_quantity), node.priority_sequence});
+  }
+  std::sort(resting_orders.begin(), resting_orders.end(),
+            [](const RestingOrderState& left, const RestingOrderState& right) {
+              return left.priority_sequence < right.priority_sequence;
+            });
+  return BookCheckpoint{contract_, options_, std::move(resting_orders),
+                        SequenceNumber::from_value(next_priority_sequence_).value()};
+}
+
+Result<LimitOrderBook> LimitOrderBook::restore(BookCheckpoint checkpoint,
+                                               ExecutionIdSource& execution_id_source) {
+  auto create_result =
+      LimitOrderBook::create(checkpoint.contract, execution_id_source, checkpoint.options);
+  if (!create_result) {
+    return create_result.error();
+  }
+  LimitOrderBook restored = std::move(create_result).value();
+  for (const RestingOrderState& state : checkpoint.resting_orders) {
+    if (state.order.contract_id() != checkpoint.contract.id() ||
+        state.order.type() != core::OrderType::Limit || !state.order.limit_price().has_value() ||
+        state.remaining_quantity.is_zero() ||
+        state.remaining_quantity.units() > state.order.quantity().units() ||
+        state.priority_sequence >= checkpoint.next_priority_sequence) {
+      return BookError(core::DomainErrorCode::InvalidBook, "invalid order book checkpoint");
+    }
+
+    const auto inserted = restored.live_orders_.emplace(
+        state.order.id(),
+        OrderNode{state.order, state.remaining_quantity.units(), state.priority_sequence});
+    if (!inserted.second) {
+      return BookError(core::DomainErrorCode::DuplicateOrder,
+                       "order book checkpoint contains a duplicate order identifier");
+    }
+    const Result<void> linked = restored.link_resting_order(inserted.first->second);
+    if (!linked) {
+      return linked.error();
+    }
+  }
+  restored.next_priority_sequence_ = checkpoint.next_priority_sequence.value();
+  return restored;
+}
+
+Result<void> LimitOrderBook::validate_invariants() const {
+  std::unordered_set<OrderId, IdentifierHash> queued_order_ids;
+  const auto validate_side = [this, &queued_order_ids](const BookSide& side,
+                                                       Side expected_side) -> Result<void> {
+    for (std::size_t index = 0; index < side.levels.size(); ++index) {
+      const PriceLevel& level = side.levels[index];
+      std::uint64_t computed_quantity = 0;
+      std::size_t computed_count = 0;
+      const OrderNode* previous = nullptr;
+      std::optional<SequenceNumber> previous_priority;
+      for (const OrderNode* node = level.head; node != nullptr; node = node->next) {
+        if (node->previous != previous || node->level != &level ||
+            node->order.side() != expected_side || !node->order.limit_price().has_value() ||
+            *node->order.limit_price() != level.price || node->remaining_quantity == 0 ||
+            (previous_priority.has_value() && node->priority_sequence <= *previous_priority)) {
+          return BookError(core::DomainErrorCode::InvalidBook,
+                           "order book queue linkage or priority invariant failed");
+        }
+        const auto located = live_orders_.find(node->order.id());
+        if (located == live_orders_.end() || &located->second != node ||
+            !queued_order_ids.insert(node->order.id()).second) {
+          return BookError(core::DomainErrorCode::InvalidBook,
+                           "order book live-order locator invariant failed");
+        }
+        if (computed_quantity >
+            std::numeric_limits<std::uint64_t>::max() - node->remaining_quantity) {
+          return BookError(core::DomainErrorCode::InvalidBook,
+                           "order book queue quantity invariant overflowed");
+        }
+        computed_quantity += node->remaining_quantity;
+        ++computed_count;
+        previous = node;
+        previous_priority = node->priority_sequence;
+      }
+      if (level.tail != previous || level.total_quantity != computed_quantity ||
+          level.order_count != computed_count ||
+          is_occupied(side, index) != (computed_count != 0)) {
+        return BookError(core::DomainErrorCode::InvalidBook,
+                         "order book price-level aggregate invariant failed");
+      }
+    }
+    return {};
+  };
+
+  const Result<void> bids_valid = validate_side(bids_, Side::Buy);
+  if (!bids_valid) {
+    return bids_valid.error();
+  }
+  const Result<void> asks_valid = validate_side(asks_, Side::Sell);
+  if (!asks_valid) {
+    return asks_valid.error();
+  }
+  if (queued_order_ids.size() != live_orders_.size()) {
+    return BookError(core::DomainErrorCode::InvalidBook,
+                     "order book has a live order absent from its price queue");
+  }
+  return {};
 }
 
 Result<LimitOrderBook::MatchPlan> LimitOrderBook::plan_matches(const Order& incoming) const {
