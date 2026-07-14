@@ -41,8 +41,14 @@
 
 # Python environments and caches
 /.venv/
+/.cache/
 __pycache__/
 *.py[cod]
+
+# Local secrets and machine-specific environment overrides.
+/.env
+/.env.*
+!/.env.example
 
 # Editor and operating-system state
 .DS_Store
