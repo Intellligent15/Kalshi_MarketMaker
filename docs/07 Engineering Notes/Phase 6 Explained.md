@@ -45,6 +45,21 @@ only for account exposure derived from immutable exchange events; the strategy's
 read-only. This is why checkpoint/replay can reproduce the same continuation without giving a
 strategy a mutable book reference.
 
+## Manual walkthrough
+
+Run the deterministic scenario with:
+
+```sh
+./build/cpp/pmm_demo --steps 5
+```
+
+The demo starts a maker quoting 48 bid / 52 ask around a 50 reference. Scheduled external traders
+alternately sell at 48 and buy at 52, so the printed output shows fills, inventory changing from
+flat to long and back, replacement quote admissions, and the current displayed depth. It is a
+small observability aid for the simulation boundary, not a trading UI or a paper-trading tool.
+
+Use `pmm_demo --help` to see its bounded `--steps` option.
+
 Everything still uses logical time and the exchange event sequence. Checkpoints can continue the
 same in-memory experiment, but no data survives a process crash and no financial-accounting claim
 is made.

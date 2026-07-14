@@ -65,5 +65,5 @@ target_include_directories(
   pmm_demo
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(pmm_demo PRIVATE pmm_core)
+target_link_libraries(pmm_demo PRIVATE pmm_market_maker)
 pmm_enable_warnings(pmm_demo)

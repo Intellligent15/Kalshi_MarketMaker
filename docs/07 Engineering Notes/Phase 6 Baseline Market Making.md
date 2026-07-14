@@ -30,6 +30,8 @@ switch schedules cancels and prevents replacement admission.
   reservation when the exchange rejects a post-only command.
 - Fixed-spread quotes, kill-switch cancellation, inventory skew, checkpoint continuation, and
   replay-preserved ingress correlation are independently tested.
+- `pmm_demo --steps 5` is a deterministic manual walkthrough that prints quote decisions, fills,
+  inventory/exposure, admissions, cancellations, and displayed depth.
 
 ## Known limitations
 

@@ -43,3 +43,6 @@ gtest_discover_tests(pmm_exchange_simulator_test)
 gtest_discover_tests(pmm_baseline_agents_test)
 gtest_discover_tests(pmm_account_risk_test)
 gtest_discover_tests(pmm_market_maker_test)
+
+add_test(NAME PmmDemo.RunsScenario COMMAND $<TARGET_FILE:pmm_demo> --steps 2)
+set_tests_properties(PmmDemo.RunsScenario PROPERTIES PASS_REGULAR_EXPRESSION "fill: 1 at 48")
