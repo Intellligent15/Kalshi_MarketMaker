@@ -12,6 +12,11 @@ and command admission plus `pmm/market_maker/market_maker.hpp` for deterministic
 The market maker cannot mutate a book, and its identity-free order intent receives the exchange
 `TraderId` only after risk admission.
 
+For an exchange-only durable run, construct through `create_durable`, process commands normally,
+call `persist_checkpoint` only after draining the command queue, and resume with
+`recover_durable`. The local store validates version/checksum and replays later command batches
+through matching. It does not persist agent, risk, market-maker, accounting, or gateway state.
+
 ```cpp
 auto exchange = pmm::sim::ExchangeSimulator::create({market});
 exchange.value().enqueue(submit_request, pmm::core::Timestamp::from_unix_nanoseconds(100));

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
@@ -110,10 +111,22 @@ struct ExchangeCheckpoint {
   std::vector<ScheduledCommand> pending_commands;
 };
 
+// Durable persistence is opt-in. A directory contains a checksummed write-ahead journal and an
+// atomically replaced checkpoint. It is safe to recover only through the matching exchange; it
+// is not an alternate source of book mutation.
+struct DurableStoreConfig {
+  std::filesystem::path directory;
+};
+
 class ExchangeSimulator final {
  public:
+  class DurableStore;
+
   [[nodiscard]] static core::Result<ExchangeSimulator> create(std::vector<core::Market> markets);
+  [[nodiscard]] static core::Result<ExchangeSimulator> create_durable(
+      std::vector<core::Market> markets, DurableStoreConfig config);
   [[nodiscard]] static core::Result<ExchangeSimulator> restore(ExchangeCheckpoint checkpoint);
+  [[nodiscard]] static core::Result<ExchangeSimulator> recover_durable(DurableStoreConfig config);
   [[nodiscard]] static core::Result<ExchangeSimulator> replay(
       std::vector<core::Market> markets, const std::vector<ScheduledCommand>& commands);
 
@@ -127,6 +140,13 @@ class ExchangeSimulator final {
                                                     core::Timestamp scheduled_at);
   [[nodiscard]] core::Result<void> run_next();
   [[nodiscard]] core::Result<void> run_until(core::Timestamp inclusive_time);
+  // Persists a crash-consistent checkpoint only when no commands are queued. Commands are already
+  // write-ahead logged while pending execution; silently snapshotting them would duplicate input
+  // during recovery.
+  [[nodiscard]] core::Result<void> persist_checkpoint();
+  [[nodiscard]] bool is_poisoned() const {
+    return poisoned_;
+  }
 
   [[nodiscard]] const std::vector<ExchangeEvent>& events() const {
     return events_;
@@ -168,6 +188,7 @@ class ExchangeSimulator final {
                                                      std::uint64_t ingress_sequence);
   [[nodiscard]] core::Result<core::OrderId> reserve_order_id();
   [[nodiscard]] core::Result<core::SequenceNumber> reserve_event_sequence();
+  [[nodiscard]] core::Result<void> ensure_event_capacity(std::size_t count) const;
   [[nodiscard]] core::Result<void> append_rejection(core::DomainError error,
                                                     core::Timestamp occurred_at,
                                                     std::uint64_t ingress_sequence);
@@ -188,6 +209,9 @@ class ExchangeSimulator final {
   std::optional<core::Timestamp> current_time_;
   std::uint64_t next_order_id_ = 1;
   std::unique_ptr<ExchangeSequencer> sequencer_;
+  std::unique_ptr<DurableStore> durable_store_;
+  std::vector<ExchangeEvent>* active_event_batch_ = nullptr;
+  bool poisoned_ = false;
   std::uint64_t next_ingress_sequence_ = 1;
 };
 

@@ -57,9 +57,12 @@ crash-recovery artifact.
 
 ## Known limitations
 
-- The event journal and snapshots are in memory; no durable recovery claim is made yet.
-- In-memory replay tests compare every payload field. A future serialized journal still requires
-  checksums and compatibility/version tests.
+- The default simulator remains in memory. Opt-in durable mode now uses a versioned,
+  checksummed write-ahead journal and atomic exchange checkpoints, and recovery compares every
+  regenerated post-checkpoint event payload with its committed batch.
+- Durable mode protects the exchange only. It has no journal compaction, cross-process locking,
+  distributed replication, agent/risk/market-maker checkpoint recovery, or schema migration
+  beyond rejecting an unsupported version.
 - `OrderOutcome` records the incoming order's final status. Passive fills are represented by the
   `TradeExecuted` fill projections rather than separate passive-order-update events.
 - Risk is intentionally an external future gate; Phase 4 does not authorize accounts or update

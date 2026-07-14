@@ -6,6 +6,8 @@
 #include <type_traits>
 #include <utility>
 
+#include "durable_store.hpp"
+
 namespace pmm::sim {
 
 namespace {
@@ -25,6 +27,19 @@ bool command_less(const ScheduledCommand& left, const ScheduledCommand& right) {
 
 class ExchangeSimulator::ExchangeSequencer final : public book::ExecutionIdSource {
  public:
+  [[nodiscard]] core::Result<void> ensure_event_capacity(std::size_t count) const {
+    if (count > std::numeric_limits<std::uint64_t>::max()) {
+      return SimulatorError(core::DomainErrorCode::IdentifierExhausted,
+                            "exchange event sequence source is exhausted");
+    }
+    const std::uint64_t requested = static_cast<std::uint64_t>(count);
+    if (requested > std::numeric_limits<std::uint64_t>::max() - next_event_sequence_) {
+      return SimulatorError(core::DomainErrorCode::IdentifierExhausted,
+                            "exchange event sequence source is exhausted");
+    }
+    return {};
+  }
+
   [[nodiscard]] core::Result<std::vector<book::ExecutionIdentifiers>> reserve(
       std::size_t execution_count) override {
     if (execution_count == 0) {
@@ -115,6 +130,21 @@ core::Result<ExchangeSimulator> ExchangeSimulator::create(std::vector<core::Mark
   return simulator;
 }
 
+core::Result<ExchangeSimulator> ExchangeSimulator::create_durable(std::vector<core::Market> markets,
+                                                                  DurableStoreConfig config) {
+  auto store = DurableStore::create(std::move(config), markets);
+  if (!store) {
+    return store.error();
+  }
+  auto created = create(std::move(markets));
+  if (!created) {
+    return created.error();
+  }
+  ExchangeSimulator simulator = std::move(created).value();
+  simulator.durable_store_ = std::move(store).value();
+  return simulator;
+}
+
 core::Result<ExchangeSimulator> ExchangeSimulator::restore(ExchangeCheckpoint checkpoint) {
   std::vector<core::Market> markets;
   markets.reserve(checkpoint.markets.size());
@@ -160,6 +190,85 @@ core::Result<ExchangeSimulator> ExchangeSimulator::restore(ExchangeCheckpoint ch
   return restored;
 }
 
+core::Result<ExchangeSimulator> ExchangeSimulator::recover_durable(DurableStoreConfig config) {
+  auto opened = DurableStore::open(std::move(config));
+  if (!opened) {
+    return opened.error();
+  }
+  auto [store, recovery] = std::move(opened).value();
+  const std::size_t replay_start =
+      recovery.snapshot.has_value() ? recovery.snapshot->committed_command_count : 0U;
+  if (replay_start > recovery.commits.size()) {
+    return SimulatorError(core::DomainErrorCode::InconsistentJournal,
+                          "durable checkpoint is ahead of the committed command journal");
+  }
+
+  std::vector<ScheduledCommand> pending;
+  pending.reserve(recovery.commits.size() - replay_start +
+                  (recovery.prepared_command.has_value() ? 1U : 0U));
+  for (std::size_t index = replay_start; index < recovery.commits.size(); ++index) {
+    pending.push_back(recovery.commits[index].command);
+  }
+  if (recovery.prepared_command.has_value()) {
+    pending.push_back(*recovery.prepared_command);
+  }
+  if (!std::is_sorted(pending.begin(), pending.end(), command_less)) {
+    return SimulatorError(core::DomainErrorCode::InconsistentJournal,
+                          "durable journal commands are not deterministically ordered");
+  }
+
+  ExchangeSimulator simulator;
+  if (recovery.snapshot.has_value()) {
+    ExchangeCheckpoint checkpoint = recovery.snapshot->checkpoint;
+    if (!checkpoint.pending_commands.empty()) {
+      return SimulatorError(core::DomainErrorCode::InconsistentJournal,
+                            "durable checkpoint must not include unexecuted commands");
+    }
+    checkpoint.pending_commands = pending;
+    std::uint64_t next_ingress = checkpoint.next_ingress_sequence;
+    for (const ScheduledCommand& command : pending) {
+      if (command.ingress_sequence == std::numeric_limits<std::uint64_t>::max()) {
+        return SimulatorError(core::DomainErrorCode::InconsistentJournal,
+                              "durable journal ingress sequence is exhausted");
+      }
+      next_ingress = std::max(next_ingress, command.ingress_sequence + 1U);
+    }
+    checkpoint.next_ingress_sequence = next_ingress;
+    auto restored = restore(std::move(checkpoint));
+    if (!restored) {
+      return restored.error();
+    }
+    simulator = std::move(restored).value();
+  } else {
+    auto created = create(std::move(recovery.markets));
+    if (!created) {
+      return created.error();
+    }
+    simulator = std::move(created).value();
+    simulator.pending_commands_ = pending;
+    for (const ScheduledCommand& command : pending) {
+      simulator.next_ingress_sequence_ =
+          std::max(simulator.next_ingress_sequence_, command.ingress_sequence + 1U);
+    }
+  }
+
+  const auto begin = store->begin_recovery_replay(replay_start);
+  if (!begin) {
+    return begin.error();
+  }
+  simulator.durable_store_ = std::move(store);
+  const auto replayed = simulator.run_until(
+      core::Timestamp::from_unix_nanoseconds(std::numeric_limits<std::int64_t>::max()));
+  if (!replayed) {
+    return replayed.error();
+  }
+  const auto finished = simulator.durable_store_->finish_recovery_replay();
+  if (!finished) {
+    return finished.error();
+  }
+  return simulator;
+}
+
 core::Result<ExchangeSimulator> ExchangeSimulator::replay(
     std::vector<core::Market> markets, const std::vector<ScheduledCommand>& commands) {
   auto created = create(std::move(markets));
@@ -200,6 +309,10 @@ core::Result<ExchangeSimulator> ExchangeSimulator::replay(
 
 core::Result<std::uint64_t> ExchangeSimulator::enqueue(ExchangeCommand command,
                                                        core::Timestamp scheduled_at) {
+  if (poisoned_) {
+    return SimulatorError(core::DomainErrorCode::RecoveryRequired,
+                          "exchange is poisoned after a failed durable operation");
+  }
   if (current_time_.has_value() && scheduled_at < *current_time_) {
     return SimulatorError(core::DomainErrorCode::InvalidOrder,
                           "cannot enqueue a command before simulator time");
@@ -218,14 +331,43 @@ core::Result<std::uint64_t> ExchangeSimulator::enqueue(ExchangeCommand command,
 }
 
 core::Result<void> ExchangeSimulator::run_next() {
+  if (poisoned_) {
+    return SimulatorError(core::DomainErrorCode::RecoveryRequired,
+                          "exchange is poisoned after a failed durable operation");
+  }
   if (pending_commands_.empty()) {
     return {};
   }
-  ScheduledCommand scheduled = std::move(pending_commands_.front());
+  ScheduledCommand scheduled = pending_commands_.front();
+  if (durable_store_) {
+    const auto prepared = durable_store_->prepare(scheduled);
+    if (!prepared) {
+      poisoned_ = true;
+      return prepared.error();
+    }
+  }
   pending_commands_.erase(pending_commands_.begin());
   current_time_ = scheduled.scheduled_at;
-  command_journal_.push_back(scheduled);
-  return process(scheduled.command, scheduled.scheduled_at, scheduled.ingress_sequence);
+  std::vector<ExchangeEvent> batch;
+  active_event_batch_ = &batch;
+  const auto processed =
+      process(scheduled.command, scheduled.scheduled_at, scheduled.ingress_sequence);
+  active_event_batch_ = nullptr;
+  if (!processed) {
+    poisoned_ = durable_store_ != nullptr;
+    return processed.error();
+  }
+  if (durable_store_) {
+    const auto committed = durable_store_->commit(scheduled, batch);
+    if (!committed) {
+      poisoned_ = true;
+      return committed.error();
+    }
+  }
+  command_journal_.push_back(std::move(scheduled));
+  events_.insert(events_.end(), std::make_move_iterator(batch.begin()),
+                 std::make_move_iterator(batch.end()));
+  return {};
 }
 
 core::Result<void> ExchangeSimulator::run_until(core::Timestamp inclusive_time) {
@@ -234,6 +376,27 @@ core::Result<void> ExchangeSimulator::run_until(core::Timestamp inclusive_time) 
     if (!result) {
       return result.error();
     }
+  }
+  return {};
+}
+
+core::Result<void> ExchangeSimulator::persist_checkpoint() {
+  if (!durable_store_) {
+    return SimulatorError(core::DomainErrorCode::InvalidOrder,
+                          "exchange has no durable store configured");
+  }
+  if (poisoned_) {
+    return SimulatorError(core::DomainErrorCode::RecoveryRequired,
+                          "exchange is poisoned after a failed durable operation");
+  }
+  if (!pending_commands_.empty()) {
+    return SimulatorError(core::DomainErrorCode::InvalidOrder,
+                          "durable checkpoints require an empty command queue");
+  }
+  const auto saved = durable_store_->save_checkpoint(checkpoint(), command_journal_.size());
+  if (!saved) {
+    poisoned_ = true;
+    return saved.error();
   }
   return {};
 }
@@ -295,6 +458,10 @@ core::Result<void> ExchangeSimulator::process(const ExchangeCommand& command,
 core::Result<void> ExchangeSimulator::process_submit(const SubmitOrderRequest& request,
                                                      core::Timestamp occurred_at,
                                                      std::uint64_t ingress_sequence) {
+  const auto rejection_capacity = ensure_event_capacity(1);
+  if (!rejection_capacity) {
+    return rejection_capacity.error();
+  }
   MarketRuntime* market = find_market_by_contract(request.contract_id);
   if (market == nullptr) {
     return append_rejection(SimulatorError(core::DomainErrorCode::InvalidContract,
@@ -350,6 +517,22 @@ core::Result<void> ExchangeSimulator::process_submit(const SubmitOrderRequest& r
     }
   }
 
+  const auto preview = market->book->preview_submit(order.value());
+  if (!preview) {
+    next_order_id_ = saved_order_id;
+    return append_rejection(preview.error(), occurred_at, ingress_sequence);
+  }
+  const std::size_t event_count =
+      2U + preview.value().execution_count + (preview.value().changes_displayed_depth ? 1U : 0U);
+  const auto event_capacity = ensure_event_capacity(event_count);
+  if (!event_capacity) {
+    next_order_id_ = saved_order_id;
+    return event_capacity.error();
+  }
+  if (active_event_batch_ != nullptr) {
+    active_event_batch_->reserve(event_count);
+  }
+
   const auto acknowledgement_sequence = reserve_event_sequence();
   if (!acknowledgement_sequence) {
     next_order_id_ = saved_order_id;
@@ -383,6 +566,10 @@ core::Result<void> ExchangeSimulator::process_submit(const SubmitOrderRequest& r
 core::Result<void> ExchangeSimulator::process_cancel(const CancelOrderRequest& request,
                                                      core::Timestamp occurred_at,
                                                      std::uint64_t ingress_sequence) {
+  const auto rejection_capacity = ensure_event_capacity(1);
+  if (!rejection_capacity) {
+    return rejection_capacity.error();
+  }
   MarketRuntime* market = find_market_by_contract(request.contract_id);
   if (market == nullptr) {
     return append_rejection(SimulatorError(core::DomainErrorCode::InvalidContract,
@@ -399,6 +586,14 @@ core::Result<void> ExchangeSimulator::process_cancel(const CancelOrderRequest& r
     return append_rejection(SimulatorError(core::DomainErrorCode::UnknownOrder,
                                            "cancel request does not own a live order"),
                             occurred_at, ingress_sequence);
+  }
+
+  const auto event_capacity = ensure_event_capacity(2);
+  if (!event_capacity) {
+    return event_capacity.error();
+  }
+  if (active_event_batch_ != nullptr) {
+    active_event_batch_->reserve(active_event_batch_->size() + 2U);
   }
 
   const book::BookSnapshot before = full_snapshot(*market->book);
@@ -419,6 +614,10 @@ core::Result<void> ExchangeSimulator::process_cancel(const CancelOrderRequest& r
 core::Result<void> ExchangeSimulator::process_lifecycle(const MarketLifecycleCommand& command,
                                                         core::Timestamp occurred_at,
                                                         std::uint64_t ingress_sequence) {
+  const auto rejection_capacity = ensure_event_capacity(1);
+  if (!rejection_capacity) {
+    return rejection_capacity.error();
+  }
   const auto market = markets_.find(command.market_id);
   if (market == markets_.end()) {
     return append_rejection(SimulatorError(core::DomainErrorCode::InvalidMarket,
@@ -432,6 +631,19 @@ core::Result<void> ExchangeSimulator::process_lifecycle(const MarketLifecycleCom
         occurred_at, ingress_sequence);
   }
 
+  const book::BookCheckpoint close_checkpoint = runtime.book->checkpoint();
+  const std::size_t event_count = command.target_status == core::MarketStatus::Closed
+                                      ? 1U + close_checkpoint.resting_orders.size() +
+                                            (close_checkpoint.resting_orders.empty() ? 0U : 1U)
+                                      : 1U;
+  const auto event_capacity = ensure_event_capacity(event_count);
+  if (!event_capacity) {
+    return event_capacity.error();
+  }
+  if (active_event_batch_ != nullptr) {
+    active_event_batch_->reserve(active_event_batch_->size() + event_count);
+  }
+
   const core::MarketStatus previous = runtime.status;
   runtime.status = command.target_status;
   append_event(reserve_event_sequence().value(), occurred_at, ingress_sequence,
@@ -441,8 +653,7 @@ core::Result<void> ExchangeSimulator::process_lifecycle(const MarketLifecycleCom
   }
 
   const book::BookSnapshot before = full_snapshot(*runtime.book);
-  const book::BookCheckpoint checkpoint = runtime.book->checkpoint();
-  for (const book::RestingOrderState& order : checkpoint.resting_orders) {
+  for (const book::RestingOrderState& order : close_checkpoint.resting_orders) {
     const auto cancelled = runtime.book->cancel(order.order.id());
     if (!cancelled) {
       return cancelled.error();
@@ -475,6 +686,10 @@ core::Result<core::SequenceNumber> ExchangeSimulator::reserve_event_sequence() {
   return sequencer_->reserve_event_sequence();
 }
 
+core::Result<void> ExchangeSimulator::ensure_event_capacity(std::size_t count) const {
+  return sequencer_->ensure_event_capacity(count);
+}
+
 core::Result<void> ExchangeSimulator::append_rejection(core::DomainError error,
                                                        core::Timestamp occurred_at,
                                                        std::uint64_t ingress_sequence) {
@@ -488,7 +703,12 @@ core::Result<void> ExchangeSimulator::append_rejection(core::DomainError error,
 
 void ExchangeSimulator::append_event(core::SequenceNumber sequence, core::Timestamp occurred_at,
                                      std::uint64_t ingress_sequence, ExchangeEventPayload payload) {
-  events_.push_back(ExchangeEvent{sequence, occurred_at, ingress_sequence, std::move(payload)});
+  ExchangeEvent event{sequence, occurred_at, ingress_sequence, std::move(payload)};
+  if (active_event_batch_ != nullptr) {
+    active_event_batch_->push_back(std::move(event));
+    return;
+  }
+  events_.push_back(std::move(event));
 }
 
 ExchangeSimulator::MarketRuntime* ExchangeSimulator::find_market_by_contract(

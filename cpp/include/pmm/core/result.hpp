@@ -25,6 +25,10 @@ enum class DomainErrorCode {
   UnknownOrder,
   OrderNotResting,
   IdentifierExhausted,
+  IoFailure,
+  CorruptJournal,
+  InconsistentJournal,
+  RecoveryRequired,
 };
 
 struct DomainError {

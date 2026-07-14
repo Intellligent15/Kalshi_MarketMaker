@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
 #include <type_traits>
 #include <variant>
 
@@ -251,6 +253,61 @@ TEST(ExchangeSimulator, ReplaysTheCommandJournalDeterministically) {
   for (std::size_t index = 0; index < simulator.events().size(); ++index) {
     ExpectEqualEvent(replayed.events()[index], simulator.events()[index]);
   }
+}
+
+TEST(ExchangeSimulator, RecoversDurableCheckpointAndVerifiesLaterCommittedBatches) {
+  const std::filesystem::path directory =
+      std::filesystem::temp_directory_path() / "pmm_exchange_durable_recovery_test";
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(directory, cleanup_error);
+
+  const core::Market market = MakeMarket();
+  ExchangeSimulator simulator =
+      Require(ExchangeSimulator::create_durable({market}, DurableStoreConfig{directory}));
+  const auto first_time = core::Timestamp::from_unix_nanoseconds(10);
+  const auto second_time = core::Timestamp::from_unix_nanoseconds(20);
+  Require(simulator.enqueue(LimitRequest(1, market.contract().id(), core::Side::Sell, 2, 60, 1),
+                            first_time));
+  Require(simulator.run_until(first_time));
+  const std::size_t checkpoint_event_count = simulator.events().size();
+  Require(simulator.persist_checkpoint());
+
+  Require(simulator.enqueue(LimitRequest(2, market.contract().id(), core::Side::Buy, 2, 60, 2),
+                            second_time));
+  Require(simulator.run_until(second_time));
+  ExchangeSimulator recovered =
+      Require(ExchangeSimulator::recover_durable(DurableStoreConfig{directory}));
+
+  ASSERT_EQ(recovered.events().size(), simulator.events().size() - checkpoint_event_count);
+  for (std::size_t index = 0; index < recovered.events().size(); ++index) {
+    ExpectEqualEvent(recovered.events()[index], simulator.events()[checkpoint_event_count + index]);
+  }
+  EXPECT_TRUE(recovered.snapshot(market.contract().id(), 5).value().asks.empty());
+  EXPECT_FALSE(recovered.is_poisoned());
+  std::filesystem::remove_all(directory, cleanup_error);
+}
+
+TEST(ExchangeSimulator, RejectsACorruptDurableCheckpoint) {
+  const std::filesystem::path directory =
+      std::filesystem::temp_directory_path() / "pmm_exchange_durable_corruption_test";
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(directory, cleanup_error);
+
+  const core::Market market = MakeMarket();
+  ExchangeSimulator simulator =
+      Require(ExchangeSimulator::create_durable({market}, DurableStoreConfig{directory}));
+  Require(simulator.persist_checkpoint());
+  std::fstream snapshot(directory / "exchange.snapshot",
+                        std::ios::binary | std::ios::in | std::ios::out);
+  snapshot.seekp(-1, std::ios::end);
+  const char corrupt = '\x7f';
+  snapshot.write(&corrupt, 1);
+  snapshot.close();
+
+  const auto recovered = ExchangeSimulator::recover_durable(DurableStoreConfig{directory});
+  EXPECT_FALSE(recovered.has_value());
+  EXPECT_EQ(recovered.error().code, core::DomainErrorCode::CorruptJournal);
+  std::filesystem::remove_all(directory, cleanup_error);
 }
 
 }  // namespace

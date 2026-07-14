@@ -23,7 +23,7 @@ target_include_directories(
 target_link_libraries(pmm_book PUBLIC pmm_core)
 pmm_enable_warnings(pmm_book)
 
-add_library(pmm_sim src/sim/exchange_simulator.cpp)
+add_library(pmm_sim src/sim/exchange_simulator.cpp src/sim/durable_store.cpp)
 target_compile_features(pmm_sim PUBLIC cxx_std_20)
 target_include_directories(
   pmm_sim

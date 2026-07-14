@@ -216,6 +216,28 @@ Result<SubmitReport> LimitOrderBook::submit(Order order, Timestamp received_at) 
       false};
 }
 
+Result<SubmitPreview> LimitOrderBook::preview_submit(const Order& order) const {
+  if (order.contract_id() != contract_.id()) {
+    return BookError(core::DomainErrorCode::InvalidOrder,
+                     "order contract does not match this order book");
+  }
+  if (live_orders_.contains(order.id())) {
+    return BookError(core::DomainErrorCode::DuplicateOrder,
+                     "order identifier is already resting in this order book");
+  }
+  const auto plan = plan_matches(order);
+  if (!plan) {
+    return plan.error();
+  }
+  std::uint64_t remaining = order.quantity().units();
+  for (const PlannedMatch& match : plan.value().matches) {
+    remaining -= match.quantity;
+  }
+  const bool rests = !plan.value().self_trade_prevented && remaining != 0 &&
+                     order.type() == core::OrderType::Limit;
+  return SubmitPreview{plan.value().matches.size(), !plan.value().matches.empty() || rests};
+}
+
 Result<CancelReport> LimitOrderBook::cancel(OrderId order_id) {
   const auto order = live_orders_.find(order_id);
   if (order == live_orders_.end()) {

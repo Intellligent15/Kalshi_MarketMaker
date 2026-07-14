@@ -106,6 +106,13 @@ struct SubmitReport {
   bool self_trade_prevented;
 };
 
+// A detached preflight used by the exchange to reserve its complete event batch before matching.
+// It does not reserve execution IDs or mutate live book state.
+struct SubmitPreview {
+  std::size_t execution_count;
+  bool changes_displayed_depth;
+};
+
 struct CancelReport {
   OrderUpdate order_update;
 };
@@ -142,6 +149,7 @@ class LimitOrderBook {
   }
 
   [[nodiscard]] Result<SubmitReport> submit(Order order, Timestamp received_at);
+  [[nodiscard]] Result<SubmitPreview> preview_submit(const Order& order) const;
   [[nodiscard]] Result<CancelReport> cancel(OrderId order_id);
   [[nodiscard]] std::optional<LiveOrderView> find_live_order(OrderId order_id) const;
   [[nodiscard]] BookSnapshot snapshot(std::size_t depth) const;
