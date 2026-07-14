@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+# Reject AI-assistant co-author trailers. Human co-authors remain permitted.
+set -eu
+
+message_file=$1
+
+if grep -Eiq '^Co-authored-by:.*(codex|openai|chatgpt)' "$message_file"; then
+  echo "Commit rejected: AI assistants must not be listed as co-authors." >&2
+  exit 1
+fi

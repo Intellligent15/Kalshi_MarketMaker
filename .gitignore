@@ -1,0 +1,56 @@
+# Build products and CMake state
+/build/
+/out/
+/cmake-build-*/
+/CMakeCache.txt
+/CMakeFiles/
+/CTestTestfile.cmake
+/Testing/
+/compile_commands.json
+
+# Local bootstrap instructions are intentionally not part of the project history.
+/PROJECT_BOOTSTRAP_PROMPT.md
+/PROJECT_CHARTER.md
+
+# Compiled binaries and libraries
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.pdb
+
+# Test and coverage output
+*.gcda
+*.gcno
+*.profraw
+*.profdata
+/coverage/
+
+# Generated research artifacts; keep directory markers only.
+/data/raw/*
+!/data/raw/.gitkeep
+/data/processed/*
+!/data/processed/.gitkeep
+/data/external/*
+!/data/external/.gitkeep
+/results/*
+!/results/.gitkeep
+
+# Python environments and caches
+/.venv/
+__pycache__/
+*.py[cod]
+
+# Editor and operating-system state
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Obsidian workspace state is personal and machine-specific.
+/docs/.obsidian/workspace*.json
+/docs/.obsidian/cache/
