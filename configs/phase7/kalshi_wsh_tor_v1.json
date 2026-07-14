@@ -1,0 +1,23 @@
+{
+  "schema": "pmm.backtest.v1",
+  "run_id": "kalshi-wsh-tor-wsh2-v1",
+  "seed": 7,
+  "normalized_events": "data/processed/kalshi/wsh-tor-wsh2-normalized-v1/events.jsonl",
+  "features": "data/processed/kalshi/wsh-tor-wsh2-features-v1/features.jsonl",
+  "latency": {
+    "market_data_ns": 100000000,
+    "decision_ns": 100000000,
+    "order_ns": 100000000
+  },
+  "strategy": {
+    "decision_interval_ns": 1000000000,
+    "order_lifetime_ns": 30000000000,
+    "minimum_spread_dollars": "0.01",
+    "quote_quantity_contracts": "1"
+  },
+  "risk": {
+    "maximum_absolute_position_contracts": "10",
+    "maximum_active_orders": 2
+  },
+  "fill_model": "trade_touch_v1"
+}

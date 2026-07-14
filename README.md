@@ -22,6 +22,12 @@ The baseline maker supports fixed-spread quotes, integer inventory skew, stale-q
 kill switches, checkpoint continuation, and ingress-correlated exchange rejections. Fees, PnL,
 collateral, settlement, durable recovery, and paper-trading claims remain deliberately deferred.
 
+The Phase 7 foundation adds opt-in local exchange durability: a versioned, checksummed
+write-ahead command/event journal and atomic exchange checkpoints. `create_durable`,
+`persist_checkpoint`, and `recover_durable` protect only the exchange boundary; coordinator,
+risk, market-maker, accounting, and paper-trading recovery remain separate work. Historical
+market-data normalization, causal features, and backtesting are now in progress under ADR-007.
+
 ## Quick start
 
 Prerequisites: CMake 3.24+, a C++20 compiler, Git (to fetch GoogleTest for test builds),
@@ -41,6 +47,13 @@ To validate formatting:
 
 `pmm_demo` is a small deterministic Phase 6 walkthrough. It prints market-maker quotes, fills,
 inventory, risk admissions, cancellations, and displayed depth. Run `pmm_demo --help` for options.
+
+## Passive historical-data capture
+
+The Phase 7 recorder is a separate passive client: it only subscribes to public Kalshi
+order-book/trade feeds and never submits orders. Its required runtime arguments, credential-safe
+environment check, smoke-test command, three-hour capture command, and observed-L2 inspection are
+documented in [python/README.md](python/README.md).
 
 ## Repository map
 

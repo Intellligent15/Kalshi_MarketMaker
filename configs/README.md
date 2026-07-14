@@ -1,4 +1,10 @@
 # Configuration
 
-This directory is reserved for explicit, versioned configuration. Phase 1 intentionally
-does not define runtime settings because no market or simulation behavior exists yet.
+This directory holds explicit, versioned runtime and experiment configuration.
+
+`phase7/kalshi_wsh_tor_v1.json` is the deterministic Level-2 V1 experiment for the captured
+Washington–Toronto contract. It uses only local normalized data/features, explicit logical
+latencies, external synthetic risk admission, and the `trade_touch_v1` fill model.
+`phase7/kalshi_wsh_tor_no_fill_v1.json` is its no-fill control. Neither configuration implies
+queue-position, venue-acknowledgement, fee, PnL, collateral, settlement, paper-trading, or live
+execution realism.

@@ -1,0 +1,39 @@
+# Phase 7 Historical Replay and Backtesting
+
+## Delivered V1
+
+Phase 7 treats the Kalshi WebSocket capture as an immutable Level-2 observed-market source. `python/pmm_phase7.py` normalizes raw frames, materializes causal observed-book features, and runs a configured synthetic-fill or no-fill backtest.
+
+The observed stream never calls `ExchangeSimulator` or `LimitOrderBook`. The C++ exchange retains its ownership of simulator matching, IDs, lifecycle, checkpointing, and command replay.
+
+## First captured source
+
+`data/raw/wsh-tor-wsh2-3h/` is an ignored local source capture for `KXWNBASPREAD-26JUL14WSHTOR-WSH2`. It completed normally after 10,800.087 seconds with one snapshot, 19,832 deltas, 125 trades, no disconnects, no malformed JSONL records, and no sequence gaps.
+
+The raw `frames.jsonl` SHA-256 is `6983165c9926693dc53a0f8ec09981dc86b9740608b2bf406da829126459c4c6`. The normalizer records raw-file/output hashes, source fidelity, ordering policy, and limitations. Trade messages omit the market UUID, so they are bound to the already established capture identity and labelled `capture_bound`.
+
+## Causality and replay rules
+
+- Canonical events preserve local receive time, source sequence, source timestamp when present, and raw ingress order.
+- Sequence gaps, corrupt data, conflicting duplicates, ticker changes, and negative displayed quantities fail normalization by default. Identical duplicate source events are idempotently skipped and recorded.
+- Logical time is monotonic source `ts_ms` where available, otherwise local receive time; ingress order is the deterministic tie-breaker.
+- Features only use state applied through their own watermark. Future returns and post-watermark book state are not inputs.
+- The projection is Level-2 reconstruction, not queue, individual-order, cancellation, or hidden-liquidity truth.
+
+## V1 execution boundary
+
+`trade_touch_v1` fills a simulated buy when an observed trade's YES price is at or below its quote, and a sell when it is at or above its quote. It allocates public-trade quantity to eligible simulated orders by stable order ID. This is `ModelDerived`, not an observed fill or execution-realism claim.
+
+`no_fill_v1` is the execution-free control. Neither model includes queue priority, venue acknowledgements, hidden liquidity, fees, PnL, collateral, settlement, paper trading, or live execution. Checked-in configs use 100 ms logical market-data, decision, and order latency; one-contract quotes; 30-second quote expiry; and a 10-contract absolute-position limit.
+
+## Initial generated outputs
+
+The ignored normalized dataset has 19,958 events and the feature dataset has 19,958 causal rows. The normalized event SHA-256 is `8e869653a341790b15311bb8a483b3bf71bb73e64b84c53e33289aa12e82d9cd`.
+
+The first `trade_touch_v1` run produced 1,213 decisions, 2,074 accepted synthetic orders, 76 model-derived fills, 352 position-limit rejections, and final synthetic inventory of -10 contracts. The no-fill control produced 1,213 decisions, 2,426 accepted synthetic orders, zero fills, and zero final inventory. These are model outputs, not PnL or evidence of executable performance.
+
+## Deferred work
+
+- The observed projection has an in-memory checkpoint/restore boundary verified by continuation tests. Persisted projection/backtest checkpoints remain deferred; current restart is deterministic full replay from immutable normalized input and makes no durable live-run claim.
+- Full contract-metadata ingestion, source-schema migration, multi-product ordering, snapshot recovery after gaps, and long-term retention/compaction.
+- Calibrated latency, queue-aware or externally observed fills, fees, PnL, collateral, settlement, portfolio risk, ML models, paper trading, and live gateways.
