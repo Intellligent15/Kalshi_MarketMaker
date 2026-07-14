@@ -5,5 +5,8 @@ description = "Research platform for deterministic prediction-market market maki
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "cryptography>=42,<47",
     "python-dotenv>=1.2.2",
+    "requests>=2.34.2",
+    "websockets>=14,<16",
 ]

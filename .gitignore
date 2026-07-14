@@ -46,9 +46,16 @@ __pycache__/
 *.py[cod]
 
 # Local secrets and machine-specific environment overrides.
-/.env
-/.env.*
-!/.env.example
+.env
+.env.*
+!.env.example
+/credentials/
+/secrets/
+*.credentials
+*.pem
+*.key
+*.p8
+*.der
 
 # Editor and operating-system state
 .DS_Store
