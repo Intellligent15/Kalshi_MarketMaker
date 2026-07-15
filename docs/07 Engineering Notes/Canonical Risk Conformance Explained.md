@@ -299,3 +299,49 @@ runs.
 Checkpoint conformance is in-memory round-trip evidence. It is not durable full-run recovery, not
 a production serialization format, and it does not change any fill-model, PnL, settlement,
 collateral, paper-trading, or live-readiness claim.
+
+## The checkpoint increment in plain terms
+
+### What we did
+
+Risk state could already be checkpointed and restored in memory, but the only proof lived in a
+handful of hand-written C++ tests. We wrote the state down: a checkpoint is now a small JSON
+document listing who the account is, what its limits are, and exactly which orders and
+reservations it holds. Twenty-one reviewed fixtures prove two things about it. Round-trip
+fixtures prove nothing is lost: capture must produce exactly the reviewed bytes, and after
+restoring, the original and the copy must agree on every later event, forever. Document-restore
+fixtures prove bad state is refused: a checkpoint with a duplicated order, a zero quantity, a
+shared ingress binding, the wrong contract, or state beyond the configured limits is rejected
+with one exact named reason.
+
+### How we did it
+
+The production change is one pure function: `validate_checkpoint` names which rule a checkpoint
+broke, in a documented first-failure order, and `restore` now calls it without changing its own
+behavior. Everything else is test-only. A strict reader verifies the corpus bytes, hashes, and
+schemas before anything runs — but it deliberately checks only *syntax* on input checkpoints, so
+semantic defects still reach the real C++ projection instead of being filtered out by the test
+harness. The same reviewed documents then drive two independent implementations: direct C++ and
+a small Python model that lives only under `python/tests/`. Both must produce identical results,
+identical complete state, and byte-identical re-serialized checkpoints after every step, and a
+mutation matrix proves the reader rejects every tampering category it claims to.
+
+### Why we did it
+
+Restore is where hidden state corruption does the most damage: a dropped reservation or an
+over-limit position can stay invisible until events later happen to balance it. Comparing the
+original and the restored projection after every subsequent transition finds the first
+divergence, not the eventual symptom. Writing rejection *categories* into fixtures — never error
+prose — means diagnostics can improve without breaking reviewed evidence. And keeping the second
+implementation in the test tree keeps the useful property of a cross-check without ever creating
+a second production risk engine.
+
+### Where the debt is now
+
+The full ranked register lives in the critique note; the short version, most important first:
+restore currently accepts a checkpoint whose individual order quantities admission would have
+rejected, and that semantics question deserves an explicit decision; the strict rules for
+reviewed captured documents and the test-only SHA-256 still lack their own negative tests; and
+the corpus has no checked-in authoring helper, so adding a fixture means recomputing canonical
+bytes and hashes by hand. None of these weaken what the suite currently proves — they bound how
+far it can grow before the next contained increment.
