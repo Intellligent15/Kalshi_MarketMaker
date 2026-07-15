@@ -240,3 +240,36 @@ per-rule negative matrix in both C++ and Python. The remaining debt is narrower.
    a corpus change, not a refactor.
 5. **Fuzz only if the enumerated matrix proves insufficient.** Correctness coverage is currently
    explicit and reviewable; keep it that way until evidence demands more.
+
+## Checkpoint implementation post-review
+
+This review examines the shipped implementation rather than the design. Impact rates the
+consequence of leaving the issue open: 1 is minor and 5 blocks trustworthy conformance evidence.
+Ease rates how contained the corrective increment is: 1 is broad or externally blocked and 5 is
+small and local. Priority favors impact, then ease.
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | `restore` never checks the per-order `maximum_order_quantity`; a checkpoint can restore a live order or reservation whose quantity admission would have rejected, as long as aggregate exposure fits. This preserves pre-existing behavior and both implementations agree, but restored state is not guaranteed to be admission-reachable. | Future technical debt | 4 | 4 | A checkpoint is trusted input; state that could never be created through admission weakens the claim that restore returns the system to a previously legal configuration. | Decide whether restore must enforce admission-time per-record limits. If yes, add a `checkpoint_order_quantity_limit` category, corpus rows, and a Python-reference update in one reviewed increment; do not change behavior silently. |
+| P2 | The strict rules for reviewed captured checkpoints (strictly sorted records, positive quantities, post-only, nonzero ingress, identity/limits equal to the fixture) have no negative tests; only lax-input rules are covered by the mutation matrix. | Missing tests | 3 | 5 | A regression that stops enforcing strict-capture rules would go unnoticed until a bad reviewed document was checked in. | Add temporary-corpus tests that tamper a trace's captured checkpoint: wrong limits, wrong identity, unsorted records, zero quantity, `post_only` false. |
+| P2 | The test-only SHA-256 still has no known-answer vectors, and two corpora now depend on it. | Missing tests | 3 | 5 | A shared wrong implementation and wrong recorded hash remain mutually consistent and undetectable. | Add empty-string, `abc`, and multi-block vector tests; this closes a critique item open since the direct-C++ closure. |
+| P2 | The corpus generator was a throwaway script; adding or editing a fixture now requires hand-computing canonical bytes and three hashes with no documented workflow or checked-in helper. | Missing documentation / tooling | 3 | 4 | Authoring friction invites ad-hoc scripts that may not reproduce canonical bytes exactly, and the manifest must be regenerated correctly every time. | Check in a small authoring/rehash helper under `tools/` or document the exact canonicalization and hashing recipe in the fixture guide. |
+| P3 | `pmm.risk_checkpoint.v1` now has three encoders: the C++ test serializer, the Python `capture`, and whatever authored the corpus. The two executor encoders are intentional independent evidence; the third is not. | Unnecessary complexity | 3 | 3 | A schema change must be applied identically in three places; the byte-equality assertions catch drift between the executors but not in offline authoring. | Fold authoring into the checked-in helper above so exactly two independent encoders remain, both exercised by tests. |
+| P3 | The Python negative matrix covers nine reader rules; C++ covers seventeen, including symlinks, duplicate members, decreasing identifiers, wrong schema strings, and continuation-after-rejection. | Missing tests | 2 | 4 | The Python validator is secondary evidence, but its untested rules can silently rot. | Mirror the remaining categories with the existing `_mutated_corpus_fails` helper; each is a few lines. |
+| P3 | The default limits quintuple (5,5,5,5,5,4) is independently hardcoded in the C++ `Limits` struct, `ReferenceRisk`, the Python fixture-defaults helper, and the corpus documents. | Unnecessary complexity | 2 | 4 | A default change is a four-file edit where missing one produces confusing distant failures. | Acceptable while frozen; if defaults ever change, drive all four from one reviewed fixture change and verify corpus failures point at the right file. |
+| P3 | The README's ADR-009 paragraph does not mention checkpoint conformance, and the result-string vocabularies are duplicated as literal sets in C++ and Python. | Missing documentation | 2 | 5 | Discoverability and one more drift surface, both cheap to fix. | Add one README sentence; keep the vocabularies literal but note them in the fixture guide as the authoritative list. |
+| P4 | Every test reloads and re-verifies the full corpus, and each negative test copies the whole corpus directory. | Possible optimization | 1 | 3 | Currently well under a second in total; caching would complicate isolation between mutation tests. | Leave as is until the corpus is large enough to measure. |
+| P4 | The dual-run executor re-serializes both complete checkpoints after every post-restore transition, and the single sorted manifest is a merge hot-spot as the corpus grows. | Future scalability concern | 2 | 3 | Cost grows with open state times transitions, and parallel fixture authoring will conflict on `manifest.json`. | Keep the per-transition byte assertions; consider per-fixture manifest shards only if authoring contention actually occurs. |
+
+### Debt order in plain language
+
+1. **Decide whether restore must be admission-reachable.** This is the only finding that touches
+   risk semantics: today a checkpoint may legally contain an order too large to ever admit.
+2. **Test the strict-capture rules and the SHA helper.** Both are cheap, local tests that make
+   existing promises durable instead of implicit.
+3. **Check in the fixture-authoring workflow.** The corpus is only maintainable if canonical
+   bytes and hashes can be regenerated the same way every time.
+4. **Close the small drift surfaces.** Mirror the remaining Python negative tests and note the
+   duplicated defaults and vocabularies where reviewers will look.
+5. **Do not optimize yet.** Corpus loading and dual-run serialization are measured in
+   milliseconds; correctness assertions must not be weakened for speed that nobody needs.
