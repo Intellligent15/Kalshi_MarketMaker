@@ -133,5 +133,31 @@ TEST(AccountRisk, ReleasesAReservationWhenTheExchangeRejectsItsPostOnlyCommand) 
   EXPECT_TRUE(risk.live_orders().empty());
 }
 
+TEST(AccountRisk, AppliesModelDerivedResearchEventsUsingTheSameReservationRules) {
+  const core::Market market = MakeMarket();
+  AccountRiskProjection risk =
+      Require(AccountRiskProjection::create(Binding(market.contract().id()), Limits()));
+  const auto client_id = Require(ClientIntentId::from_value(1));
+  const auto order_id = Require(core::OrderId::from_value(11));
+  const auto price = Require(core::Price::from_units(50));
+  const auto quantity = Require(core::Quantity::from_units(2));
+  const auto time = core::Timestamp::from_unix_nanoseconds(1);
+  ASSERT_TRUE(risk.admit(OrderIntent{client_id, market.contract().id(), core::Side::Buy, quantity,
+                                     price, true},
+                         time)
+                  .approved());
+  Require(risk.bind_ingress(client_id, 7));
+  Require(risk.apply(AccountEvent{
+      Require(core::SequenceNumber::from_value(1)), time, 7, AccountEventTruth::ModelDerived,
+      AccountOrderAcknowledged{order_id, Binding(market.contract().id()).trader_id,
+                               market.contract().id(), core::Side::Buy, quantity, price}}));
+  Require(risk.apply(AccountEvent{
+      Require(core::SequenceNumber::from_value(2)), time, 0, AccountEventTruth::ModelDerived,
+      AccountFill{order_id, Binding(market.contract().id()).trader_id, market.contract().id(),
+                  core::Side::Buy, price, quantity}}));
+  EXPECT_EQ(risk.view().net_position, 2);
+  EXPECT_TRUE(risk.live_orders().empty());
+}
+
 }  // namespace
 }  // namespace pmm::risk

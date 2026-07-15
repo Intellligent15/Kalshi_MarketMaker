@@ -50,6 +50,13 @@ target_include_directories(
 target_link_libraries(pmm_risk PUBLIC pmm_sim)
 pmm_enable_warnings(pmm_risk)
 
+# A deliberately small line-oriented adapter for research orchestration.  It exercises the
+# production AccountRiskProjection without making historical Level-2 data exchange input.
+add_executable(pmm_risk_oracle src/risk/risk_oracle_main.cpp)
+target_compile_features(pmm_risk_oracle PRIVATE cxx_std_20)
+target_link_libraries(pmm_risk_oracle PRIVATE pmm_risk)
+pmm_enable_warnings(pmm_risk_oracle)
+
 add_library(pmm_market_maker src/market_maker/market_maker.cpp)
 target_compile_features(pmm_market_maker PUBLIC cxx_std_20)
 target_include_directories(

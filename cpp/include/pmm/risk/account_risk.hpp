@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <variant>
 #include <vector>
 
 #include "pmm/sim/exchange_simulator.hpp"
@@ -104,6 +105,57 @@ struct RiskCheckpoint {
   std::vector<PendingRiskOrder> pending_orders;
 };
 
+// Account events are the canonical input to account risk.  Production exchange events are
+// adapted into this shape, while research execution models may emit ModelDerived events without
+// pretending that observed Level-2 data was matched by the exchange.
+enum class AccountEventTruth {
+  Simulator,
+  ModelDerived,
+  Observed,
+};
+
+struct AccountOrderAcknowledged {
+  core::OrderId order_id;
+  core::TraderId trader_id;
+  core::ContractId contract_id;
+  core::Side side;
+  core::Quantity quantity;
+  core::Price limit_price;
+};
+
+struct AccountFill {
+  core::OrderId order_id;
+  core::TraderId trader_id;
+  core::ContractId contract_id;
+  core::Side side;
+  core::Price price;
+  core::Quantity quantity;
+};
+
+struct AccountOrderOutcome {
+  core::OrderId order_id;
+  core::Quantity remaining_quantity;
+};
+
+struct AccountCancellation {
+  core::OrderId order_id;
+};
+
+struct AccountCommandRejected {};
+struct AccountOtherEvent {};
+
+using AccountEventPayload =
+    std::variant<AccountOrderAcknowledged, AccountFill, AccountOrderOutcome, AccountCancellation,
+                 AccountCommandRejected, AccountOtherEvent>;
+
+struct AccountEvent {
+  core::SequenceNumber sequence;
+  core::Timestamp occurred_at;
+  std::uint64_t ingress_sequence;
+  AccountEventTruth truth;
+  AccountEventPayload payload;
+};
+
 // The exchange owns executions. This projection owns account exposure derived from them.
 class AccountRiskProjection final {
  public:
@@ -125,6 +177,9 @@ class AccountRiskProjection final {
   [[nodiscard]] AdmissionDecision admit(const OrderIntent& intent, core::Timestamp submitted_at);
   [[nodiscard]] core::Result<void> bind_ingress(ClientIntentId client_intent_id,
                                                 std::uint64_t ingress_sequence);
+  // Applies a canonical event from either the exchange adapter or an explicitly labelled
+  // research execution model.  The same reservation and exposure rules apply to both sources.
+  [[nodiscard]] core::Result<void> apply(const AccountEvent& event);
   [[nodiscard]] core::Result<void> apply(const sim::ExchangeEvent& event);
   void activate_kill_switch() {
     kill_switch_active_ = true;

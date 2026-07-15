@@ -144,12 +144,44 @@ core::Result<void> AccountRiskProjection::bind_ingress(ClientIntentId client_int
 }
 
 core::Result<void> AccountRiskProjection::apply(const sim::ExchangeEvent& event) {
+  AccountEventPayload payload = AccountOtherEvent{};
+  if (const auto* acknowledgement = std::get_if<sim::OrderAcknowledged>(&event.payload)) {
+    const core::Order& order = acknowledgement->order;
+    if (!order.limit_price().has_value()) {
+      return Error(core::DomainErrorCode::InvalidOrder,
+                   "risk projection received a non-limit acknowledged order");
+    }
+    payload = AccountOrderAcknowledged{order.id(),   order.trader_id(), order.contract_id(),
+                                       order.side(), order.quantity(),  *order.limit_price()};
+  } else if (const auto* execution = std::get_if<sim::TradeExecuted>(&event.payload)) {
+    const core::Fill& buyer = execution->execution.buyer_fill;
+    const core::Fill& seller = execution->execution.seller_fill;
+    if (buyer.trader_id() == binding_.trader_id) {
+      payload = AccountFill{buyer.order_id(), buyer.trader_id(), buyer.contract_id(),
+                            buyer.side(),     buyer.price(),     buyer.quantity()};
+    } else if (seller.trader_id() == binding_.trader_id) {
+      payload = AccountFill{seller.order_id(), seller.trader_id(), seller.contract_id(),
+                            seller.side(),     seller.price(),     seller.quantity()};
+    }
+  } else if (const auto* outcome = std::get_if<sim::OrderOutcome>(&event.payload)) {
+    payload = AccountOrderOutcome{outcome->update.order_id, outcome->update.remaining_quantity};
+  } else if (const auto* cancellation =
+                 std::get_if<sim::CancellationAcknowledged>(&event.payload)) {
+    payload = AccountCancellation{cancellation->update.order_id};
+  } else if (std::holds_alternative<sim::CommandRejected>(event.payload)) {
+    payload = AccountCommandRejected{};
+  }
+  return apply(AccountEvent{event.sequence, event.occurred_at, event.ingress_sequence,
+                            AccountEventTruth::Simulator, std::move(payload)});
+}
+
+core::Result<void> AccountRiskProjection::apply(const AccountEvent& event) {
   if (event.sequence.value() != event_watermark_ + 1U) {
     return Error(core::DomainErrorCode::InvalidOrder,
                  "risk projection requires contiguous exchange events");
   }
-  if (const auto* acknowledgement = std::get_if<sim::OrderAcknowledged>(&event.payload)) {
-    if (acknowledgement->order.trader_id() == binding_.trader_id) {
+  if (const auto* acknowledgement = std::get_if<AccountOrderAcknowledged>(&event.payload)) {
+    if (acknowledgement->trader_id == binding_.trader_id) {
       const auto pending =
           std::find_if(pending_orders_.begin(), pending_orders_.end(), [&event](const auto& entry) {
             return entry.second.ingress_sequence == event.ingress_sequence;
@@ -159,48 +191,44 @@ core::Result<void> AccountRiskProjection::apply(const sim::ExchangeEvent& event)
                      "account observed an unadmitted trader order");
       }
       const PendingRiskOrder reservation = pending->second;
-      if (reservation.intent.contract_id != acknowledgement->order.contract_id() ||
-          reservation.intent.side != acknowledgement->order.side() ||
-          reservation.intent.quantity != acknowledgement->order.quantity()) {
+      if (reservation.intent.contract_id != acknowledgement->contract_id ||
+          reservation.intent.side != acknowledgement->side ||
+          reservation.intent.quantity != acknowledgement->quantity) {
         return Error(core::DomainErrorCode::InvalidOrder,
                      "acknowledged order does not match risk reservation");
       }
-      if (!acknowledgement->order.limit_price().has_value()) {
-        return Error(core::DomainErrorCode::InvalidOrder,
-                     "risk projection received a non-limit admitted order");
-      }
-      live_orders_.emplace(acknowledgement->order.id(),
-                           LiveRiskOrder{acknowledgement->order.id(), acknowledgement->order.side(),
-                                         *acknowledgement->order.limit_price(),
-                                         acknowledgement->order.quantity(), event.occurred_at});
+      live_orders_.emplace(acknowledgement->order_id,
+                           LiveRiskOrder{acknowledgement->order_id, acknowledgement->side,
+                                         acknowledgement->limit_price, acknowledgement->quantity,
+                                         event.occurred_at});
       pending_orders_.erase(pending);
     }
-  } else if (const auto* execution = std::get_if<sim::TradeExecuted>(&event.payload)) {
-    const core::Trade& trade = execution->execution.trade;
-    const auto apply_fill = [this, &event](const core::Fill& fill) -> core::Result<void> {
-      if (fill.trader_id() != binding_.trader_id) {
-        return {};
+  } else if (const auto* fill = std::get_if<AccountFill>(&event.payload)) {
+    if (fill->trader_id == binding_.trader_id) {
+      if (fill->contract_id != binding_.contract_id) {
+        return Error(core::DomainErrorCode::OwnershipMismatch,
+                     "account fill has a contract outside this risk binding");
       }
-      if (fill.quantity().units() >
+      if (fill->quantity.units() >
           static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
         return Error(core::DomainErrorCode::PositionOverflow, "fill exceeds signed position range");
       }
-      const std::int64_t quantity = static_cast<std::int64_t>(fill.quantity().units());
-      if ((fill.side() == core::Side::Buy &&
+      const std::int64_t quantity = static_cast<std::int64_t>(fill->quantity.units());
+      if ((fill->side == core::Side::Buy &&
            net_position_ > std::numeric_limits<std::int64_t>::max() - quantity) ||
-          (fill.side() == core::Side::Sell &&
+          (fill->side == core::Side::Sell &&
            net_position_ < std::numeric_limits<std::int64_t>::min() + quantity)) {
         return Error(core::DomainErrorCode::PositionOverflow, "account position overflow");
       }
-      net_position_ += fill.side() == core::Side::Buy ? quantity : -quantity;
-      const auto live = live_orders_.find(fill.order_id());
-      if (live == live_orders_.end() ||
-          live->second.remaining_quantity.units() < fill.quantity().units()) {
+      net_position_ += fill->side == core::Side::Buy ? quantity : -quantity;
+      const auto live = live_orders_.find(fill->order_id);
+      if (live == live_orders_.end() || live->second.side != fill->side ||
+          live->second.remaining_quantity.units() < fill->quantity.units()) {
         return Error(core::DomainErrorCode::InvalidOrder,
                      "fill does not match projected live order");
       }
       const auto remaining =
-          quantity_from_units(live->second.remaining_quantity.units() - fill.quantity().units());
+          quantity_from_units(live->second.remaining_quantity.units() - fill->quantity.units());
       if (!remaining) {
         return remaining.error();
       }
@@ -209,31 +237,19 @@ core::Result<void> AccountRiskProjection::apply(const sim::ExchangeEvent& event)
       } else {
         live->second.remaining_quantity = remaining.value();
       }
-      static_cast<void>(event);
-      return {};
-    };
-    const auto buyer = apply_fill(execution->execution.buyer_fill);
-    if (!buyer) {
-      return buyer.error();
     }
-    const auto seller = apply_fill(execution->execution.seller_fill);
-    if (!seller) {
-      return seller.error();
-    }
-    static_cast<void>(trade);
-  } else if (const auto* outcome = std::get_if<sim::OrderOutcome>(&event.payload)) {
-    const auto live = live_orders_.find(outcome->update.order_id);
+  } else if (const auto* outcome = std::get_if<AccountOrderOutcome>(&event.payload)) {
+    const auto live = live_orders_.find(outcome->order_id);
     if (live != live_orders_.end()) {
-      if (outcome->update.remaining_quantity.is_zero()) {
+      if (outcome->remaining_quantity.is_zero()) {
         live_orders_.erase(live);
       } else {
-        live->second.remaining_quantity = outcome->update.remaining_quantity;
+        live->second.remaining_quantity = outcome->remaining_quantity;
       }
     }
-  } else if (const auto* cancellation =
-                 std::get_if<sim::CancellationAcknowledged>(&event.payload)) {
-    live_orders_.erase(cancellation->update.order_id);
-  } else if (std::holds_alternative<sim::CommandRejected>(event.payload)) {
+  } else if (const auto* cancellation = std::get_if<AccountCancellation>(&event.payload)) {
+    live_orders_.erase(cancellation->order_id);
+  } else if (std::holds_alternative<AccountCommandRejected>(event.payload)) {
     const auto pending =
         std::find_if(pending_orders_.begin(), pending_orders_.end(), [&event](const auto& entry) {
           return entry.second.ingress_sequence == event.ingress_sequence;
