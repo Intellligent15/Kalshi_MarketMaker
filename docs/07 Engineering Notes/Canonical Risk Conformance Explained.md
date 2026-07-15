@@ -336,15 +336,13 @@ prose — means diagnostics can improve without breaking reviewed evidence. And 
 implementation in the test tree keeps the useful property of a cross-check without ever creating
 a second production risk engine.
 
-### Where the debt is now
+### Where the debt was before the quantity increment
 
-The full ranked register lives in the critique note; the short version, most important first:
-restore currently accepts a checkpoint whose individual order quantities admission would have
-rejected, and that semantics question deserves an explicit decision; the strict rules for
-reviewed captured documents and the test-only SHA-256 still lack their own negative tests; and
-the corpus has no checked-in authoring helper, so adding a fixture means recomputing canonical
-bytes and hashes by hand. None of these weaken what the suite currently proves — they bound how
-far it can grow before the next contained increment.
+The implementation review that preceded the next section found that restore still accepted an
+individual order quantity that admission would have rejected. It ranked that semantic question
+ahead of the strict-capture negative tests, SHA-256 vectors, and missing fixture-authoring helper.
+The admission-reachable quantity increment below closes that first item; the remaining items stay
+open and are reprioritized at the end of the section.
 
 ## Admission-reachable record quantities
 
@@ -366,6 +364,28 @@ This makes restored records consistent with the normal admission path. It does n
 every field in an authored checkpoint came from a real sequence of historical events; watermark,
 position, and record combinations are still validated through their stated structural and limit
 rules rather than by reconstructing a hidden history.
+
+### How we implemented it
+
+The production surface changed in one place. `AccountRiskProjection::validate_checkpoint` now
+compares every live `remaining_quantity` and pending intent `quantity` with
+`maximum_order_quantity`. A violation returns the appended enum value
+`CheckpointRejectCode::OrderQuantityLimit`; appending it preserves the ordinals of all existing
+categories. `restore` still delegates to the pure validator and returns its existing
+`DomainErrorCode::InvalidOrder`, so no partially restored projection can escape.
+
+The test-only wire result is `checkpoint_order_quantity_limit`. Separate live and pending fixtures
+raise aggregate limits so they isolate the new rule. A boundary fixture restores one live record
+and one pending reservation exactly at the limit. Two multi-defect fixtures pin the preserved
+structural precedence. Focused testing also exposed that three older aggregate-limit fixtures used
+one oversized record; those now use two individually legal records whose sum exceeds the aggregate
+limit, making their stated purpose truthful.
+
+Both the direct C++ executor and the independent Python checkpoint validator consume the same 26
+reviewed documents and must return the same typed result. The checkpoint JSON schema did not
+change: this deliberately narrows which test-only V1 documents restore accepts without creating a
+production serialization or migration promise. The frozen lifecycle V1 adapter remains ineligible
+to execute checkpoint fixtures.
 
 ### How ordering stays predictable
 
