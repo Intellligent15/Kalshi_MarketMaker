@@ -418,6 +418,23 @@ sequences. The test-only C++ SHA-256 helper now also has three standard known-an
 No reviewed fixture or production risk rule changed. The new tests create invalid documents only
 inside temporary copies of the corpus.
 
+### The problem in plain language
+
+A reviewed checkpoint is evidence about what the risk engine captured. Before this increment, the
+reader contained rules saying that evidence must have the right owner, the right limits, sorted
+records, positive quantities, post-only reservations, and valid ingress identifiers. The ordinary
+corpus proved that valid captures were accepted, but it did not prove that removing any one of
+those rules would be detected.
+
+That is the difference between exercising code and pinning a contract. A valid example travels
+through all checks at once. A focused negative example removes exactly one guarantee and proves
+that this guarantee, specifically, is load-bearing.
+
+The hash helper had a similar gap. Real fixture hashes exercised it repeatedly, but those expected
+hashes had been created for the same corpus. A standard known-answer vector gives an answer defined
+outside this repository, so agreement cannot come merely from the repository being internally
+consistent with itself.
+
 ### How it works
 
 `roundtrip_live_and_pending` is the donor because its captured checkpoint contains one live order,
@@ -439,6 +456,73 @@ The SHA test bypasses the corpus and calls `Sha256Hex` with the empty string, `a
 multi-block NIST input. This separates algorithm correctness from the end-to-end manifest checks:
 the corpus still proves that real bytes are hashed, while the vectors prove that the digest itself
 is standard SHA-256.
+
+### One mutation from beginning to end
+
+Consider the `post_only` rule:
+
+```text
+copy the valid 26-fixture corpus
+        |
+select reviewed capture transition 5 in roundtrip_live_and_pending
+        |
+change only pending_orders[0].post_only from true to false
+        |
+write canonical expected-trace bytes
+        |
+recompute the expected-trace hash and manifest payload hash
+        |
+load the corpus and require the post_only diagnostic path
+```
+
+If the test did not rehash, it would stop at “file hash is wrong” and never reach `post_only`. If it
+accepted any exception, a schema error or stale path could make it pass accidentally. If it mutated
+a `document_restore` input, it would test a different boundary where semantic defects are supposed
+to reach the production validator. Keeping all three details together makes the negative test say
+exactly what its name claims.
+
+### Why there are 16 rows for eight high-level rules
+
+“Identity matches” sounds like one rule, but the implementation compares account, strategy,
+trader, and contract separately. “Limits match” similarly contains six independent values. One
+representative identity mutation would not catch a future edit that accidentally stopped checking
+the trader, and one representative limit would not catch omission of pending exposure. Separate
+rows cost little because they share the same temporary-corpus machinery, so the suite pins all ten
+individual comparisons plus the six record rules.
+
+The C++ and Python tables intentionally repeat those rows. The duplication is useful: it is
+possible for either reader to be wrong without automatically teaching the other reader the same
+mistake. They share the reviewed donor and expected contract, not implementation code.
+
+### What the two layers of hash testing prove
+
+```text
+known-answer vectors
+        |
+        +-- prove Sha256Hex implements standard SHA-256
+
+real corpus member and payload hashes
+        |
+        +-- prove the correct algorithm is applied to the exact reviewed bytes
+```
+
+Neither layer replaces the other. Vectors alone do not prove that the manifest hashes the right
+file. Corpus checks alone do not independently pin the algorithm. Together they make the evidence
+chain easier to diagnose: an algorithm failure points at the vector test, while changed fixture
+bytes point at member or payload integrity.
+
+### Why we did not simplify the reader boundaries
+
+The strict expected-capture reader and lax document-restore reader serve different purposes. A
+reviewed capture claims to be output produced by a valid projection, so it must already obey every
+capture invariant. An authored restore input may be deliberately invalid because the test wants to
+observe the production `validate_checkpoint` category. Making both readers strict would look
+simpler, but it would prevent semantic defects from reaching the component whose behavior the
+restore fixtures are meant to prove.
+
+Likewise, moving the Python checkpoint model into production would remove some test duplication
+but create a second risk implementation. Keeping it under `python/tests/` preserves its value as an
+independent cross-check without allowing research runs to choose weaker or divergent semantics.
 
 ### Why this boundary stays small
 
