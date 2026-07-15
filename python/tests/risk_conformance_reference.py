@@ -17,11 +17,30 @@ class UnsupportedSharedOperation(ValueError):
 @dataclass
 class ReferenceRisk:
     contract_id: str = "1"
+    maximum_order_quantity: int = 5
+    maximum_absolute_position: int = 5
+    maximum_buy_exposure: int = 5
+    maximum_sell_exposure: int = 5
+    maximum_pending_exposure: int = 5
+    maximum_active_orders: int = 4
     watermark: int = 0
     position: int = 0
     kill_switch: bool = False
     live: dict[str, dict[str, Any]] = field(default_factory=dict)
     pending: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    @classmethod
+    def from_fixture(cls, fixture: dict[str, Any]) -> "ReferenceRisk":
+        limits = fixture.get("limits", {})
+        return cls(
+            contract_id=str(fixture.get("contract_id", "1")),
+            maximum_order_quantity=int(limits.get("maximum_order_quantity_contracts", 5)),
+            maximum_absolute_position=int(limits.get("maximum_absolute_position_contracts", 5)),
+            maximum_buy_exposure=int(limits.get("maximum_buy_exposure_contracts", 5)),
+            maximum_sell_exposure=int(limits.get("maximum_sell_exposure_contracts", 5)),
+            maximum_pending_exposure=int(limits.get("maximum_pending_exposure_contracts", 5)),
+            maximum_active_orders=int(limits.get("maximum_active_orders", 4)),
+        )
 
     def snapshot(self) -> dict[str, Any]:
         def total(side: str, pending: bool) -> str:
@@ -42,6 +61,11 @@ class ReferenceRisk:
         if kind == "admit":
             client = str(operation["client_intent_id"])
             quantity = int(operation["quantity_contracts"])
+            side = operation["side"]
+            open_quantity = sum(int(record["remaining_quantity_contracts"])
+                                for record in self.live.values() if record["side"] == side)
+            pending_quantity = sum(int(record["quantity_contracts"])
+                                   for record in self.pending.values() if record["side"] == side)
             if self.kill_switch:
                 result = "kill_switch_active"
             elif str(operation["contract_id"]) != self.contract_id:
@@ -50,6 +74,16 @@ class ReferenceRisk:
                 result = "order_quantity_limit"
             elif client in self.pending:
                 result = "duplicate_client_intent"
+            elif quantity > self.maximum_order_quantity:
+                result = "order_quantity_limit"
+            elif len(self.live) + len(self.pending) >= self.maximum_active_orders:
+                result = "active_order_limit"
+            elif pending_quantity + quantity > self.maximum_pending_exposure:
+                result = "pending_exposure_limit"
+            elif open_quantity + quantity > (self.maximum_buy_exposure if side == "buy" else self.maximum_sell_exposure):
+                result = "buy_exposure_limit" if side == "buy" else "sell_exposure_limit"
+            elif self._exceeds_position_limit(side, quantity):
+                result = "position_limit"
             else:
                 self.pending[client] = {"client_intent_id": client, "contract_id": self.contract_id,
                     "ingress_sequence": None, "limit_price_cents": str(operation["limit_price_cents"]),
@@ -76,6 +110,21 @@ class ReferenceRisk:
             self.kill_switch = bool(operation["active"])
             return {"result": "applied", "state": self.snapshot()}
         raise UnsupportedSharedOperation(f"unsupported shared conformance operation: {kind!r}")
+
+    def _exceeds_position_limit(self, side: str, quantity: int) -> bool:
+        buys = sum(int(record["remaining_quantity_contracts"])
+                   for record in self.live.values() if record["side"] == "buy")
+        buys += sum(int(record["quantity_contracts"])
+                    for record in self.pending.values() if record["side"] == "buy")
+        sells = sum(int(record["remaining_quantity_contracts"])
+                    for record in self.live.values() if record["side"] == "sell")
+        sells += sum(int(record["quantity_contracts"])
+                     for record in self.pending.values() if record["side"] == "sell")
+        if side == "buy":
+            buys += quantity
+        else:
+            sells += quantity
+        return self.position > self.maximum_absolute_position - buys or self.position < -self.maximum_absolute_position + sells
 
     def _event(self, operation: dict[str, Any], kind: str) -> dict[str, Any]:
         sequence = int(operation["sequence"])

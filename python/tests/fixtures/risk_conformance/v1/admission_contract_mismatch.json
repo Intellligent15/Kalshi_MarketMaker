@@ -1,0 +1,1 @@
+{"executors":["python_reference","direct_cpp"],"fixture_id":"admission_contract_mismatch","operations":[{"client_intent_id":"1","contract_id":"2","limit_price_cents":"50","operation":"admit","quantity_contracts":"1","side":"buy"}],"schema":"pmm.risk_conformance_fixture.v1"}

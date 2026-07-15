@@ -95,6 +95,22 @@ TEST(AccountRisk, RejectsExcessExposureWithoutCreatingReservation) {
   EXPECT_TRUE(risk.view().pending_buy_quantity.is_zero());
 }
 
+TEST(AccountRisk, RejectsAnIntentForAnotherContractWithoutCreatingAReservation) {
+  const core::Market market = MakeMarket();
+  AccountRiskProjection risk =
+      Require(AccountRiskProjection::create(Binding(market.contract().id()), Limits()));
+  const AdmissionDecision decision = risk.admit(
+      OrderIntent{Require(ClientIntentId::from_value(1)), Require(core::ContractId::from_value(11)),
+                  core::Side::Buy, Require(core::Quantity::from_units(1)),
+                  Require(core::Price::from_units(50)), true},
+      core::Timestamp::from_unix_nanoseconds(1));
+  ASSERT_FALSE(decision.approved());
+  ASSERT_TRUE(decision.rejection.has_value());
+  EXPECT_EQ(decision.rejection->code, AdmissionRejectCode::ContractMismatch);
+  EXPECT_TRUE(risk.pending_orders().empty());
+  EXPECT_EQ(risk.view().event_watermark, 0U);
+}
+
 TEST(AccountRisk, ReleasesAReservationWhenTheExchangeRejectsItsPostOnlyCommand) {
   const core::Market market = MakeMarket();
   sim::ExchangeSimulator exchange = Require(sim::ExchangeSimulator::create({market}));
