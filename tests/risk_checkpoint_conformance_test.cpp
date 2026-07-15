@@ -205,7 +205,7 @@ T Require(core::Result<T> result) {
 TEST(RiskCheckpointConformance, VerifiesEveryCheckedInDocument) {
   EXPECT_NO_THROW({
     const std::vector<CheckpointFixture> fixtures = LoadCheckpointCorpus(CheckpointFixtureRoot());
-    EXPECT_EQ(fixtures.size(), 21U);
+    EXPECT_EQ(fixtures.size(), 26U);
   });
 }
 

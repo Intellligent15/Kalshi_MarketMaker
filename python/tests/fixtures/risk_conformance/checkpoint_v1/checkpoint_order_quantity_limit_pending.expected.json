@@ -1,0 +1,1 @@
+{"fixture_id":"checkpoint_order_quantity_limit_pending","schema":"pmm.risk_checkpoint_conformance_expected_trace.v1","transitions":[{"result":"checkpoint_order_quantity_limit"}]}

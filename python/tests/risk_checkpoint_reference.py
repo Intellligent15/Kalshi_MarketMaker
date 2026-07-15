@@ -44,9 +44,10 @@ def capture(reference: ReferenceRisk, account_id: str = "1", strategy_id: str = 
 def validate_checkpoint(document: dict[str, Any]) -> Optional[str]:
     """First-failure semantic validation mirroring AccountRiskProjection::validate_checkpoint.
 
-    Live orders are scanned in document order (zero quantity, then duplicate identifier), then
-    pending orders (contract, zero quantity, post-only, zero ingress, duplicate ingress,
-    duplicate intent), then the active-order count, open/pending exposure, and position.
+    Live orders are scanned in document order (zero quantity, duplicate identifier, then
+    per-order quantity limit), then pending orders (contract, zero quantity, post-only, zero
+    ingress, duplicate ingress, duplicate intent, then per-order quantity limit), then the
+    active-order count, open/pending exposure, and position.
     """
     open_totals = {"buy": 0, "sell": 0}
     seen_orders: set[str] = set()
@@ -56,6 +57,9 @@ def validate_checkpoint(document: dict[str, Any]) -> Optional[str]:
         if order["order_id"] in seen_orders:
             return "checkpoint_duplicate_order_id"
         seen_orders.add(order["order_id"])
+        if int(order["remaining_quantity_contracts"]) > int(
+                document["limits"]["maximum_order_quantity_contracts"]):
+            return "checkpoint_order_quantity_limit"
         open_totals[order["side"]] += int(order["remaining_quantity_contracts"])
     pending_totals = {"buy": 0, "sell": 0}
     seen_intents: set[str] = set()
@@ -77,6 +81,9 @@ def validate_checkpoint(document: dict[str, Any]) -> Optional[str]:
         if pending["client_intent_id"] in seen_intents:
             return "checkpoint_duplicate_client_intent"
         seen_intents.add(pending["client_intent_id"])
+        if int(pending["quantity_contracts"]) > int(
+                document["limits"]["maximum_order_quantity_contracts"]):
+            return "checkpoint_order_quantity_limit"
         pending_totals[pending["side"]] += int(pending["quantity_contracts"])
     limits = document["limits"]
     if len(document["live_orders"]) + len(document["pending_orders"]) > int(

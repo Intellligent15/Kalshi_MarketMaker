@@ -396,13 +396,13 @@ std::string CheckpointStepName(const CheckpointStep& step) {
 
 const std::set<std::string>& CheckpointRejectionResults() {
   static const std::set<std::string> kResults{
-      "checkpoint_active_order_limit",   "checkpoint_buy_exposure_limit",
-      "checkpoint_contract_mismatch",    "checkpoint_duplicate_client_intent",
-      "checkpoint_duplicate_ingress",    "checkpoint_duplicate_order_id",
-      "checkpoint_non_post_only",        "checkpoint_pending_exposure_limit",
-      "checkpoint_position_limit",       "checkpoint_sell_exposure_limit",
-      "checkpoint_zero_ingress",         "checkpoint_zero_live_quantity",
-      "checkpoint_zero_pending_quantity"};
+      "checkpoint_active_order_limit",     "checkpoint_buy_exposure_limit",
+      "checkpoint_contract_mismatch",      "checkpoint_duplicate_client_intent",
+      "checkpoint_duplicate_ingress",      "checkpoint_duplicate_order_id",
+      "checkpoint_non_post_only",          "checkpoint_order_quantity_limit",
+      "checkpoint_pending_exposure_limit", "checkpoint_position_limit",
+      "checkpoint_sell_exposure_limit",    "checkpoint_zero_ingress",
+      "checkpoint_zero_live_quantity",     "checkpoint_zero_pending_quantity"};
   return kResults;
 }
 

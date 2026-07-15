@@ -62,6 +62,8 @@ std::string CheckpointRejectionResult(risk::CheckpointRejectCode code) {
       return "checkpoint_zero_live_quantity";
     case risk::CheckpointRejectCode::DuplicateOrderId:
       return "checkpoint_duplicate_order_id";
+    case risk::CheckpointRejectCode::OrderQuantityLimit:
+      return "checkpoint_order_quantity_limit";
     case risk::CheckpointRejectCode::ContractMismatch:
       return "checkpoint_contract_mismatch";
     case risk::CheckpointRejectCode::ZeroPendingQuantity:

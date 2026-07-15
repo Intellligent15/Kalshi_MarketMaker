@@ -33,6 +33,7 @@ CHECKPOINT_REJECTIONS = {
     "checkpoint_duplicate_ingress",
     "checkpoint_duplicate_order_id",
     "checkpoint_non_post_only",
+    "checkpoint_order_quantity_limit",
     "checkpoint_pending_exposure_limit",
     "checkpoint_position_limit",
     "checkpoint_sell_exposure_limit",
@@ -397,7 +398,7 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
         return log
 
     def test_manifest_and_reviewed_documents_are_canonical(self) -> None:
-        self.assertEqual(len(self._verify_corpus(FIXTURE_ROOT)), 21)
+        self.assertEqual(len(self._verify_corpus(FIXTURE_ROOT)), 26)
 
     def test_python_reference_matches_every_reviewed_transition(self) -> None:
         for fixture, trace in self._verify_corpus(FIXTURE_ROOT):
