@@ -47,7 +47,16 @@ than an apparently precise PnL calculation built on unknown fee, collateral, and
 
 ## What comes next
 
-First prove Python/C++ risk parity with detailed lifecycle fixtures and add product metadata/lot
-conversion. Then capture timestamped own account executions to calibrate or sensitivity-test fill
-assumptions without look-ahead bias. Only after those terms are explicit should the ledger grow
-into collateral, settlement, marking, or policy PnL.
+ADR-009 now makes C++ risk mandatory for new V2 experiments, emits a canonical risk trace, and
+uses a CMake target launcher instead of a machine-specific executable path. The checked-in V2
+example is intentionally `no_fill_v1`: it proves deterministic lifecycle/risk handling, not
+execution quality. V1 Python configurations remain reproducible compatibility baselines.
+
+Next, capture timestamped own account executions and ingest explicit product metadata/lot terms
+before calibrating or sensitivity-testing fill assumptions without look-ahead bias. Only after
+those terms are explicit should the ledger grow into collateral, settlement, marking, or policy
+PnL.
+
+The implementation walkthrough and ranked follow-up register are now recorded in
+[[07 Engineering Notes/Canonical Risk Conformance Explained]] and
+[[07 Engineering Notes/Canonical Risk Conformance Critique]].

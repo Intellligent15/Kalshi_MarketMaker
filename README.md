@@ -34,6 +34,10 @@ simulator. `pmm_risk_oracle` is a deterministic local adapter for Python researc
 not a live gateway. Phase-7 backtests may also emit an opt-in unresolved-settlement cash-flow
 ledger; it is not PnL, collateral, settlement, paper trading, or execution-realism evidence.
 
+ADR-009 makes C++ risk mandatory for new `pmm.backtest.v2` research configurations. Those runs
+launch the local oracle through a repository-relative CMake target and emit a hashed canonical
+risk trace. Existing V1 configurations retain their Python compatibility path for reproducibility.
+
 ## Quick start
 
 Prerequisites: CMake 3.24+, a C++20 compiler, Git (to fetch GoogleTest for test builds),

@@ -9,8 +9,18 @@ latencies, external synthetic risk admission, and the `trade_touch_v1` fill mode
 queue-position, venue-acknowledgement, fee, PnL, collateral, settlement, paper-trading, or live
 execution realism.
 
-New research configurations may set `risk.engine` to `cxx_oracle_v1` and provide an explicit
-`risk.limits` block plus the local `pmm_risk_oracle` executable path. This is the canonical C++
-admission path for research. `python_reference_v1` remains only for V1 configuration compatibility
-and conformance testing. An optional `pmm.accounting_policy.v1` block currently supports only
-unresolved model-fill cash flows and fees; it must not be interpreted as PnL or settlement.
+`phase7/kalshi_wsh_tor_no_fill_cxx_oracle_v2.json` is the runnable canonical-risk control. It
+uses `pmm.backtest.v2`, `cxx_oracle_v2`, and a repository-relative CMake target launcher rather
+than a machine-specific oracle path. Build first with `./scripts/build.sh`, then run:
+
+```sh
+uv run python python/pmm_phase7.py backtest \
+  --config configs/phase7/kalshi_wsh_tor_no_fill_cxx_oracle_v2.json \
+  --output results/kalshi-wsh-tor-no-fill-cxx-oracle-v2
+```
+
+The source data remains local and ignored, so the command is runnable only after the documented
+capture/normalization steps. V2 emits a hashed `risk-trace.jsonl` artifact and refuses a Python
+risk fallback. `python_reference_v1` remains only for V1 configuration compatibility. An optional
+`pmm.accounting_policy.v1` block currently supports only unresolved model-fill cash flows and
+fees; it must not be interpreted as PnL or settlement.
