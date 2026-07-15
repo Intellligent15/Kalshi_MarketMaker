@@ -30,6 +30,19 @@ target_compile_features(pmm_account_risk_test PRIVATE cxx_std_20)
 target_link_libraries(pmm_account_risk_test PRIVATE GTest::gtest_main pmm_risk)
 pmm_enable_warnings(pmm_account_risk_test)
 
+add_executable(
+  pmm_risk_conformance_fixture_test
+  risk_conformance_fixture.cpp
+  risk_conformance_fixture_test.cpp)
+target_compile_features(pmm_risk_conformance_fixture_test PRIVATE cxx_std_20)
+target_compile_definitions(
+  pmm_risk_conformance_fixture_test
+  PRIVATE PMM_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+target_link_libraries(
+  pmm_risk_conformance_fixture_test
+  PRIVATE GTest::gtest_main nlohmann_json::nlohmann_json pmm_risk)
+pmm_enable_warnings(pmm_risk_conformance_fixture_test)
+
 add_executable(pmm_market_maker_test market_maker_test.cpp)
 target_compile_features(pmm_market_maker_test PRIVATE cxx_std_20)
 target_link_libraries(pmm_market_maker_test PRIVATE GTest::gtest_main pmm_market_maker)
@@ -42,6 +55,7 @@ gtest_discover_tests(pmm_order_book_test)
 gtest_discover_tests(pmm_exchange_simulator_test)
 gtest_discover_tests(pmm_baseline_agents_test)
 gtest_discover_tests(pmm_account_risk_test)
+gtest_discover_tests(pmm_risk_conformance_fixture_test)
 gtest_discover_tests(pmm_market_maker_test)
 
 add_test(NAME PmmDemo.RunsScenario COMMAND $<TARGET_FILE:pmm_demo> --steps 2)

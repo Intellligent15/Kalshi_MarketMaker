@@ -29,5 +29,15 @@ if(BUILD_TESTING)
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(googletest)
 
+  # Fixture documents are test evidence, not a production input format.  Keep JSON parsing
+  # confined to the test graph so pmm_risk and the local oracle retain no JSON dependency.
+  FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG 9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03
+    GIT_SHALLOW TRUE
+    SYSTEM)
+  FetchContent_MakeAvailable(nlohmann_json)
+
   add_subdirectory(tests)
 endif()
