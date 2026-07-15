@@ -40,8 +40,8 @@ OPERATION_FIELDS = {
     "kill_switch": {"operation", "active"},
 }
 RESULTS = {"approved", "applied", "domain_error", *ADMISSION_REJECTION_CODES}
-UNSIGNED_DECIMAL = re.compile(r"0|[1-9][0-9]*\Z")
-SIGNED_DECIMAL = re.compile(r"(?:0|[1-9][0-9]*|-[1-9][0-9]*)\Z")
+UNSIGNED_DECIMAL = re.compile(r"\A(?:0|[1-9][0-9]*)\Z")
+SIGNED_DECIMAL = re.compile(r"\A(?:0|[1-9][0-9]*|-[1-9][0-9]*)\Z")
 
 
 class RiskConformanceTests(unittest.TestCase):
