@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <set>
 
 namespace pmm::risk {
 namespace {
@@ -33,6 +34,7 @@ core::Result<AccountRiskProjection> AccountRiskProjection::restore(AccountBindin
   projection.event_watermark_ = checkpoint.event_watermark;
   projection.net_position_ = checkpoint.net_position;
   projection.kill_switch_active_ = checkpoint.kill_switch_active;
+  std::set<std::uint64_t> bound_ingress_sequences;
   for (const LiveRiskOrder& order : checkpoint.live_orders) {
     if (order.remaining_quantity.is_zero() ||
         !projection.live_orders_.emplace(order.order_id, order).second) {
@@ -41,7 +43,12 @@ core::Result<AccountRiskProjection> AccountRiskProjection::restore(AccountBindin
     }
   }
   for (const PendingRiskOrder& pending : checkpoint.pending_orders) {
-    if (!projection.pending_orders_.emplace(pending.intent.client_intent_id, pending).second) {
+    if (pending.intent.contract_id != binding.contract_id || pending.intent.quantity.is_zero() ||
+        !pending.intent.post_only ||
+        (pending.ingress_sequence.has_value() &&
+         (*pending.ingress_sequence == 0 ||
+          !bound_ingress_sequences.insert(*pending.ingress_sequence).second)) ||
+        !projection.pending_orders_.emplace(pending.intent.client_intent_id, pending).second) {
       return Error(core::DomainErrorCode::InvalidOrder,
                    "risk checkpoint contains duplicate client intents");
     }
@@ -49,6 +56,14 @@ core::Result<AccountRiskProjection> AccountRiskProjection::restore(AccountBindin
   if (projection.live_orders_.size() + projection.pending_orders_.size() >
       projection.limits_.maximum_active_orders) {
     return Error(core::DomainErrorCode::InvalidOrder, "risk checkpoint exceeds active order limit");
+  }
+  if (projection.aggregate_quantity(core::Side::Buy, false) > limits.maximum_buy_exposure ||
+      projection.aggregate_quantity(core::Side::Sell, false) > limits.maximum_sell_exposure ||
+      projection.aggregate_quantity(core::Side::Buy, true) > limits.maximum_pending_exposure ||
+      projection.aggregate_quantity(core::Side::Sell, true) > limits.maximum_pending_exposure ||
+      projection.exceeds_position_limit(core::Side::Buy, core::Quantity::from_units(0).value())) {
+    return Error(core::DomainErrorCode::InvalidOrder,
+                 "risk checkpoint violates configured exposure limits");
   }
   return projection;
 }
@@ -139,7 +154,11 @@ core::Result<void> AccountRiskProjection::bind_ingress(ClientIntentId client_int
                                                        std::uint64_t ingress_sequence) {
   const auto pending = pending_orders_.find(client_intent_id);
   if (pending == pending_orders_.end() || pending->second.ingress_sequence.has_value() ||
-      ingress_sequence == 0) {
+      ingress_sequence == 0 ||
+      std::any_of(pending_orders_.begin(), pending_orders_.end(),
+                  [ingress_sequence](const auto& entry) {
+                    return entry.second.ingress_sequence == ingress_sequence;
+                  })) {
     return Error(core::DomainErrorCode::InvalidOrder, "cannot bind risk reservation to ingress");
   }
   pending->second.ingress_sequence = ingress_sequence;
@@ -218,7 +237,8 @@ core::Result<void> AccountRiskProjection::apply(const AccountEvent& event) {
                      "account fill has a contract outside this risk binding");
       }
       const auto live = live_orders_.find(fill->order_id);
-      if (live == live_orders_.end() || live->second.side != fill->side ||
+      if (fill->quantity.is_zero() || live == live_orders_.end() ||
+          live->second.side != fill->side ||
           live->second.remaining_quantity.units() < fill->quantity.units()) {
         return Error(core::DomainErrorCode::InvalidOrder,
                      "fill does not match projected live order");

@@ -58,7 +58,9 @@ class ReferenceRisk:
             return {"result": result, "state": self.snapshot()}
         if kind == "bind_ingress":
             client, ingress = str(operation["client_intent_id"]), int(operation["ingress_sequence"])
-            if client not in self.pending or self.pending[client]["ingress_sequence"] is not None or ingress == 0:
+            if (client not in self.pending or self.pending[client]["ingress_sequence"] is not None or
+                    ingress == 0 or any(record["ingress_sequence"] == str(ingress)
+                                        for record in self.pending.values())):
                 return {"result": "domain_error", "state": self.snapshot()}
             self.pending[client]["ingress_sequence"] = str(ingress)
             return {"result": "applied", "state": self.snapshot()}
@@ -98,7 +100,8 @@ class ReferenceRisk:
         elif kind == "fill":
             order = self.live.get(str(operation["order_id"]))
             quantity = int(operation["quantity_contracts"])
-            if order is None or order["side"] != operation["side"] or quantity > int(order["remaining_quantity_contracts"]):
+            if (order is None or order["side"] != operation["side"] or quantity <= 0 or
+                    quantity > int(order["remaining_quantity_contracts"])):
                 return {"result": "domain_error", "state": self.snapshot()}
             self.position += quantity if order["side"] == "buy" else -quantity
             remaining = int(order["remaining_quantity_contracts"]) - quantity

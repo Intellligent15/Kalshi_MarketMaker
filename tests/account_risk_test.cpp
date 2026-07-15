@@ -255,5 +255,83 @@ TEST(AccountRisk, AppliesPartialFillCancellationKillSwitchAndCheckpointContinuat
   EXPECT_TRUE(restored.view().kill_switch_active);
 }
 
+TEST(AccountRisk, RejectsDuplicateIngressBindingWithoutMutatingReservations) {
+  const core::Market market = MakeMarket();
+  AccountRiskProjection risk =
+      Require(AccountRiskProjection::create(Binding(market.contract().id()), Limits()));
+  const auto price = Require(core::Price::from_units(50));
+  for (std::uint64_t client = 1; client <= 2; ++client) {
+    ASSERT_TRUE(risk.admit(OrderIntent{Require(ClientIntentId::from_value(client)),
+                                       market.contract().id(), core::Side::Buy,
+                                       Require(core::Quantity::from_units(1)), price, true},
+                           core::Timestamp::from_unix_nanoseconds(1))
+                    .approved());
+  }
+  Require(risk.bind_ingress(Require(ClientIntentId::from_value(1)), 7));
+  const auto duplicate = risk.bind_ingress(Require(ClientIntentId::from_value(2)), 7);
+  EXPECT_FALSE(duplicate.has_value());
+  ASSERT_EQ(risk.pending_orders().size(), 2U);
+  EXPECT_FALSE(risk.pending_orders()
+                   .at(Require(ClientIntentId::from_value(2)))
+                   .ingress_sequence.has_value());
+}
+
+TEST(AccountRisk, RejectsZeroFillWithoutAdvancingWatermark) {
+  const core::Market market = MakeMarket();
+  const AccountBinding binding = Binding(market.contract().id());
+  AccountRiskProjection risk = Require(AccountRiskProjection::create(binding, Limits()));
+  const auto client = Require(ClientIntentId::from_value(1));
+  const auto order = Require(core::OrderId::from_value(11));
+  const auto price = Require(core::Price::from_units(50));
+  ASSERT_TRUE(risk.admit(OrderIntent{client, binding.contract_id, core::Side::Buy,
+                                     Require(core::Quantity::from_units(1)), price, true},
+                         core::Timestamp::from_unix_nanoseconds(1))
+                  .approved());
+  Require(risk.bind_ingress(client, 1));
+  Require(risk.apply(AccountEvent{
+      Require(core::SequenceNumber::from_value(1)), core::Timestamp::from_unix_nanoseconds(1), 1,
+      AccountEventTruth::ModelDerived,
+      AccountOrderAcknowledged{order, binding.trader_id, binding.contract_id, core::Side::Buy,
+                               Require(core::Quantity::from_units(1)), price}}));
+  const auto result = risk.apply(
+      AccountEvent{Require(core::SequenceNumber::from_value(2)),
+                   core::Timestamp::from_unix_nanoseconds(2), 0, AccountEventTruth::ModelDerived,
+                   AccountFill{order, binding.trader_id, binding.contract_id, core::Side::Buy,
+                               price, Require(core::Quantity::from_units(0))}});
+  EXPECT_FALSE(result.has_value());
+  EXPECT_EQ(risk.view().event_watermark, 1U);
+  EXPECT_EQ(risk.live_orders().at(order).remaining_quantity.units(), 1U);
+}
+
+TEST(AccountRisk, RestoreRejectsDuplicateIngressAndExposureViolations) {
+  const core::Market market = MakeMarket();
+  const AccountBinding binding = Binding(market.contract().id());
+  const auto quantity = Require(core::Quantity::from_units(1));
+  const auto price = Require(core::Price::from_units(50));
+  const OrderIntent first{Require(ClientIntentId::from_value(1)),
+                          binding.contract_id,
+                          core::Side::Buy,
+                          quantity,
+                          price,
+                          true};
+  const OrderIntent second{Require(ClientIntentId::from_value(2)),
+                           binding.contract_id,
+                           core::Side::Buy,
+                           quantity,
+                           price,
+                           true};
+  const RiskCheckpoint duplicate_ingress{0, 0, false, {}, {{first, 7}, {second, 7}}};
+  EXPECT_FALSE(AccountRiskProjection::restore(binding, Limits(), duplicate_ingress).has_value());
+
+  const RiskCheckpoint excessive_open{
+      0,
+      0,
+      false,
+      {{Require(core::OrderId::from_value(11)), core::Side::Buy, price,
+        Require(core::Quantity::from_units(6)), core::Timestamp::from_unix_nanoseconds(1)}},
+      {}};
+  EXPECT_FALSE(AccountRiskProjection::restore(binding, Limits(), excessive_open).has_value());
+}
+
 }  // namespace
 }  // namespace pmm::risk
