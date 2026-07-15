@@ -69,6 +69,13 @@ with the post-restore state, after which executors dual-run every later operatio
 projections. A rejected document restore records exactly one `checkpoint_<category>` result with
 no state and no continuation; the category is asserted against the typed
 `CheckpointRejectCode` from `validate_checkpoint`, whose documented first-failure order is: live
-orders in document order (zero quantity, duplicate identifier), pending orders (contract, zero
-quantity, post-only, zero ingress, duplicate ingress, duplicate intent), active-order count,
-buy/sell/pending exposure, position.
+orders in document order (zero quantity, duplicate identifier, per-order quantity limit), pending
+orders (contract, zero quantity, post-only, zero ingress, duplicate ingress, duplicate intent,
+per-order quantity limit), active-order count, buy/sell/pending exposure, position. The shared
+per-record result is `checkpoint_order_quantity_limit`; equality with
+`maximum_order_quantity_contracts` is accepted.
+
+Per-order and aggregate-limit fixtures must isolate their intended rule. Oversized-record fixtures
+raise the aggregate limits so only `maximum_order_quantity_contracts` fails. Aggregate exposure
+fixtures use multiple individually legal records whose sum exceeds the relevant aggregate limit.
+This prevents a fixture name from depending accidentally on a different rule's precedence.

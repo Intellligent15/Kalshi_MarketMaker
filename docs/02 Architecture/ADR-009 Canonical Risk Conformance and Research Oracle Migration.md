@@ -160,3 +160,23 @@ V1 whitespace oracle is not a legal executor for this corpus. This amendment pro
 capture/restore fidelity only. It does not establish durable full-run recovery, calibrated fills,
 queue priority, execution realism, PnL correctness, settlement, collateral, paper trading, or
 live readiness.
+
+## Amendment: admission-reachable checkpoint record quantities
+
+Checkpoint restore now enforces the admission-time `maximum_order_quantity` for every live order
+remainder and pending reservation. A pending reservation exists only after successful admission;
+an acknowledged live order carries that reservation's quantity, and fills or outcomes may only
+reduce its remainder. Therefore, either record exceeding the current per-order limit is state that
+the normal lifecycle could not have produced under those limits.
+
+`CheckpointRejectCode::OrderQuantityLimit` and the fixture result
+`checkpoint_order_quantity_limit` identify this failure. Existing structural precedence remains
+stable: the new check follows zero and duplicate checks for live records, and follows contract,
+zero, post-only, ingress, and duplicate checks for pending records. It precedes active-order,
+aggregate-exposure, and position checks. Equality with the configured limit remains valid.
+
+This is an intentional semantic tightening of restore, not a serialization-schema change. The
+`pmm.risk_checkpoint.v1` shape is unchanged, and no migration format is introduced because these
+documents remain reviewed test evidence rather than durable production checkpoints. The invariant
+is deliberately narrow: it proves that individual restored record quantities respect admission,
+not that an authored checkpoint's complete event history is reconstructible.

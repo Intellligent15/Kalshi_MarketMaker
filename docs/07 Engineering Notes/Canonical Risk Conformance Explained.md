@@ -345,3 +345,43 @@ reviewed captured documents and the test-only SHA-256 still lack their own negat
 the corpus has no checked-in authoring helper, so adding a fixture means recomputing canonical
 bytes and hashes by hand. None of these weaken what the suite currently proves — they bound how
 far it can grow before the next contained increment.
+
+## Admission-reachable record quantities
+
+### What changed
+
+Restore no longer accepts an individual live order or pending reservation larger than the
+configured maximum order size. Both cases produce the same typed result,
+`checkpoint_order_quantity_limit`, while a quantity exactly at the limit remains valid.
+
+### Why both record classes use the same rule
+
+A pending reservation is created only after admission approves its quantity. When the exchange
+acknowledges it, the live order must match that reservation exactly. Later fills and order outcomes
+can shrink the remaining quantity but cannot increase it. In plain terms, a quantity-six live
+order cannot appear naturally if the account has always had a per-order limit of five, just as a
+quantity-six pending reservation cannot.
+
+This makes restored records consistent with the normal admission path. It does not prove that
+every field in an authored checkpoint came from a real sequence of historical events; watermark,
+position, and record combinations are still validated through their stated structural and limit
+rules rather than by reconstructing a hidden history.
+
+### How ordering stays predictable
+
+Existing record-structure failures still win first. A duplicate live order remains a duplicate
+failure even if the repeated record is also oversized. A wrong-contract, non-post-only, invalid-
+ingress, or duplicate pending record likewise keeps its existing result. The quantity-limit check
+then runs before active-order, aggregate-exposure, and position checks.
+
+The corpus now separates these ideas cleanly. Oversized-record cases use larger aggregate limits,
+while aggregate-limit cases use two individually valid records whose combined quantity is too
+large. A separate accepted case places both a live order and a pending reservation exactly at the
+boundary. Direct C++ and the independent test-only Python model execute all 26 reviewed documents.
+
+### What remains next
+
+The previous highest-priority semantic gap is closed. The next package remains intentionally
+smaller: add negative tests for strict captured-checkpoint validation and standard SHA-256
+known-answer vectors. Durable risk persistence, production serialization, process recovery, and
+portfolio recovery remain separate design work.

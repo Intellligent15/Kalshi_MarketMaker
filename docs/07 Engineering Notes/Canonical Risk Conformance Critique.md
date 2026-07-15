@@ -273,3 +273,43 @@ small and local. Priority favors impact, then ease.
    duplicated defaults and vocabularies where reviewers will look.
 5. **Do not optimize yet.** Corpus loading and dual-run serialization are measured in
    milliseconds; correctness assertions must not be weakened for speed that nobody needs.
+
+## Admission-reachable checkpoint restore critique
+
+This review covers the completed per-record quantity increment. Impact rates the consequence of
+leaving an issue open from 1 (minor) to 5 (blocks trustworthy evidence). Ease rates how contained
+the correction is from 1 (broad or externally blocked) to 5 (small and local).
+
+The former P1 semantic gap is closed: both live remainders and pending reservations must now be no
+larger than `maximum_order_quantity`, the boundary is accepted, and direct C++ plus the independent
+Python reference agree on the same reviewed result and first-failure order. The implementation adds
+one enum value and two comparisons; no new abstraction or production dependency was needed.
+
+During focused validation, the old buy, sell, and pending aggregate fixtures revealed that each
+used one quantity-six record under a quantity-five per-order limit. Their expected aggregate result
+had depended on the old missing check. They now use two individually legal quantity-three records,
+so each aggregate fixture proves its named rule without relying on a semantic hole.
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | Strict captured-checkpoint rules still lack focused negative tests. | Missing tests | 3 | 5 | Sorted records, matching identity/limits, positive quantities, post-only intent, and nonzero ingress are enforced by readers but not independently pinned. | Add temporary-corpus mutations for each strict-only rule in the next package. |
+| P1 | The test-only SHA-256 implementation still lacks standard known-answer vectors. | Missing tests | 3 | 5 | Two corpora trust it indirectly; a shared incorrect digest and expected value would remain hard to diagnose. | Add empty-string, `abc`, and multi-block vectors alongside the strict-capture tests. |
+| P2 | Adding five fixture pairs required manual canonical bytes and manifest rehashing. | Missing documentation / tooling debt | 3 | 4 | The process is deterministic but easy to repeat inconsistently as the corpus grows. | Keep a fixture-authoring/rehash helper as a separate increment after the two correctness tests. |
+| P3 | The rejection vocabulary and limit arithmetic remain duplicated across C++ and Python. | Unnecessary complexity / drift risk | 2 | 4 | Independent implementations are valuable evidence, but every semantic addition requires coordinated literal updates. | Continue requiring reviewed fixtures through both executors; do not merge the test-only model into production code. |
+| P3 | Python still covers fewer reader-mutation categories than C++. | Missing tests | 2 | 4 | Semantic parity is complete for this increment, but secondary reader checks can still drift. | Mirror the remaining reader mutations separately; do not mix them into this semantic commit. |
+| P4 | Every conformance test reloads the corpus, and mutation tests copy it repeatedly. | Optimization / scalability | 1 | 3 | The 26-document corpus remains fast, so caching would currently add more state and complexity than value. | Leave unchanged until measured runtime makes caching worthwhile. |
+
+### Debt order after this increment
+
+1. Add strict captured-checkpoint negative tests.
+2. Add SHA-256 known-answer vectors in the same cheap correctness package.
+3. Make fixture authoring and rehashing reproducible with checked-in tooling or an exact recipe.
+4. Close remaining Python reader-mutation parity.
+5. Defer vocabulary cleanup and corpus-loading optimization until they create observed cost.
+
+### Retained limitations
+
+This increment proves a necessary admission-derived quantity invariant only. It does not prove a
+complete historical lifecycle, durable persistence, process restart, portfolio recovery, or
+multi-account recovery, and it changes no claim about fills, queue priority, execution realism,
+PnL, collateral, settlement, paper trading, or live readiness.
