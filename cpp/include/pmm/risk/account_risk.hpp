@@ -173,6 +173,9 @@ class AccountRiskProjection final {
   [[nodiscard]] const std::map<core::OrderId, LiveRiskOrder>& live_orders() const {
     return live_orders_;
   }
+  [[nodiscard]] const std::map<ClientIntentId, PendingRiskOrder>& pending_orders() const {
+    return pending_orders_;
+  }
 
   [[nodiscard]] AdmissionDecision admit(const OrderIntent& intent, core::Timestamp submitted_at);
   [[nodiscard]] core::Result<void> bind_ingress(ClientIntentId client_intent_id,

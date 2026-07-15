@@ -27,7 +27,7 @@ FEATURE_SCHEMA = "pmm.historical.feature_row.v1"
 FEATURE_VERSION = "observed-l2-top-of-book.v1"
 BACKTEST_SCHEMA = "pmm.backtest.v1"
 BACKTEST_V2_SCHEMA = "pmm.backtest.v2"
-RISK_TRACE_SCHEMA = "pmm.risk_conformance_trace.v1"
+RISK_TRACE_SCHEMA = "pmm.risk_conformance_trace.v2"
 
 
 def canonical_json(value: Any) -> str:
@@ -764,19 +764,15 @@ class CxxRiskOracle:
         return Decimal(self.view()["net_position_contracts"])
 
     def view(self) -> dict[str, Any]:
-        self._send("VIEW")
-        fields = self._receive().split()
-        if len(fields) != 8 or fields[0] != "VIEW":
-            raise ValueError("unexpected C++ risk view response")
-        return {
-            "event_watermark": int(fields[1]),
-            "net_position_contracts": fields[2],
-            "open_buy_contracts": fields[3],
-            "open_sell_contracts": fields[4],
-            "pending_buy_contracts": fields[5],
-            "pending_sell_contracts": fields[6],
-            "kill_switch_active": fields[7] == "1",
-        }
+        self._send("SNAPSHOT")
+        try:
+            value = json.loads(self._receive())
+        except json.JSONDecodeError as error:
+            raise ValueError("unexpected C++ risk snapshot response") from error
+        if not isinstance(value, dict) or not isinstance(value.get("live_orders"), list) or not isinstance(value.get("pending_orders"), list):
+            raise ValueError("unexpected C++ risk snapshot response")
+        value["event_watermark"] = int_value(value.get("event_watermark"), "event_watermark")
+        return value
 
     def _expect_applied_or_bound(self, prefix: str) -> None:
         response = self._receive().split()

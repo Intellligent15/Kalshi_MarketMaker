@@ -54,6 +54,30 @@ launcher configuration, failed CMake target builds, target paths outside the bui
 missing oracle responses, nonzero oracle exits, unsupported units, and invalid V2 risk selection.
 It deletes the partial result directory on failure.
 
+## Amendment: fixture-driven lifecycle conformance
+
+The conformance suite uses versioned `pmm.risk_conformance_fixture.v1` inputs, reviewed
+`pmm.risk_conformance_expected_trace.v1` outputs, and a manifest that hashes both files for every
+case.  A transition trace is compared after every operation, including failures.  A complete state
+contains the aggregate view plus stable, identifier-sorted live-order and pending-reservation
+records.  Each record carries the identity and remaining/reserved quantity required to audit
+ingress binding and release.
+
+`pmm.risk_conformance_trace.v2` serializes that complete state.  It is emitted by the C++ oracle
+through a deterministic `SNAPSHOT` response and hashed by the research result manifest.  The
+request transport remains the deliberately small V1 local whitespace adapter; this amendment does
+not call it a production or versioned IPC protocol.
+
+The target intentionally shared subset is one account/trader/contract binding, nonnegative cent
+prices, whole-contract quantities, post-only intents, admission, ingress bind, model-derived
+acknowledge, partial/full fill, cancellation/logical expiry, command rejection, contiguous
+watermarks, kill-switch transitions, and checkpoint/restore.  The first checked-in fixture covers
+the reserve-to-expiry path; the remaining matrix is documented debt, not implied coverage.  The
+Python implementation exists only below `python/tests/`; it is not a backtest engine and raises
+explicitly for C++-only operations such as
+exchange-event adaptation, order outcomes, foreign-trader handling, observed events, or portfolio
+behaviour.  C++ remains canonical.
+
 ## Consequences and non-claims
 
 This decision does not change Phase 3 matching, integer core types, deterministic ordering,

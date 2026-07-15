@@ -55,6 +55,54 @@ void PrintView(const AccountRiskProjection& risk) {
             << (view.kill_switch_active ? 1 : 0) << '\n';
 }
 
+// This is an intentionally narrow, canonical JSON snapshot for research trace inspection.  The
+// surrounding request protocol remains the documented V1 local whitespace adapter; this command
+// does not make it a general JSON RPC interface.
+void PrintSnapshot(const AccountRiskProjection& risk) {
+  const auto view = risk.view();
+  std::cout << "{\"event_watermark\":\"" << view.event_watermark
+            << "\",\"kill_switch_active\":" << (view.kill_switch_active ? "true" : "false")
+            << ",\"live_orders\":[";
+  bool first = true;
+  for (const auto& [order_id, order] : risk.live_orders()) {
+    if (!first) {
+      std::cout << ',';
+    }
+    first = false;
+    std::cout << "{\"acknowledged_at_utc_ns\":\"" << order.acknowledged_at.unix_nanoseconds()
+              << "\",\"limit_price_cents\":\"" << order.price.units() << "\",\"order_id\":\""
+              << order_id.value() << "\",\"remaining_quantity_contracts\":\""
+              << order.remaining_quantity.units() << "\",\"side\":\""
+              << (order.side == Side::Buy ? "buy" : "sell") << "\"}";
+  }
+  std::cout << "],\"net_position_contracts\":\"" << view.net_position
+            << "\",\"open_buy_contracts\":\"" << view.open_buy_quantity.units()
+            << "\",\"open_sell_contracts\":\"" << view.open_sell_quantity.units()
+            << "\",\"pending_buy_contracts\":\"" << view.pending_buy_quantity.units()
+            << "\",\"pending_orders\":[";
+  first = true;
+  for (const auto& [client_id, pending] : risk.pending_orders()) {
+    if (!first) {
+      std::cout << ',';
+    }
+    first = false;
+    const auto& intent = pending.intent;
+    std::cout << "{\"client_intent_id\":\"" << client_id.value() << "\",\"contract_id\":\""
+              << intent.contract_id.value() << "\",\"ingress_sequence\":";
+    if (pending.ingress_sequence.has_value()) {
+      std::cout << "\"" << *pending.ingress_sequence << "\"";
+    } else {
+      std::cout << "null";
+    }
+    std::cout << ",\"limit_price_cents\":\"" << intent.limit_price.units()
+              << "\",\"post_only\":" << (intent.post_only ? "true" : "false")
+              << ",\"quantity_contracts\":\"" << intent.quantity.units() << "\",\"side\":\""
+              << (intent.side == Side::Buy ? "buy" : "sell") << "\"}";
+  }
+  std::cout << "],\"pending_sell_contracts\":\"" << view.pending_sell_quantity.units() << "\"}"
+            << '\n';
+}
+
 void Error(const std::string& message) {
   std::cout << "ERROR " << message << '\n';
 }
@@ -279,6 +327,24 @@ int main() {
     }
     if (command == "VIEW") {
       PrintView(*risk);
+      continue;
+    }
+    if (command == "SNAPSHOT") {
+      PrintSnapshot(*risk);
+      continue;
+    }
+    if (command == "KILL") {
+      std::string action;
+      if (!(input >> action) || (action != "on" && action != "off")) {
+        Error("invalid_kill");
+      } else {
+        if (action == "on") {
+          risk->activate_kill_switch();
+        } else {
+          risk->clear_kill_switch();
+        }
+        std::cout << "KILL " << action << '\n';
+      }
       continue;
     }
     Error("unknown_command");
