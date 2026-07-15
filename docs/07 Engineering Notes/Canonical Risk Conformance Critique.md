@@ -440,28 +440,53 @@ test workflow without improving the truth of its semantic evidence.
 | Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
 | ---: | --- | --- | ---: | ---: | --- | --- |
 | P1 | Authors must still run semantic conformance tests after `--write`; the integrity command intentionally accepts reviewed values without deriving their truth. | Documentation / workflow risk | 3 | 5 | A hash-correct expected trace can still contain the wrong result or state. | Keep the warning beside every authoring command and retain the test that proves a wrong semantic answer is preserved. |
+| P1 | The public CLI contract is exercised manually but not through a subprocess test that pins exit codes, standard output, standard error, and `--write` dispatch. | Missing tests | 2 | 5 | The core functions can pass while an argument-parser or return-code regression makes the documented command misleading in CI or review. | Add one temporary-root-capable CLI seam or a narrowly patched subprocess test; keep arbitrary corpus paths unavailable to normal users. |
+| P1 | The parser advertises more refusal categories than its focused matrix pins: BOM, invalid UTF-8, out-of-range integers, root symlinks, absolute/backslash member names, unsorted entries, and schema mismatch lack one named tool-level test each. | Missing tests | 3 | 4 | The implementation is explicit, but an untested safety check can disappear while broad invalid-corpus tests still pass for a different reason. | Add a table-driven one-defect matrix with diagnostic fragments, analogous to the strict-capture tests, without creating a general mutation framework. |
+| P2 | Mutation-and-repair tests use `checkpoint_v1`; `v1` is covered only by the checked-in no-op test. | Missing tests | 2 | 5 | The shared envelope makes behaviour likely identical, but the second allowlisted path and schema are not proven through an actual write-and-repair cycle. | Parameterize one repair test over both corpus names; do not duplicate the entire negative matrix. |
 | P2 | Atomicity is per file, not across the complete corpus. | Future technical debt / failure handling | 2 | 2 | A crash between member and manifest replacement leaves a temporarily stale corpus. | Retain manifest-last fail-closed ordering and repairability; add transactional machinery only if this becomes an automated concurrent writer. |
 | P2 | Canonical JSON options are repeated in the tool and `pmm_phase7.canonical_json`. | Unnecessary complexity / drift risk | 2 | 4 | A future change to one encoder could make the two Python surfaces disagree. | Keep the direct byte-equality test and C++ reader coverage; extract a shared module only if another production consumer appears. |
 | P2 | The strict-capture mutation tests still locate their donor checkpoint with hard-coded transition index 5. | Existing future technical debt | 3 | 4 | Editing operations before the donor capture can break the negative matrix for an indexing reason unrelated to the integrity tool. | Make locating the unique checkpoint operation the next separate test-only increment. |
+| P2 | `CorpusPlan` retains every original byte string and every candidate byte string until all selected corpora have been staged. | Unnecessary complexity / scalability | 2 | 3 | The duplication makes compare-before-write and whole-plan validation easy to audit, but memory grows at roughly twice the corpus byte size before JSON object overhead. | Keep it for the current small corpora; stream or spill plans only after measured corpus growth, while preserving preflight validation and concurrent-edit detection. |
+| P2 | Two simultaneous writers can both pass the pre-write byte comparison and then interleave replacements. | Future technical debt / concurrency | 2 | 2 | Manifest-last ordering prevents a falsely valid half-write, but it is not a lock and cannot promise which author's bytes survive. | Document single-writer authoring; add an advisory corpus lock only if automation or shared workspaces introduce real concurrent writers. |
 | P3 | The CLI has a fixed registry for `v1` and `checkpoint_v1`. | Scalability / maintenance | 1 | 5 | A future corpus requires one explicit path and schema entry. | Preserve the allowlist because it prevents arbitrary-path writes; extend it deliberately with a new schema. |
 | P3 | Path checks and pre-write byte comparison reduce ordinary races but do not use hardened directory-relative `openat` operations. | Future technical debt | 1 | 2 | A hostile process with repository write access could race filesystem entries between checks. | Treat the repository as a trusted local authoring boundary; harden only if the tool is ever exposed to untrusted concurrent writers. |
 | P3 | Verification reports changed paths but does not render a semantic or pretty JSON diff. | Review ergonomics | 1 | 4 | Authors still use `git diff` after writing canonical one-line documents. | Keep authoritative output compact; add a read-only pretty summary only if review friction becomes material. |
+| P3 | The implementation assumes POSIX-like sibling temporary files, `fsync`, directory descriptors, permissions, and atomic rename behaviour, but the portability boundary is stated only indirectly. | Missing documentation / portability | 1 | 5 | A future Windows or unusual-filesystem user may mistake a platform error for corpus corruption. | State that the checked-in workflow is supported on the repository's current macOS/Linux environment; document any broader portability only after testing it. |
+| P3 | Adding a third corpus requires editing the allowlist, but there is no short extension checklist covering schema selection, no-op proof, repair proof, and reader validation. | Missing documentation | 1 | 5 | The code change is small, but an incomplete addition could expose a path without matching tests or reader coverage. | Add a concise extension checklist when a third corpus is actually proposed; avoid speculative schema-generalization now. |
+| P4 | Every verification reparses and rehashes every member, and every write stages every changed output before replacing any of them. | Possible optimization | 1 | 2 | Runtime and memory are linear in total corpus size, but the current command is effectively instantaneous and complete revalidation is valuable. | Do not cache, stream, or parallelize until profiling shows material authoring cost; never use timestamps as integrity evidence. |
+| P4 | The single manifest and canonical one-line expected traces remain merge and review hot spots as fixture count grows. | Future scalability concern | 2 | 2 | Parallel fixture authors will increasingly conflict in one line even though runtime remains small. | Prefer a read-only review view first; consider manifest sharding only after actual merge contention, because sharding changes both readers and the integrity envelope. |
 
 ### Category summary
 
-- **Unnecessary complexity — impact 2/5.** The tool is one standard-library module; the only
-  meaningful duplication is the deliberately pinned canonical JSON expression.
-- **Future technical debt — impact 2/5.** Multi-file transactions and hostile-filesystem hardening
-  are unjustified for the current trusted, manual workflow.
-- **Missing tests — impact 1/5.** The required no-op, repair, identity, unsafe-input, semantic
-  non-generation, concurrent-edit, and interrupted-write paths are covered. Fuzzing remains a
-  deliberately separate follow-up.
-- **Missing documentation — impact 1/5.** The exact verify and write commands, review boundary, and
-  failure model now live in the fixture guide and plain-language explanation.
-- **Possible optimizations — impact 1/5.** The corpora are small; streaming, caching, and manifest
-  sharding would obscure an already fast authoring path.
-- **Future scalability — impact 1/5.** Adding a corpus requires an explicit allowlist entry, which
-  is desirable while the number of reviewed schemas remains small.
+- **Unnecessary complexity — impact 2/5.** The 342-line tool is longer than its simple outcome
+  suggests because it makes parsing, preflight comparison, staging, replacement order, and cleanup
+  explicit. The two full byte maps and repeated canonical JSON expression are the main costs. They
+  are acceptable at current scale, but should not grow into a generic fixture framework.
+- **Future technical debt — impact 2/5.** Multi-file atomicity, concurrent writers, and hostile
+  filesystem races remain consciously outside a trusted manual authoring tool. The hard-coded
+  strict-capture donor index is the more immediate, easier maintenance debt in the surrounding
+  suite.
+- **Missing tests — impact 3/5.** The main correctness story is covered, including fail-closed
+  repair and semantic non-generation. The strongest gap is that several individually claimed
+  parser refusals and the CLI exit contract are not yet pinned by named focused tests. These gaps
+  do not invalidate current corpora, but they make future refactoring less safe than the docs imply.
+- **Missing documentation — impact 1/5.** Normal verify, write, review, and recovery behaviour is
+  documented. POSIX portability and the checklist for deliberately adding another corpus remain
+  absent and should be added only when those boundaries become active work.
+- **Possible optimizations — impact 1/5.** Full parse/hash passes and in-memory plans are linear but
+  currently negligible. Caching would weaken confidence in the exact bytes being checked; streaming
+  would complicate the preflight guarantee. Neither is justified without measurements.
+- **Future scalability — impact 2/5.** Memory grows with corpus bytes, and review/merge contention
+  grows around one-line documents plus one manifest. Runtime is not the present concern; human
+  review and parallel authoring will become the first scaling pressure.
+
+### Fix now, fix next, and defer
+
+| Time horizon | Action | Reason |
+| --- | --- | --- |
+| Keep now | Preserve verify-by-default, explicit `--write`, complete preflight, atomic per-file replacement, and manifest-last ordering. | These are the core safety properties and are already understandable and tested. |
+| Next bounded increment | Remove the strict-capture donor index, then add the missing named parser/CLI tests if this tool is modified again. | The donor index has impact 3 and ease 4; parser/CLI tests are cheap protection against future refactoring. |
+| Defer | Shared canonicalization module, advisory locking, pretty output, streaming, caching, parallel hashing, or manifest sharding. | None addresses a measured current failure, and several would blur or complicate the audit boundary. |
 
 ### Recommended next increment
 

@@ -596,3 +596,114 @@ The workflow adds no production JSON or cryptography dependency, changes no risk
 schema, and does not expand the frozen V1 adapter. Rehashing is maintenance support for reviewed
 test evidence; it is not semantic verification, checkpoint durability, process recovery, or proof
 of realistic fills, PnL, settlement, paper trading, or live readiness.
+
+### An edit from beginning to end
+
+Assume a reviewer deliberately changes one checkpoint fixture and its expected trace. Before this
+workflow existed, the reviewer needed an ad hoc script or three manual digest calculations. A
+small difference in JSON spacing or whether the final newline was included could produce a digest
+that disagreed with both readers.
+
+The new workflow proceeds in two distinct phases.
+
+**Phase one plans without writing:**
+
+1. Resolve `checkpoint_v1` through the fixed repository allowlist. The command cannot redirect a
+   write to an arbitrary directory.
+2. Read `manifest.json` and require its exact outer keys, matching top-level and payload schemas,
+   a nonempty entry list, and strictly fixture-name-sorted entries.
+3. Require every fixture and expected-trace name to be a unique bare filename. Reject a missing
+   file, symlink, nested path, duplicate reference, or unreferenced JSON document.
+4. Decode every member as UTF-8, reject ambiguous inputs such as duplicate object keys, floats,
+   nonstandard constants, or values outside the C++ JSON reader's integer range, and require a JSON
+   object at the top level.
+5. Serialize the parsed value with sorted keys, no extra spaces, UTF-8 characters preserved, and
+   one final LF. The tool retains both the original and candidate bytes.
+6. Hash each candidate member. Insert those digests into the in-memory payload, hash the canonical
+   payload including its final LF, and construct the candidate manifest.
+7. Compare originals with candidates. Without `--write`, report the paths that differ and exit;
+   nothing has been opened for output.
+
+**Phase two writes only after explicit authorization:**
+
+1. Re-read every destination that would change and compare it with the original bytes captured in
+   phase one. If an editor or another process changed a file in between, refuse to overwrite it.
+2. Create a temporary sibling for every changed destination, copy the candidate bytes, flush them,
+   preserve the destination mode, and synchronize the staged file.
+3. Atomically replace changed fixture and expected-trace members in filename order.
+4. Replace `manifest.json` last and synchronize the containing directory.
+5. Remove any unused temporary siblings if staging or replacement fails.
+
+The split matters because validation failure cannot produce half an authored update, while the
+manifest-last rule ensures an interrupted replacement sequence is detectable. It is possible to
+end with new member bytes and an old manifest after a crash, but that state is invalid rather than
+falsely trusted. Running the explicit write command again reconstructs the hashes and completes the
+repair.
+
+### What canonicalization changes and what it preserves
+
+Canonicalization changes representation only:
+
+```text
+authored representation                 canonical representation
+{
+  "schema": "example",
+  "result": "approved"
+}                                        {"result":"approved","schema":"example"}\n
+same keys, strings, arrays, numbers, booleans, and nulls
+different ordering, spacing, and newline representation
+```
+
+The helper does not insert a missing state, reorder a semantic array, change a rejection category,
+sort live orders, or calculate aggregate quantities. Array order is data and is preserved. Object
+key order is representation and is canonicalized. That distinction is why the tool may repair
+spacing but must not repair a supposedly incorrect expected transition.
+
+Floats are refused even though Python can parse them because the current fixture schemas use JSON
+integers only where a number is required and decimal strings everywhere else. Refusing floats
+avoids depending on language-specific numeric rendering. Duplicate keys are refused because
+silently choosing the first or last value would change what a human believed they authored.
+
+### Why the hashes are layered
+
+Each member digest answers a local question: did this exact fixture or expected-trace byte string
+change? The payload digest answers a corpus question: did the reviewed member list, filenames,
+ordering, or member digests change?
+
+```text
+fixture bytes --------> fixture_sha256 -----+
+                                              |
+expected-trace bytes -> expected_trace_sha256 +--> canonical payload --> payload_sha256
+```
+
+The complete manifest is not hashed inside itself because that would be recursively impossible.
+Instead, the payload contains the stable membership facts and digests, and the top-level manifest
+stores the digest of that canonical payload. The top-level and payload schema strings must also
+match, so a manifest cannot quietly claim one envelope outside and another inside.
+
+### What each test layer proves
+
+The integrity-tool tests prove that valid checked-in corpora are no-ops, deliberately stale bytes
+can be repaired deterministically, repeated writes are identical, unsafe structure is refused,
+newer concurrent edits are not overwritten, and an injected failure before the manifest leaves a
+repairable fail-closed state. One test deliberately writes the wrong expected rejection category
+and proves the helper preserves it. That apparently strange test is the clearest evidence that the
+helper is not a semantic answer generator.
+
+The lifecycle and checkpoint conformance tests then provide the missing semantic layer. They load
+the canonical bytes, validate the schema-specific document rules, and execute eligible C++ and
+Python implementations against the reviewed transitions. Passing the integrity command alone is
+therefore never a completion condition for an authored fixture change.
+
+### Why the design is intentionally not more general
+
+An arbitrary `--root` option would make temporary tests convenient but would widen the public
+write boundary. Automatic discovery could silently bless a scratch JSON file. Generating expected
+traces from C++ would make the implementation approve itself. A shared production JSON module
+would pull test-evidence concerns into runtime code. Corpus-wide transactions, file locking,
+streaming, caching, and parallel hashing would solve scale or concurrency problems the current
+small, manually reviewed corpora do not have.
+
+The chosen design is deliberately boring: two known roots, one manifest envelope, one canonical
+encoding, standard SHA-256, explicit writing, and existing semantic executors. That makes every
+boundary visible during code and fixture review.

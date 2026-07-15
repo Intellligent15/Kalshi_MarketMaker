@@ -121,6 +121,11 @@ uv run python tools/risk_fixture_integrity.py --corpus v1
 uv run python tools/risk_fixture_integrity.py --corpus all
 ```
 
+Exit status `0` means the selected corpus is already current. In verification mode, status `1`
+means safe candidate bytes differ and `--write` is required. Status `2` means the corpus was
+refused as unsafe or structurally malformed, or an atomic replacement failed. A status-2 failure
+must be diagnosed rather than treated as an ordinary stale-hash repair.
+
 After deliberately editing a fixture or reviewed expected trace, explicitly request canonical
 replacement and rehashing:
 
