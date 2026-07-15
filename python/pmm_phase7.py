@@ -26,6 +26,8 @@ NORMALIZER_VERSION = "kalshi-l2-normalizer.v1"
 FEATURE_SCHEMA = "pmm.historical.feature_row.v1"
 FEATURE_VERSION = "observed-l2-top-of-book.v1"
 BACKTEST_SCHEMA = "pmm.backtest.v1"
+BACKTEST_V2_SCHEMA = "pmm.backtest.v2"
+RISK_TRACE_SCHEMA = "pmm.risk_conformance_trace.v1"
 
 
 def canonical_json(value: Any) -> str:
@@ -582,8 +584,8 @@ class BacktestRisk:
     def apply_fill(self, order: BacktestOrder, quantity: Decimal) -> None:
         self.position += quantity if order.side == "buy" else -quantity
 
-    def cancel(self, order: BacktestOrder) -> None:
-        del order
+    def cancel(self, order: BacktestOrder, reason: str = "cancellation") -> None:
+        del order, reason
 
     def close(self) -> None:
         return
@@ -598,13 +600,10 @@ def integer_units(value: Decimal, field_name: str) -> int:
 class CxxRiskOracle:
     """Minimal deterministic bridge to the canonical C++ AccountRiskProjection."""
 
-    def __init__(self, config: dict[str, Any]) -> None:
-        executable_value = config.get("oracle_executable")
-        if not isinstance(executable_value, str) or not executable_value:
-            raise ValueError("risk.oracle_executable is required for cxx_oracle_v1")
-        executable = (REPOSITORY_ROOT / executable_value).resolve()
-        if not executable.is_file():
-            raise ValueError(f"C++ risk oracle does not exist: {executable}")
+    def __init__(self, config: dict[str, Any], *, canonical_trace: bool = False) -> None:
+        self.canonical_trace = canonical_trace
+        self.trace: list[dict[str, Any]] = []
+        executable = self._resolve_executable(config)
         risk = config.get("limits")
         if not isinstance(risk, dict):
             raise ValueError("risk.limits is required for cxx_oracle_v1")
@@ -625,6 +624,60 @@ class CxxRiskOracle:
         )
         if self._receive() != "READY":
             raise ValueError("C++ risk oracle did not initialize")
+        self._record("init", {"engine": "cxx_oracle_v2" if canonical_trace else "cxx_oracle_v1"},
+                     "ready")
+
+    @staticmethod
+    def _resolve_executable(config: dict[str, Any]) -> Path:
+        executable_value = config.get("oracle_executable")
+        if isinstance(executable_value, str) and executable_value:
+            executable = (REPOSITORY_ROOT / executable_value).resolve()
+            if executable.is_file():
+                return executable
+            raise ValueError(f"C++ risk oracle does not exist: {executable}")
+        launcher = config.get("oracle")
+        if not isinstance(launcher, dict) or launcher.get("schema") != "pmm.risk_oracle_launcher.v1":
+            raise ValueError("risk.oracle must use schema pmm.risk_oracle_launcher.v1")
+        build_dir_value = launcher.get("build_dir")
+        target = launcher.get("cmake_target")
+        if not isinstance(build_dir_value, str) or not build_dir_value or target != "pmm_risk_oracle":
+            raise ValueError("risk.oracle requires build_dir and cmake_target pmm_risk_oracle")
+        build_dir = (REPOSITORY_ROOT / build_dir_value).resolve()
+        try:
+            build_dir.relative_to(REPOSITORY_ROOT)
+        except ValueError as error:
+            raise ValueError("risk.oracle.build_dir must be inside the repository") from error
+        if not (build_dir / "CMakeCache.txt").is_file():
+            raise ValueError(f"CMake build directory is not configured: {build_dir}")
+        try:
+            subprocess.run(["cmake", "--build", str(build_dir), "--target", target], check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise ValueError("failed to build pmm_risk_oracle through the configured CMake target") from error
+        path_file = build_dir / "pmm_risk_oracle.path"
+        if not path_file.is_file():
+            raise ValueError("configured CMake build did not produce pmm_risk_oracle.path")
+        executable = Path(path_file.read_text(encoding="utf-8").strip()).resolve()
+        try:
+            executable.relative_to(build_dir)
+        except ValueError as error:
+            raise ValueError("CMake oracle target resolved outside its configured build directory") from error
+        if not executable.is_file():
+            raise ValueError(f"CMake oracle target does not exist: {executable}")
+        return executable
+
+    def _record(self, operation: str, input_value: dict[str, Any], result: str) -> None:
+        if not self.canonical_trace:
+            return
+        self.trace.append({
+            "schema": RISK_TRACE_SCHEMA,
+            "step": len(self.trace) + 1,
+            "operation": operation,
+            "truth_category": "ModelDerived" if operation != "init" else "NotApplicable",
+            "input": input_value,
+            "result": result,
+            "state": self.view(),
+        })
 
     def _send(self, line: str) -> None:
         if self.process.stdin is None:
@@ -651,15 +704,26 @@ class CxxRiskOracle:
         response = self._receive().split()
         if response[:2] == ["ADMISSION", "approved"]:
             self.pending_clients[client_intent_id] = client_intent_id
+            self._record("admit", {"client_intent_id": client_intent_id, "side": side,
+                                    "quantity_contracts": format(quantity, "f"),
+                                    "price_dollars": format(price, "f"), "time_utc_ns": submitted_at_ns},
+                         "approved")
             return None
         if response[:2] == ["ADMISSION", "rejected"]:
-            return f"cxx_risk_{response[3]}"
+            rejection = f"cxx_risk_{response[3]}"
+            self._record("admit", {"client_intent_id": client_intent_id, "side": side,
+                                    "quantity_contracts": format(quantity, "f"),
+                                    "price_dollars": format(price, "f"), "time_utc_ns": submitted_at_ns},
+                         rejection)
+            return rejection
         raise ValueError(f"unexpected C++ risk admission response: {' '.join(response)}")
 
     def acknowledge(self, order: BacktestOrder) -> None:
         client = self.pending_clients.pop(order.order_id)
         self._send(f"BIND {client} {order.order_id}")
         self._expect_applied_or_bound("BOUND")
+        self._record("bind_ingress", {"client_intent_id": client,
+                                       "ingress_sequence": order.order_id}, "bound")
         self.sequence += 1
         price_units = integer_units(order.price * Decimal(100), "order price in cents")
         quantity_units = integer_units(order.remaining, "order quantity")
@@ -668,6 +732,10 @@ class CxxRiskOracle:
             f"{quantity_units} {price_units} {order.active_at_ns}"
         )
         self._expect_applied_or_bound("APPLIED")
+        self._record("acknowledge", {"order_id": order.order_id, "ingress_sequence": order.order_id,
+                                      "side": order.side, "quantity_contracts": format(order.remaining, "f"),
+                                      "price_dollars": format(order.price, "f"),
+                                      "time_utc_ns": order.active_at_ns}, "applied")
 
     def apply_fill(self, order: BacktestOrder, quantity: Decimal) -> None:
         self.sequence += 1
@@ -678,19 +746,37 @@ class CxxRiskOracle:
             f"{price_units} {order.active_at_ns}"
         )
         self._expect_applied_or_bound("APPLIED")
+        self._record("fill", {"order_id": order.order_id, "side": order.side,
+                               "quantity_contracts": format(quantity, "f"),
+                               "price_dollars": format(order.price, "f"),
+                               "time_utc_ns": order.active_at_ns}, "applied")
 
-    def cancel(self, order: BacktestOrder) -> None:
+    def cancel(self, order: BacktestOrder, reason: str = "cancellation") -> None:
         self.sequence += 1
         self._send(f"CANCEL {self.sequence} {order.order_id} {order.expires_at_ns}")
         self._expect_applied_or_bound("APPLIED")
+        self._record("expire" if reason == "logical_expiry" else "cancel",
+                     {"order_id": order.order_id, "reason": reason,
+                      "time_utc_ns": order.expires_at_ns}, "applied")
 
     @property
     def position(self) -> Decimal:
+        return Decimal(self.view()["net_position_contracts"])
+
+    def view(self) -> dict[str, Any]:
         self._send("VIEW")
         fields = self._receive().split()
         if len(fields) != 8 or fields[0] != "VIEW":
             raise ValueError("unexpected C++ risk view response")
-        return Decimal(fields[2])
+        return {
+            "event_watermark": int(fields[1]),
+            "net_position_contracts": fields[2],
+            "open_buy_contracts": fields[3],
+            "open_sell_contracts": fields[4],
+            "pending_buy_contracts": fields[5],
+            "pending_sell_contracts": fields[6],
+            "kill_switch_active": fields[7] == "1",
+        }
 
     def _expect_applied_or_bound(self, prefix: str) -> None:
         response = self._receive().split()
@@ -772,8 +858,13 @@ def feature_by_watermark(features_path: Path) -> dict[int, dict[str, Any]]:
 def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
     config_path = config_path.resolve()
     config = read_json(config_path)
-    if config.get("schema") != BACKTEST_SCHEMA:
-        raise ValueError(f"backtest config schema must be {BACKTEST_SCHEMA}")
+    config_schema = config.get("schema")
+    if config_schema not in {BACKTEST_SCHEMA, BACKTEST_V2_SCHEMA}:
+        raise ValueError(f"backtest config schema must be {BACKTEST_SCHEMA} or {BACKTEST_V2_SCHEMA}")
+    if config_schema == BACKTEST_V2_SCHEMA:
+        declared_risk = config.get("risk")
+        if not isinstance(declared_risk, dict) or declared_risk.get("engine") != "cxx_oracle_v2":
+            raise ValueError("pmm.backtest.v2 requires risk.engine cxx_oracle_v2")
     fill_model = config.get("fill_model")
     if fill_model not in {"no_fill_v1", "trade_touch_v1"}:
         raise ValueError("fill_model must be no_fill_v1 or trade_touch_v1")
@@ -801,6 +892,8 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
         raise ValueError("backtest config requires risk")
     risk_kind = risk_config.get("engine", "python_reference_v1")
     if risk_kind == "python_reference_v1":
+        if config_schema != BACKTEST_SCHEMA:
+            raise ValueError("pmm.backtest.v2 requires risk.engine cxx_oracle_v2")
         risk: BacktestRisk | CxxRiskOracle = BacktestRisk(
             maximum_absolute_position=decimal_config(config, "risk.maximum_absolute_position_contracts"),
             maximum_active_orders=int_config(config, "risk.maximum_active_orders"),
@@ -808,9 +901,22 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
         if risk.maximum_absolute_position <= 0 or risk.maximum_active_orders <= 0:
             raise ValueError("risk limits must be positive")
     elif risk_kind == "cxx_oracle_v1":
+        if config_schema != BACKTEST_SCHEMA:
+            raise ValueError("cxx_oracle_v1 is supported only by pmm.backtest.v1")
         risk = CxxRiskOracle(risk_config)
+    elif risk_kind == "cxx_oracle_v2":
+        if config_schema != BACKTEST_V2_SCHEMA:
+            raise ValueError("cxx_oracle_v2 requires schema pmm.backtest.v2")
+        risk_contract = risk_config.get("risk_contract")
+        if not isinstance(risk_contract, dict) or risk_contract.get("schema") != "pmm.research_risk_contract.v1":
+            raise ValueError("cxx_oracle_v2 requires risk.risk_contract schema pmm.research_risk_contract.v1")
+        if risk_contract.get("quantity_unit") != "whole_contract" or risk_contract.get("price_unit") != "cent":
+            raise ValueError("cxx_oracle_v2 supports only whole_contract quantities and cent prices")
+        if risk_contract.get("post_only") is not True:
+            raise ValueError("cxx_oracle_v2 requires post_only true")
+        risk = CxxRiskOracle(risk_config, canonical_trace=True)
     else:
-        raise ValueError("risk.engine must be python_reference_v1 or cxx_oracle_v1")
+        raise ValueError("risk.engine must be python_reference_v1, cxx_oracle_v1, or cxx_oracle_v2")
     ledger = ResearchLedger.from_config(config)
     scheduled: list[tuple[int, int, dict[str, Any]]] = []
     active: dict[int, BacktestOrder] = {}
@@ -832,7 +938,7 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
     def cancel_all(reason: str, now_ns: int) -> None:
         nonlocal cancellation_count
         for order in list(active.values()):
-            risk.cancel(order)
+            risk.cancel(order, reason)
             order_records.append({
                 "kind": "cancellation", "truth_category": "ModelDerived", "order_id": order.order_id,
                 "time_utc_ns": now_ns, "reason": reason, "remaining_contracts": format(order.remaining, "f"),
@@ -844,7 +950,7 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
         nonlocal decisions, next_order_id, cancellation_count
         for order in list(active.values()):
             if order.expires_at_ns <= now_ns:
-                risk.cancel(order)
+                risk.cancel(order, "logical_expiry")
                 order_records.append({
                     "kind": "cancellation", "truth_category": "ModelDerived", "order_id": order.order_id,
                     "time_utc_ns": now_ns, "reason": "logical_expiry", "remaining_contracts": format(order.remaining, "f"),
@@ -934,6 +1040,7 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
         orders_path = temporary / "orders.jsonl"
         fills_path = temporary / "fills.jsonl"
         ledger_path = temporary / "ledger.jsonl"
+        risk_trace_path = temporary / "risk-trace.jsonl"
         with orders_path.open("x", encoding="utf-8") as destination:
             for record in order_records:
                 destination.write(canonical_json(record) + "\n")
@@ -943,13 +1050,17 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
         with ledger_path.open("x", encoding="utf-8") as destination:
             for record in ledger.entries:
                 destination.write(canonical_json(record) + "\n")
+        with risk_trace_path.open("x", encoding="utf-8") as destination:
+            if isinstance(risk, CxxRiskOracle):
+                for record in risk.trace:
+                    destination.write(canonical_json(record) + "\n")
         fill_assumption = (
             "trade_touch_v1 allocates qualifying public trade quantity to simulated orders by deterministic order id."
             if fill_model == "trade_touch_v1"
             else "no_fill_v1 never creates simulated fills; it is the execution-free control."
         )
         manifest = {
-            "schema": "pmm.backtest_result_manifest.v1",
+            "schema": "pmm.backtest_result_manifest.v2" if config_schema == BACKTEST_V2_SCHEMA else "pmm.backtest_result_manifest.v1",
             "config_sha256": sha256_file(config_path),
             "normalized_events_sha256": sha256_file(normalized_path),
             "features_sha256": sha256_file(features_path),
@@ -960,6 +1071,7 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
             "execution_truth": "ModelDerived",
             "fill_model": fill_model,
             "risk_engine": risk_kind,
+            "risk_trace_schema": RISK_TRACE_SCHEMA if isinstance(risk, CxxRiskOracle) and risk.canonical_trace else None,
             "latency": config["latency"],
             "accounting": {
                 "enabled": ledger.enabled,
@@ -985,6 +1097,7 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
             "orders_sha256": sha256_file(orders_path),
             "fills_sha256": sha256_file(fills_path),
             "ledger_sha256": sha256_file(ledger_path),
+            "risk_trace_sha256": sha256_file(risk_trace_path),
         }
         write_json(temporary / "manifest.json", manifest)
         temporary.rename(output_dir)

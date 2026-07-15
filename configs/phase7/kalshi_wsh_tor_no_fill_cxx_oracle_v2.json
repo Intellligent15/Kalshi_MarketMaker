@@ -1,0 +1,41 @@
+{
+  "schema": "pmm.backtest.v2",
+  "run_id": "kalshi-wsh-tor-wsh2-no-fill-cxx-oracle-v2",
+  "seed": 7,
+  "normalized_events": "data/processed/kalshi/wsh-tor-wsh2-normalized-v1/events.jsonl",
+  "features": "data/processed/kalshi/wsh-tor-wsh2-features-v1/features.jsonl",
+  "latency": {
+    "market_data_ns": 100000000,
+    "decision_ns": 100000000,
+    "order_ns": 100000000
+  },
+  "strategy": {
+    "decision_interval_ns": 1000000000,
+    "order_lifetime_ns": 30000000000,
+    "minimum_spread_dollars": "0.01",
+    "quote_quantity_contracts": "1"
+  },
+  "risk": {
+    "engine": "cxx_oracle_v2",
+    "oracle": {
+      "schema": "pmm.risk_oracle_launcher.v1",
+      "build_dir": "build",
+      "cmake_target": "pmm_risk_oracle"
+    },
+    "risk_contract": {
+      "schema": "pmm.research_risk_contract.v1",
+      "quantity_unit": "whole_contract",
+      "price_unit": "cent",
+      "post_only": true
+    },
+    "limits": {
+      "maximum_order_quantity_contracts": "1",
+      "maximum_absolute_position_contracts": "10",
+      "maximum_buy_exposure_contracts": "10",
+      "maximum_sell_exposure_contracts": "10",
+      "maximum_pending_exposure_contracts": "10",
+      "maximum_active_orders": 2
+    }
+  },
+  "fill_model": "no_fill_v1"
+}

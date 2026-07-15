@@ -231,6 +231,86 @@ class Phase7Tests(unittest.TestCase):
         self.assertEqual(len(ledger), 1)
         self.assertEqual(ledger[0]["fee_dollars"], "0.01")
 
+    def test_cxx_oracle_v2_uses_portable_cmake_launcher_and_writes_identical_trace(self) -> None:
+        build_dir = phase7.REPOSITORY_ROOT / "build"
+        if not (build_dir / "CMakeCache.txt").is_file():
+            self.skipTest("CMake build directory has not been configured")
+        capture = self.make_capture([self.snapshot(), self.trade()])
+        normalized = self.generated_root / "normalized"
+        phase7.normalize_capture(capture, normalized)
+        features = self.generated_root / "features"
+        phase7.materialize_features(normalized, features)
+        relative = self.generated_root.relative_to(phase7.REPOSITORY_ROOT)
+        config = {
+            "schema": phase7.BACKTEST_V2_SCHEMA, "run_id": "cxx-risk-v2", "seed": 7,
+            "normalized_events": str(relative / "normalized" / "events.jsonl"),
+            "features": str(relative / "features" / "features.jsonl"),
+            "latency": {"market_data_ns": 0, "decision_ns": 0, "order_ns": 0},
+            "strategy": {"decision_interval_ns": 1_000_000_000, "order_lifetime_ns": 10_000_000_000,
+                         "minimum_spread_dollars": "0.01", "quote_quantity_contracts": "1"},
+            "risk": {
+                "engine": "cxx_oracle_v2",
+                "oracle": {"schema": "pmm.risk_oracle_launcher.v1", "build_dir": "build",
+                           "cmake_target": "pmm_risk_oracle"},
+                "risk_contract": {"schema": "pmm.research_risk_contract.v1",
+                                  "quantity_unit": "whole_contract", "price_unit": "cent",
+                                  "post_only": True},
+                "limits": {"maximum_order_quantity_contracts": "2", "maximum_absolute_position_contracts": "2",
+                           "maximum_buy_exposure_contracts": "2", "maximum_sell_exposure_contracts": "2",
+                           "maximum_pending_exposure_contracts": "2", "maximum_active_orders": 2},
+            },
+            "fill_model": "no_fill_v1",
+        }
+        config_path = self.generated_root / "v2-config.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        first = phase7.run_backtest(config_path, self.generated_root / "run-one")
+        second = phase7.run_backtest(config_path, self.generated_root / "run-two")
+        self.assertEqual(first["schema"], "pmm.backtest_result_manifest.v2")
+        self.assertEqual(first["risk_trace_schema"], phase7.RISK_TRACE_SCHEMA)
+        self.assertEqual((self.generated_root / "run-one" / "risk-trace.jsonl").read_bytes(),
+                         (self.generated_root / "run-two" / "risk-trace.jsonl").read_bytes())
+        self.assertEqual((self.generated_root / "run-one" / "manifest.json").read_bytes(),
+                         (self.generated_root / "run-two" / "manifest.json").read_bytes())
+        legacy = {
+            "schema": phase7.BACKTEST_SCHEMA, "run_id": "python-reference-shared-subset", "seed": 7,
+            "normalized_events": config["normalized_events"], "features": config["features"],
+            "latency": config["latency"], "strategy": config["strategy"],
+            "risk": {"maximum_absolute_position_contracts": "2", "maximum_active_orders": 2},
+            "fill_model": "no_fill_v1",
+        }
+        legacy_path = self.generated_root / "legacy-config.json"
+        legacy_path.write_text(json.dumps(legacy), encoding="utf-8")
+        phase7.run_backtest(legacy_path, self.generated_root / "legacy-run")
+        self.assertEqual((self.generated_root / "legacy-run" / "orders.jsonl").read_bytes(),
+                         (self.generated_root / "run-one" / "orders.jsonl").read_bytes())
+
+    def test_backtest_v2_refuses_python_compatibility_risk(self) -> None:
+        config = {"schema": phase7.BACKTEST_V2_SCHEMA, "risk": {"engine": "python_reference_v1"}}
+        config_path = self.generated_root / "invalid-v2-config.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "requires risk.engine cxx_oracle_v2"):
+            phase7.run_backtest(config_path, self.generated_root / "run")
+
+    def test_cxx_oracle_rejects_malformed_command_without_advancing_state(self) -> None:
+        if not (phase7.REPOSITORY_ROOT / "build" / "CMakeCache.txt").is_file():
+            self.skipTest("CMake build directory has not been configured")
+        config = {
+            "oracle": {"schema": "pmm.risk_oracle_launcher.v1", "build_dir": "build",
+                       "cmake_target": "pmm_risk_oracle"},
+            "limits": {"maximum_order_quantity_contracts": "2", "maximum_absolute_position_contracts": "2",
+                       "maximum_buy_exposure_contracts": "2", "maximum_sell_exposure_contracts": "2",
+                       "maximum_pending_exposure_contracts": "2", "maximum_active_orders": 2},
+        }
+        oracle = phase7.CxxRiskOracle(config, canonical_trace=True)
+        try:
+            oracle._send("ACK malformed")
+            with self.assertRaisesRegex(ValueError, "invalid_ack"):
+                oracle._receive()
+            self.assertEqual(oracle.view()["event_watermark"], 0)
+            self.assertEqual(oracle.view()["net_position_contracts"], "0")
+        finally:
+            oracle.close()
+
 
 if __name__ == "__main__":
     unittest.main()

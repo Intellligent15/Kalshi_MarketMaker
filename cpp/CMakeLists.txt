@@ -56,6 +56,10 @@ add_executable(pmm_risk_oracle src/risk/risk_oracle_main.cpp)
 target_compile_features(pmm_risk_oracle PRIVATE cxx_std_20)
 target_link_libraries(pmm_risk_oracle PRIVATE pmm_risk)
 pmm_enable_warnings(pmm_risk_oracle)
+# The research runner reads this generated path instead of embedding a generator- or
+# machine-specific executable path in an experiment configuration.
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/pmm_risk_oracle.path"
+     CONTENT "$<TARGET_FILE:pmm_risk_oracle>")
 
 add_library(pmm_market_maker src/market_maker/market_maker.cpp)
 target_compile_features(pmm_market_maker PUBLIC cxx_std_20)
