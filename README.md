@@ -28,6 +28,12 @@ write-ahead command/event journal and atomic exchange checkpoints. `create_durab
 risk, market-maker, accounting, and paper-trading recovery remain separate work. Historical
 market-data normalization, causal features, and backtesting are now in progress under ADR-007.
 
+ADR-008 adds a research-only account-risk bridge: canonical account events let explicitly labelled
+model-derived lifecycle events use the same C++ `AccountRiskProjection` semantics as the
+simulator. `pmm_risk_oracle` is a deterministic local adapter for Python research orchestration,
+not a live gateway. Phase-7 backtests may also emit an opt-in unresolved-settlement cash-flow
+ledger; it is not PnL, collateral, settlement, paper trading, or execution-realism evidence.
+
 ## Quick start
 
 Prerequisites: CMake 3.24+, a C++20 compiler, Git (to fetch GoogleTest for test builds),

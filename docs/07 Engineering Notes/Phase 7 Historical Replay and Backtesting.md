@@ -37,3 +37,8 @@ The first `trade_touch_v1` run produced 1,213 decisions, 2,074 accepted syntheti
 - The observed projection has an in-memory checkpoint/restore boundary verified by continuation tests. Persisted projection/backtest checkpoints remain deferred; current restart is deterministic full replay from immutable normalized input and makes no durable live-run claim.
 - Full contract-metadata ingestion, source-schema migration, multi-product ordering, snapshot recovery after gaps, and long-term retention/compaction.
 - Calibrated latency, queue-aware or externally observed fills, fees, PnL, collateral, settlement, portfolio risk, ML models, paper trading, and live gateways.
+
+The first post-V1 risk and unresolved-cash-flow foundation is recorded in
+[[02 Architecture/ADR-008 Calibrated Execution Accounting and Research Evaluation]]. See
+[[07 Engineering Notes/Research Execution Foundation Explained]] for the plain-language walkthrough
+and [[07 Engineering Notes/Research Execution Foundation Critique]] for the ranked follow-up register.
