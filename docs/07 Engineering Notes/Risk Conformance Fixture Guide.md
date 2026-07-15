@@ -104,3 +104,53 @@ The shared test-only C++ `Sha256Hex` helper is also checked directly against the
 `abc`, and multi-block NIST known-answer vectors. Corpus hashes remain the integration evidence;
 the direct vectors establish that the helper producing and checking those hashes implements the
 expected algorithm.
+
+## Reproducible authoring and rehashing
+
+`tools/risk_fixture_integrity.py` is the checked-in byte-integrity workflow for both reviewed
+corpora. It canonicalizes JSON values that a human deliberately authored and updates the manifest
+hashes that describe those bytes. It never executes `AccountRiskProjection`, the test-only Python
+references, or the frozen V1 oracle, and it never creates or repairs semantic expected results or
+states.
+
+Verification is the default and never writes:
+
+```sh
+uv run python tools/risk_fixture_integrity.py --corpus checkpoint_v1
+uv run python tools/risk_fixture_integrity.py --corpus v1
+uv run python tools/risk_fixture_integrity.py --corpus all
+```
+
+After deliberately editing a fixture or reviewed expected trace, explicitly request canonical
+replacement and rehashing:
+
+```sh
+uv run python tools/risk_fixture_integrity.py --corpus checkpoint_v1 --write
+```
+
+The exact author workflow is:
+
+1. Edit the fixture and its reviewed expected trace by hand. Do not copy an answer out of the C++
+   projection, Python reference, or V1 oracle and call that review.
+2. Run the verification command. It exits nonzero and names every document whose canonical bytes
+   or integrity metadata would change.
+3. Run the same command with `--write`. The tool preserves the parsed JSON values, emits compact
+   UTF-8 sorted-key JSON with exactly one final LF, recomputes both member hashes, and then computes
+   `payload_sha256` over the canonical manifest payload plus its final LF.
+4. Review `git diff` as evidence of the authored semantic change. A successful rehash proves only
+   that the manifest describes the new bytes.
+5. Run the C++ and Python conformance tests. Those executors, not the rehash command, compare the
+   reviewed answers with actual risk behaviour.
+
+For a normal checked-in corpus, `--write` is a byte-for-byte no-op. The command accepts only the
+fixed repository corpus names `v1`, `checkpoint_v1`, and `all`; it does not accept an arbitrary
+output directory. It refuses unsafe or nested member names, symlinks, duplicate manifest members,
+missing members, unreferenced JSON documents, unsorted entries, malformed manifest structure,
+duplicate JSON keys, invalid UTF-8, floating-point values, nonstandard numeric constants, and JSON
+integers outside the C++ reader's 64-bit range.
+
+All candidate bytes are prepared before replacement. Changed files are staged as temporary
+siblings, flushed, and atomically installed, with `manifest.json` installed last. An interruption
+cannot leave a half-written JSON file. An interruption after a member replacement but before the
+manifest replacement leaves stale hashes, so the normal readers fail closed and a later `--write`
+can finish the repair. This is intentionally not a transactional durable-storage protocol.

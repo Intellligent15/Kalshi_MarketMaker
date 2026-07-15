@@ -530,3 +530,69 @@ These are tests of existing evidence rules, not a new persistence design. `docum
 remains lax, the frozen V1 oracle remains ineligible, and Python checkpoint code remains under the
 test tree. There is still no durable risk storage, process restart, portfolio recovery, or claim
 about realistic fills, queue position, PnL, settlement, paper trading, or live readiness.
+
+## Reproducible fixture integrity workflow
+
+### What changed
+
+The repository now has one checked-in command for turning deliberately edited fixture JSON into
+the exact compact bytes both readers expect and for updating the manifest hashes over those bytes.
+The same command handles the lifecycle and checkpoint corpora because their semantic documents are
+different but their outer integrity envelope is identical.
+
+The safe default only checks. An author must pass `--write` before any file can change:
+
+```sh
+uv run python tools/risk_fixture_integrity.py --corpus checkpoint_v1
+uv run python tools/risk_fixture_integrity.py --corpus checkpoint_v1 --write
+```
+
+### How it works
+
+```text
+human reviews and edits JSON values
+               |
+               v
+canonical UTF-8 JSON with exactly one final LF
+               |
+               v
+SHA-256 over each fixture and expected-trace member
+               |
+               v
+SHA-256 over the canonical manifest payload
+               |
+               v
+atomic member replacement, then manifest replacement last
+```
+
+The tool validates the manifest membership and filesystem boundary before staging output. It
+refuses unsafe paths, symlinks, duplicate or missing members, unreferenced JSON, ambiguous JSON
+numbers, duplicate keys, and malformed manifest structure. It also remembers the bytes seen during
+validation and refuses to overwrite a file changed by another process before the write begins.
+
+Every output is staged beside its destination and flushed before atomic replacement. Installing
+the manifest last is the important failure rule: if a process stops after installing a member, the
+old manifest no longer matches and both conformance readers reject the corpus. The next explicit
+write can repair that detectable state. This is fail-closed checked-in tooling, not durable storage
+or a multi-file transaction protocol.
+
+### Why integrity and semantics stay separate
+
+The helper deliberately knows nothing about admission, restore, checkpoint rejection categories,
+or expected risk state. If a human authors the wrong expected result, the helper preserves that
+wrong value and faithfully hashes it. The C++ and Python conformance executors must then reject the
+semantic mismatch.
+
+That division prevents the implementation under test from blessing its own answer:
+
+```text
+rehash command       -> these hashes describe these bytes
+fixture readers      -> these bytes satisfy the document contract
+conformance executors -> actual behaviour matches the reviewed answer
+human review         -> the reviewed answer is the intended rule
+```
+
+The workflow adds no production JSON or cryptography dependency, changes no risk rule or fixture
+schema, and does not expand the frozen V1 adapter. Rehashing is maintenance support for reviewed
+test evidence; it is not semantic verification, checkpoint durability, process recovery, or proof
+of realistic fills, PnL, settlement, paper trading, or live readiness.

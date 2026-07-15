@@ -403,3 +403,78 @@ test-only C++ digest helper matches standard SHA-256. It does not turn checkpoin
 production persistence format or establish durable storage, WAL integration, process restart,
 portfolio or multi-account recovery, calibrated fills, queue priority, execution realism, PnL,
 collateral, settlement, paper trading, or live readiness.
+
+## Fixture integrity workflow implementation critique
+
+This review covers the checked-in canonicalization and rehash command. Impact rates the consequence
+of leaving a finding open from 1 (minor) to 5 (blocks trustworthy evidence). Ease rates how
+contained its correction would be from 1 (broad or externally constrained) to 5 (small and local).
+
+The former top tooling gap is closed. Both corpora now share one standard-library-only command,
+verification is read-only by default, writing is explicit, unsafe corpus structure is refused, and
+member plus payload digests are reproduced without invoking any risk implementation. Focused tests
+prove checked-in no-op behaviour, stale-hash repair, repeated byte identity, semantic-answer
+preservation, concurrent-edit refusal, and fail-closed recovery after an injected manifest-write
+failure.
+
+### Assessment of the design
+
+The most important choice is that the helper validates only the shared integrity envelope. It can
+therefore preserve and hash a semantically wrong expected answer. That is not missing validation;
+it is what keeps human-reviewed evidence separate from an implementation blessing its own output.
+The documented workflow must continue to pair `--write` with the existing C++ and Python semantic
+tests.
+
+The writer duplicates the small canonical JSON expression from `pmm_phase7.canonical_json` rather
+than importing the large replay module. This avoids coupling a developer integrity tool to Phase-7
+runtime code. A focused test requires byte equality with the existing function, and the independent
+C++ readers verify the checked-in results. The duplication is six stable serialization options,
+not a third checkpoint encoder.
+
+Per-file atomic replacement plus manifest-last ordering is intentionally weaker than a corpus-wide
+transaction. A crash between replacements may leave a member updated under an old manifest, but it
+cannot create a half-file or a falsely valid corpus: the stale manifest is rejected. Directory
+swaps, recovery markers, or rollback journals would add persistence machinery to a small checked-in
+test workflow without improving the truth of its semantic evidence.
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | Authors must still run semantic conformance tests after `--write`; the integrity command intentionally accepts reviewed values without deriving their truth. | Documentation / workflow risk | 3 | 5 | A hash-correct expected trace can still contain the wrong result or state. | Keep the warning beside every authoring command and retain the test that proves a wrong semantic answer is preserved. |
+| P2 | Atomicity is per file, not across the complete corpus. | Future technical debt / failure handling | 2 | 2 | A crash between member and manifest replacement leaves a temporarily stale corpus. | Retain manifest-last fail-closed ordering and repairability; add transactional machinery only if this becomes an automated concurrent writer. |
+| P2 | Canonical JSON options are repeated in the tool and `pmm_phase7.canonical_json`. | Unnecessary complexity / drift risk | 2 | 4 | A future change to one encoder could make the two Python surfaces disagree. | Keep the direct byte-equality test and C++ reader coverage; extract a shared module only if another production consumer appears. |
+| P2 | The strict-capture mutation tests still locate their donor checkpoint with hard-coded transition index 5. | Existing future technical debt | 3 | 4 | Editing operations before the donor capture can break the negative matrix for an indexing reason unrelated to the integrity tool. | Make locating the unique checkpoint operation the next separate test-only increment. |
+| P3 | The CLI has a fixed registry for `v1` and `checkpoint_v1`. | Scalability / maintenance | 1 | 5 | A future corpus requires one explicit path and schema entry. | Preserve the allowlist because it prevents arbitrary-path writes; extend it deliberately with a new schema. |
+| P3 | Path checks and pre-write byte comparison reduce ordinary races but do not use hardened directory-relative `openat` operations. | Future technical debt | 1 | 2 | A hostile process with repository write access could race filesystem entries between checks. | Treat the repository as a trusted local authoring boundary; harden only if the tool is ever exposed to untrusted concurrent writers. |
+| P3 | Verification reports changed paths but does not render a semantic or pretty JSON diff. | Review ergonomics | 1 | 4 | Authors still use `git diff` after writing canonical one-line documents. | Keep authoritative output compact; add a read-only pretty summary only if review friction becomes material. |
+
+### Category summary
+
+- **Unnecessary complexity — impact 2/5.** The tool is one standard-library module; the only
+  meaningful duplication is the deliberately pinned canonical JSON expression.
+- **Future technical debt — impact 2/5.** Multi-file transactions and hostile-filesystem hardening
+  are unjustified for the current trusted, manual workflow.
+- **Missing tests — impact 1/5.** The required no-op, repair, identity, unsafe-input, semantic
+  non-generation, concurrent-edit, and interrupted-write paths are covered. Fuzzing remains a
+  deliberately separate follow-up.
+- **Missing documentation — impact 1/5.** The exact verify and write commands, review boundary, and
+  failure model now live in the fixture guide and plain-language explanation.
+- **Possible optimizations — impact 1/5.** The corpora are small; streaming, caching, and manifest
+  sharding would obscure an already fast authoring path.
+- **Future scalability — impact 1/5.** Adding a corpus requires an explicit allowlist entry, which
+  is desirable while the number of reviewed schemas remains small.
+
+### Recommended next increment
+
+Keep this tool unchanged and remove the hard-coded donor transition index from the mirrored strict-
+capture mutation tests. Each test should find the fixture's unique `checkpoint` operation, use the
+matching transition, and assert that exactly one donor capture exists. This is a contained test-only
+maintainability correction; it should not be mixed with remaining Python reader-mutation parity,
+SHA boundary vectors, caching, or schema changes.
+
+### Retained limitations
+
+This workflow establishes reproducible bytes and hashes only. It does not make expected traces
+self-authenticating, change production risk semantics, create a production serialization format,
+or establish durable storage, WAL integration, process restart, portfolio recovery, multi-account
+recovery, calibrated fills, queue priority, execution realism, PnL, collateral, settlement, paper
+trading, or live readiness.
