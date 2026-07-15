@@ -61,3 +61,45 @@ mutation.
   paper trading, durable full-run recovery, or live-trading claim.
 
 The next correctness milestone is fixture-driven transition parity plus explicit product terms.
+
+## Fixture conformance increment
+
+The first fixture is deliberately small: reserve a buy, bind its ingress, acknowledge it, partially
+fill it, then logically expire its remainder.  It has a reviewed state after each transition and is
+run against both C++ and a test-only Python reference.  The resulting V2 trace now includes the
+live order or pending reservation itself, not only the totals.  This proves state-machine agreement
+for the shared lifecycle subset; it does not make the local whitespace oracle a production protocol.
+
+## What, how, and why
+
+### What changed
+
+The risk trace now records the individual things that make up its totals: each live order and each
+pending reservation.  The repository also has a small reviewed lifecycle fixture, its expected
+state after every step, a manifest that hashes both, and a Python reference that exists only in the
+test tree.
+
+### How it works
+
+1. A fixture admits a two-contract buy, binds its ingress ID, acknowledges order 11, fills one
+   contract, then expires the remaining contract.
+2. The Python test-only reference applies the same operations and compares every result and state
+   to the reviewed expected trace.
+3. The same fixture drives the real C++ oracle.  After each operation, `SNAPSHOT` returns the
+   complete C++ state, which must equal the Python state.
+4. Backtest V2 uses that same snapshot to write `pmm.risk_conformance_trace.v2`; its manifest
+   hashes the trace as before.
+
+### Why this shape
+
+Comparing only final position can miss a reservation leak or a wrongly correlated order that later
+balances out.  Comparing the complete state after every transition makes those defects visible at
+the first bad operation.  Keeping Python under `python/tests/` gives an independent check without
+allowing a second production risk engine to enter research runs.
+
+### Debt in plain language
+
+This is a foundation, not full conformance yet.  We proved one representative lifecycle path and
+made all future traces inspectable.  The next work is repetitive but important: add the remaining
+small fixtures, especially rejection, restore, and malformed-input paths, before treating the
+suite as complete lifecycle coverage.
