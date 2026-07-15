@@ -162,3 +162,49 @@ convenience.
    canonical one-line bytes remain the hashable source of truth.
 5. **Optimize only after the correctness boundary is complete.** Process batching and compact
    traces should not weaken state-after-every-transition proof.
+
+## Direct-C++ fixture closure critique
+
+The final lifecycle-conformance increment removes the duplicate scenario representation: direct
+C++ now consumes the same reviewed documents as the Python reference and every V1-compatible
+oracle case. Its strict test-only verifier checks byte canonicality, schema shape, member and
+payload hashes, path safety, complete state consistency, and executor eligibility before replay.
+
+The V1 admission response now has exact numeric category coverage. Generic non-admission `ERROR`
+responses intentionally remain shape-and-state assertions rather than text comparisons.
+
+The remaining consequence is deliberately narrow: checkpoint/restore still lacks a versioned
+fixture contract. It is not a hidden extension of this corpus and must be designed separately.
+
+## Post-closure critique
+
+### Rating method
+
+Impact measures the consequence of leaving an issue open: 1 is minor and 5 blocks trustworthy
+conformance evidence. Ease measures how contained the corrective increment is: 1 is broad or
+externally blocked and 5 is small and local. Priority favors impact, then ease; it does not turn a
+deliberately deferred boundary into implied current support.
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | Checkpoint/restore has no reviewed, versioned fixture contract. | Future technical debt / missing test | 5 | 2 | Lifecycle conformance is now direct-C++ complete for V1, but serialized risk state still has no shared proof. | Design a separate test-only schema, restore-validity matrix, and C++-only executor boundary before implementing it. Do not add it to V1. |
+| P2 | The C++ verifier has one tampered-byte regression test, not a full negative matrix for every declared failure category. | Missing tests | 4 | 4 | Path traversal, symlinks, bad payload hashes, unknown fields, invalid decimals, duplicate members, and inconsistent totals are checked in code but not each independently protected by a test. | Add focused temporary-corpus tests, one per verifier category, including the diagnostic path. |
+| P3 | The test-only SHA-256 implementation has no known-answer-vector tests. | Future technical debt / missing test | 3 | 5 | Corpus hashes exercise it indirectly, but a shared wrong implementation and wrong expected value would be hard to diagnose. | Add empty-string, `abc`, and a multi-block known-answer test; keep the implementation test-only. |
+| P4 | C++ and Python independently encode much of the fixture schema. | Future technical debt | 3 | 3 | Independence gives useful cross-checking, but a future schema addition can be accepted by one surface and rejected by the other. | Keep separate parsers, but add a concise versioned schema table and a shared malformed-corpus test matrix in documentation. |
+| P5 | The test-only JSON dependency is fetched during a fresh CMake test configuration. | Unnecessary complexity / operational debt | 3 | 3 | It preserves production boundaries, but offline or restricted environments cannot bootstrap this new target without a populated dependency cache. | Document the dependency and cache requirement; consider a source archive with a verified digest only if offline test bootstrapping becomes a demonstrated need. |
+| P6 | V1 exposes numeric categories only for admission failures; other domain failures remain generic `ERROR`. | Interface debt | 3 | 2 | State assertions prove rejection safety, but cannot distinguish non-admission failure classes through the adapter. | Keep V1 frozen. Address this only in a separately versioned local protocol, not through error-text assertions. |
+| P7 | The verifier reads each document into memory and reparses member bytes after hashing; tests reload the corpus in multiple cases. | Possible optimization / future scalability concern | 2 | 4 | The checked-in corpus is tiny, but large future fixtures would repeat I/O and retain full JSON DOMs. | Cache a verified corpus per test process or stream hashes only after profiling; preserve byte and transition assertions. |
+| P8 | Canonical one-line JSON remains difficult to inspect manually. | Missing documentation / review ergonomics | 2 | 4 | Hashable bytes are intentional, but reviewers must mentally parse long complete-state records. | Add a read-only pretty-printer or trace summary that never rewrites authoritative files. |
+| P9 | The fixture guide does not yet specify the complete V1 oracle command grammar or the V2 trace schema. | Missing documentation | 3 | 4 | The guide explains fixture ownership, but an external reviewer still lacks a single command and trace reference. | Document V1 as a limited local adapter and publish a machine-readable trace-field reference without expanding either interface. |
+
+### Debt order in plain language
+
+1. **Design checkpoint/restore separately.** It is now the largest remaining correctness boundary,
+   but must not be smuggled into V1.
+2. **Test every strict-verifier rejection path.** The parser already rejects them; focused negative
+   tests make that promise durable and are contained work.
+3. **Prove the SHA helper with standard vectors.** This is cheap confidence for the evidence chain.
+4. **Keep the two independent readers aligned through documentation.** Do not merge them into one
+   production-like abstraction; maintain a small explicit schema matrix instead.
+5. **Improve developer ergonomics only after correctness.** Offline bootstrap, pretty output,
+   caching, and streaming are worthwhile only when their costs are observed.

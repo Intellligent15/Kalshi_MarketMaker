@@ -190,5 +190,59 @@ while freezing the whitespace adapter avoids accidentally presenting it as a pro
 ### What remains next
 
 The next correctness increment is not more V1 commands. It is a separate, versioned test-only
-checkpoint/restore harness, followed by a direct C++ fixture executor so all three test surfaces
-share the reviewed documents.
+checkpoint/restore harness. Direct C++ fixture execution now makes all three lifecycle test
+surfaces consume the reviewed documents.
+
+## Direct-C++ fixture closure
+
+The reviewed V1 documents now drive three separate test surfaces:
+
+```text
+fixture + expected trace + manifest
+       |              |             |
+Python reference   direct C++    eligible V1 oracle
+```
+
+The direct path calls `AccountRiskProjection` directly. It does not launch the oracle, so a
+whitespace-protocol or snapshot-serialization change cannot hide a direct API regression. Before
+replay, its test-only reader verifies the document bytes, SHA-256 hashes, schemas, safe file names,
+and complete expected state. After every operation it compares watermark, position, all exposure
+totals, sorted live orders, sorted pending reservations, and kill-switch state.
+
+The oracle remains frozen. Its existing admission rejection number is now asserted exactly; other
+domain failures remain generic `ERROR` responses whose prose is not a public interface. This work
+does not include checkpoint/restore, durable recovery, realistic fills, PnL, or live readiness.
+
+## What, how, and why of the closure
+
+### What we did
+
+We removed the last lifecycle-conformance representation gap. The reviewed V1 fixtures and expected
+traces now drive a direct C++ test as well as the Python reference and eligible oracle integration.
+The direct test compares the C++ projection's full state after every operation, including failed
+operations. The oracle integration now checks the existing numeric admission rejection code rather
+than only the broad rejection shape.
+
+### How we did it
+
+The C++ test-only reader loads `manifest.json`, checks its payload hash and every member hash, and
+rejects noncanonical JSON, unsafe paths, malformed fields, invalid values, bad executor eligibility,
+and internally inconsistent expected state. It maps each fixture operation to the existing public
+`AccountRiskProjection` calls. It uses the same fixed 50-cent fill price already used by V1 because
+V1 fixtures intentionally have no fill-price field and account-risk state does not depend on it.
+
+The Python test independently validates the reviewed corpus, runs only eligible executors, and
+parses `ADMISSION rejected <client> <code>` exactly for admission failures. For every other V1
+domain failure, it accepts generic `ERROR` and compares the reviewed post-state instead of treating
+the human-readable diagnostic as an interface.
+
+### Why we did it
+
+Before this increment, direct C++ tests and the reviewed fixtures could drift apart even while the
+oracle path passed. Using one reviewed scenario representation removes that blind spot. Comparing
+complete post-state after every transition finds reservation leaks, unintended watermark movement,
+or incorrect ingress release at the first incorrect operation rather than after later events happen
+to balance it out.
+
+The reader is test-only so fixture review does not create a production JSON format or alter Phase 3
+matching, core integer types, deterministic ordering, risk admission, or kill-switch ownership.

@@ -104,3 +104,25 @@ The V1 oracle is frozen as a compatibility adapter. Fixture integration uses onl
 mismatch and foreign-identity cases stay direct-C++ only; checkpoint/restore remains the next,
 separate versioned test-only harness. Generic V1 errors are fixture-level domain failures, not a
 stable textual API contract.
+
+## Amendment: direct-C++ fixture conformance closure
+
+The checked-in V1 fixture corpus is now also executed directly against
+`AccountRiskProjection` by a test-only C++ reader and executor. The reader verifies canonical
+UTF-8 JSON bytes, manifest payload and member SHA-256 values, exact schemas and required fields,
+safe local member paths, executor eligibility, and complete expected states before constructing a
+risk projection. It is linked only into the CTest target; neither `pmm_risk` nor the frozen local
+oracle gains a JSON dependency.
+
+Direct C++ assertions compare the reviewed result and the complete state after every operation:
+view totals, watermark, kill switch, identifier-sorted live orders, and identifier-sorted pending
+reservations. An omitted legacy `executors` field means the established shared default
+(`direct_cpp`, `python_reference`, and `v1_oracle`); an explicit field must be a unique subset of
+those names. A fixture that V1 cannot faithfully express remains explicitly non-V1.
+
+V1 integration now checks the exact numeric `AdmissionRejectCode` emitted by its existing
+`ADMISSION rejected` response. Other V1 failures remain generic `ERROR` handling: tests compare
+the reviewed unchanged state but do not make diagnostic prose a protocol contract.
+
+Checkpoint/restore remains outside fixture V1 and outside this increment. It requires a separate,
+versioned test-only fixture schema after this lifecycle-conformance closure.
