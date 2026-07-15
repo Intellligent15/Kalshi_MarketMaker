@@ -6,6 +6,8 @@ Build a production-quality, modular prediction-market simulation and market-maki
 platform. Correctness, simple baselines, reproducibility, and documentation take precedence
 over sophistication.
 
+Canonical GitHub repository: [Intellligent15/Kalshi_MarketMaker](https://github.com/Intellligent15/Kalshi_MarketMaker)
+
 ## Current status
 
 Phases 1–6 are complete and Phase 7 is in progress. `pmm_core` provides validated market and execution vocabulary,

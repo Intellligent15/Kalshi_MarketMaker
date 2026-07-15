@@ -4,6 +4,8 @@ A C++20 research platform for simulating prediction markets and developing progr
 more sophisticated market-making strategies. The project prioritizes correctness,
 reproducibility, modularity, testability, and documented engineering decisions.
 
+Canonical repository: [Intellligent15/Kalshi_MarketMaker](https://github.com/Intellligent15/Kalshi_MarketMaker)
+
 Phase 4 adds `pmm_sim`: a deterministic exchange event loop around one book per registered
 contract. It owns logical-time command ordering, global order/trade/event IDs, lifecycle gating,
 in-memory event journals, checkpoints, replay, and aggregate depth-change events. The book still
