@@ -15,6 +15,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 from typing import Any, Iterable
 
@@ -562,7 +563,9 @@ class BacktestRisk:
     maximum_active_orders: int
     position: Decimal = Decimal(0)
 
-    def admit(self, side: str, quantity: Decimal, active_orders: Iterable[BacktestOrder]) -> str | None:
+    def admit(self, client_intent_id: int, side: str, quantity: Decimal, price: Decimal,
+              submitted_at_ns: int, active_orders: Iterable[BacktestOrder]) -> str | None:
+        del client_intent_id, price, submitted_at_ns
         active = list(active_orders)
         if len(active) >= self.maximum_active_orders:
             return "active_order_limit"
@@ -572,6 +575,175 @@ class BacktestRisk:
         if abs(projected) > self.maximum_absolute_position:
             return "position_limit"
         return None
+
+    def acknowledge(self, order: BacktestOrder) -> None:
+        del order
+
+    def apply_fill(self, order: BacktestOrder, quantity: Decimal) -> None:
+        self.position += quantity if order.side == "buy" else -quantity
+
+    def cancel(self, order: BacktestOrder) -> None:
+        del order
+
+    def close(self) -> None:
+        return
+
+
+def integer_units(value: Decimal, field_name: str) -> int:
+    if value != value.to_integral_value():
+        raise ValueError(f"{field_name} must be an integer for cxx_oracle_v1")
+    return int(value)
+
+
+class CxxRiskOracle:
+    """Minimal deterministic bridge to the canonical C++ AccountRiskProjection."""
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        executable_value = config.get("oracle_executable")
+        if not isinstance(executable_value, str) or not executable_value:
+            raise ValueError("risk.oracle_executable is required for cxx_oracle_v1")
+        executable = (REPOSITORY_ROOT / executable_value).resolve()
+        if not executable.is_file():
+            raise ValueError(f"C++ risk oracle does not exist: {executable}")
+        risk = config.get("limits")
+        if not isinstance(risk, dict):
+            raise ValueError("risk.limits is required for cxx_oracle_v1")
+        self.process = subprocess.Popen(
+            [str(executable)], text=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, bufsize=1,
+        )
+        self.sequence = 0
+        self.pending_clients: dict[int, int] = {}
+        self._send(
+            "INIT 1 1 1 1 "
+            f"{int_config({'value': risk['maximum_order_quantity_contracts']}, 'value')} "
+            f"{int_config({'value': risk['maximum_absolute_position_contracts']}, 'value')} "
+            f"{int_config({'value': risk['maximum_buy_exposure_contracts']}, 'value')} "
+            f"{int_config({'value': risk['maximum_sell_exposure_contracts']}, 'value')} "
+            f"{int_config({'value': risk['maximum_pending_exposure_contracts']}, 'value')} "
+            f"{int_config({'value': risk['maximum_active_orders']}, 'value')}"
+        )
+        if self._receive() != "READY":
+            raise ValueError("C++ risk oracle did not initialize")
+
+    def _send(self, line: str) -> None:
+        if self.process.stdin is None:
+            raise ValueError("C++ risk oracle stdin is unavailable")
+        self.process.stdin.write(line + "\n")
+        self.process.stdin.flush()
+
+    def _receive(self) -> str:
+        if self.process.stdout is None:
+            raise ValueError("C++ risk oracle stdout is unavailable")
+        line = self.process.stdout.readline().strip()
+        if not line:
+            raise ValueError("C++ risk oracle terminated without a response")
+        if line.startswith("ERROR "):
+            raise ValueError(f"C++ risk oracle: {line[6:]}")
+        return line
+
+    def admit(self, client_intent_id: int, side: str, quantity: Decimal, price: Decimal,
+              submitted_at_ns: int, active_orders: Iterable[BacktestOrder]) -> str | None:
+        del active_orders
+        quantity_units = integer_units(quantity, "strategy.quote_quantity_contracts")
+        price_units = integer_units(price * Decimal(100), "order price in cents")
+        self._send(f"ADMIT {client_intent_id} {side} {quantity_units} {price_units} {submitted_at_ns}")
+        response = self._receive().split()
+        if response[:2] == ["ADMISSION", "approved"]:
+            self.pending_clients[client_intent_id] = client_intent_id
+            return None
+        if response[:2] == ["ADMISSION", "rejected"]:
+            return f"cxx_risk_{response[3]}"
+        raise ValueError(f"unexpected C++ risk admission response: {' '.join(response)}")
+
+    def acknowledge(self, order: BacktestOrder) -> None:
+        client = self.pending_clients.pop(order.order_id)
+        self._send(f"BIND {client} {order.order_id}")
+        self._expect_applied_or_bound("BOUND")
+        self.sequence += 1
+        price_units = integer_units(order.price * Decimal(100), "order price in cents")
+        quantity_units = integer_units(order.remaining, "order quantity")
+        self._send(
+            f"ACK {self.sequence} {order.order_id} {order.order_id} {order.side} "
+            f"{quantity_units} {price_units} {order.active_at_ns}"
+        )
+        self._expect_applied_or_bound("APPLIED")
+
+    def apply_fill(self, order: BacktestOrder, quantity: Decimal) -> None:
+        self.sequence += 1
+        price_units = integer_units(order.price * Decimal(100), "fill price in cents")
+        quantity_units = integer_units(quantity, "fill quantity")
+        self._send(
+            f"FILL {self.sequence} {order.order_id} {order.side} {quantity_units} "
+            f"{price_units} {order.active_at_ns}"
+        )
+        self._expect_applied_or_bound("APPLIED")
+
+    def cancel(self, order: BacktestOrder) -> None:
+        self.sequence += 1
+        self._send(f"CANCEL {self.sequence} {order.order_id} {order.expires_at_ns}")
+        self._expect_applied_or_bound("APPLIED")
+
+    @property
+    def position(self) -> Decimal:
+        self._send("VIEW")
+        fields = self._receive().split()
+        if len(fields) != 8 or fields[0] != "VIEW":
+            raise ValueError("unexpected C++ risk view response")
+        return Decimal(fields[2])
+
+    def _expect_applied_or_bound(self, prefix: str) -> None:
+        response = self._receive().split()
+        if not response or response[0] != prefix:
+            raise ValueError(f"unexpected C++ risk oracle response: {' '.join(response)}")
+
+    def close(self) -> None:
+        if self.process.stdin is not None:
+            self.process.stdin.close()
+        return_code = self.process.wait(timeout=5)
+        if self.process.stdout is not None:
+            self.process.stdout.close()
+        if self.process.stderr is not None:
+            self.process.stderr.close()
+        if return_code != 0:
+            raise ValueError(f"C++ risk oracle exited with status {return_code}")
+
+
+@dataclass
+class ResearchLedger:
+    enabled: bool
+    fee_per_contract: Decimal = Decimal(0)
+    cash_balance: Decimal = Decimal(0)
+    total_fees: Decimal = Decimal(0)
+    entries: list[dict[str, Any]] = field(default_factory=list)
+
+    @classmethod
+    def from_config(cls, config: dict[str, Any]) -> "ResearchLedger":
+        accounting = config.get("accounting")
+        if accounting is None:
+            return cls(enabled=False)
+        if not isinstance(accounting, dict) or accounting.get("schema") != "pmm.accounting_policy.v1":
+            raise ValueError("accounting must use schema pmm.accounting_policy.v1")
+        if accounting.get("settlement_status") != "unresolved":
+            raise ValueError("V1 accounting supports only unresolved settlement")
+        return cls(enabled=True, fee_per_contract=decimal_config(accounting, "fee_per_contract_dollars"))
+
+    def apply_fill(self, order: BacktestOrder, quantity: Decimal, time_ns: int) -> None:
+        if not self.enabled:
+            return
+        notional = order.price * quantity
+        fee = self.fee_per_contract * quantity
+        cash_delta = -(notional + fee) if order.side == "buy" else notional - fee
+        self.cash_balance += cash_delta
+        self.total_fees += fee
+        self.entries.append({
+            "kind": "model_fill_cashflow", "truth_category": "ModelDerived",
+            "time_utc_ns": time_ns, "order_id": order.order_id, "side": order.side,
+            "quantity_contracts": format(quantity, "f"), "price_dollars": format(order.price, "f"),
+            "notional_dollars": format(notional, "f"), "fee_dollars": format(fee, "f"),
+            "cash_delta_dollars": format(cash_delta, "f"),
+            "policy_note": "Unresolved synthetic ledger; it is not settlement or venue PnL.",
+        })
 
 
 def decimal_config(config: dict[str, Any], path: str) -> Decimal:
@@ -624,12 +796,22 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
     quantity = decimal_config(config, "strategy.quote_quantity_contracts")
     if quantity <= 0 or lifetime <= 0 or decision_interval <= 0:
         raise ValueError("quote quantity, order lifetime, and decision interval must be positive")
-    risk = BacktestRisk(
-        maximum_absolute_position=decimal_config(config, "risk.maximum_absolute_position_contracts"),
-        maximum_active_orders=int_config(config, "risk.maximum_active_orders"),
-    )
-    if risk.maximum_absolute_position <= 0 or risk.maximum_active_orders <= 0:
-        raise ValueError("risk limits must be positive")
+    risk_config = config.get("risk")
+    if not isinstance(risk_config, dict):
+        raise ValueError("backtest config requires risk")
+    risk_kind = risk_config.get("engine", "python_reference_v1")
+    if risk_kind == "python_reference_v1":
+        risk: BacktestRisk | CxxRiskOracle = BacktestRisk(
+            maximum_absolute_position=decimal_config(config, "risk.maximum_absolute_position_contracts"),
+            maximum_active_orders=int_config(config, "risk.maximum_active_orders"),
+        )
+        if risk.maximum_absolute_position <= 0 or risk.maximum_active_orders <= 0:
+            raise ValueError("risk limits must be positive")
+    elif risk_kind == "cxx_oracle_v1":
+        risk = CxxRiskOracle(risk_config)
+    else:
+        raise ValueError("risk.engine must be python_reference_v1 or cxx_oracle_v1")
+    ledger = ResearchLedger.from_config(config)
     scheduled: list[tuple[int, int, dict[str, Any]]] = []
     active: dict[int, BacktestOrder] = {}
     next_decision_at = -1
@@ -650,6 +832,7 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
     def cancel_all(reason: str, now_ns: int) -> None:
         nonlocal cancellation_count
         for order in list(active.values()):
+            risk.cancel(order)
             order_records.append({
                 "kind": "cancellation", "truth_category": "ModelDerived", "order_id": order.order_id,
                 "time_utc_ns": now_ns, "reason": reason, "remaining_contracts": format(order.remaining, "f"),
@@ -661,6 +844,7 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
         nonlocal decisions, next_order_id, cancellation_count
         for order in list(active.values()):
             if order.expires_at_ns <= now_ns:
+                risk.cancel(order)
                 order_records.append({
                     "kind": "cancellation", "truth_category": "ModelDerived", "order_id": order.order_id,
                     "time_utc_ns": now_ns, "reason": "logical_expiry", "remaining_contracts": format(order.remaining, "f"),
@@ -682,7 +866,10 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
                 continue
             cancel_all("quote_replacement", now_ns)
             for side, price in (("buy", bid_price), ("sell", ask_price)):
-                rejection = risk.admit(side, quantity, active.values())
+                # The research order ID is also its stable client-intent and ingress correlation.
+                # A rejected intent has no reservation, so retrying that unused ID is safe.
+                client_intent_id = next_order_id
+                rejection = risk.admit(client_intent_id, side, quantity, price, now_ns, active.values())
                 if rejection is not None:
                     rejections[rejection] += 1
                     continue
@@ -692,6 +879,7 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
                     created_from_watermark=int_value(feature["as_of_watermark"], "as_of_watermark"),
                 )
                 active[order.order_id] = order
+                risk.acknowledge(order)
                 order_records.append({
                     "kind": "order_accepted", "truth_category": "ModelDerived", "order_id": order.order_id,
                     "side": side, "price_dollars": format(price, "f"), "quantity_contracts": format(quantity, "f"),
@@ -715,7 +903,8 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
             filled = min(order.remaining, remaining_trade)
             order.remaining -= filled
             remaining_trade -= filled
-            risk.position += filled if order.side == "buy" else -filled
+            risk.apply_fill(order, filled)
+            ledger.apply_fill(order, filled, int_value(event["logical_time_utc_ns"], "logical_time_utc_ns"))
             fills.append({
                 "truth_category": "ModelDerived", "fill_model": "trade_touch_v1",
                 "order_id": order.order_id, "side": order.side, "price_dollars": format(order.price, "f"),
@@ -744,11 +933,15 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
             activate_due(max(value[0] for value in scheduled))
         orders_path = temporary / "orders.jsonl"
         fills_path = temporary / "fills.jsonl"
+        ledger_path = temporary / "ledger.jsonl"
         with orders_path.open("x", encoding="utf-8") as destination:
             for record in order_records:
                 destination.write(canonical_json(record) + "\n")
         with fills_path.open("x", encoding="utf-8") as destination:
             for record in fills:
+                destination.write(canonical_json(record) + "\n")
+        with ledger_path.open("x", encoding="utf-8") as destination:
+            for record in ledger.entries:
                 destination.write(canonical_json(record) + "\n")
         fill_assumption = (
             "trade_touch_v1 allocates qualifying public trade quantity to simulated orders by deterministic order id."
@@ -766,7 +959,15 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
             "market_truth": "Observed",
             "execution_truth": "ModelDerived",
             "fill_model": fill_model,
+            "risk_engine": risk_kind,
             "latency": config["latency"],
+            "accounting": {
+                "enabled": ledger.enabled,
+                "settlement_status": "unresolved" if ledger.enabled else "not_configured",
+                "cash_balance_dollars": format(ledger.cash_balance, "f") if ledger.enabled else None,
+                "total_fees_dollars": format(ledger.total_fees, "f") if ledger.enabled else None,
+                "claim": "Policy cashflows only; no settlement or PnL claim.",
+            },
             "assumptions": [
                 "Observed Level-2 book data is not replayed through ExchangeSimulator.",
                 "No queue position, hidden liquidity, venue acknowledgement, fees, PnL, collateral, or settlement is modelled.",
@@ -783,11 +984,14 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
             },
             "orders_sha256": sha256_file(orders_path),
             "fills_sha256": sha256_file(fills_path),
+            "ledger_sha256": sha256_file(ledger_path),
         }
         write_json(temporary / "manifest.json", manifest)
         temporary.rename(output_dir)
+        risk.close()
         return manifest
     except Exception:
+        risk.close()
         shutil.rmtree(temporary, ignore_errors=True)
         raise
 

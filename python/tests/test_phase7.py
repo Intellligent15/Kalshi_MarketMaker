@@ -194,6 +194,43 @@ class Phase7Tests(unittest.TestCase):
         self.assertEqual(manifest["metrics"]["model_derived_fills"], 0)
         self.assertIn("never creates", manifest["assumptions"][-1])
 
+    def test_cxx_risk_oracle_and_unresolved_ledger_are_explicit(self) -> None:
+        oracle = phase7.REPOSITORY_ROOT / "build" / "cpp" / "pmm_risk_oracle"
+        if not oracle.is_file():
+            self.skipTest("C++ risk oracle has not been built")
+        capture = self.make_capture([self.snapshot(), self.trade()])
+        normalized = self.generated_root / "normalized"
+        phase7.normalize_capture(capture, normalized)
+        features = self.generated_root / "features"
+        phase7.materialize_features(normalized, features)
+        relative = self.generated_root.relative_to(phase7.REPOSITORY_ROOT)
+        config = {
+            "schema": phase7.BACKTEST_SCHEMA, "run_id": "cxx-risk", "seed": 7,
+            "normalized_events": str(relative / "normalized" / "events.jsonl"),
+            "features": str(relative / "features" / "features.jsonl"),
+            "latency": {"market_data_ns": 0, "decision_ns": 0, "order_ns": 0},
+            "strategy": {"decision_interval_ns": 1_000_000_000, "order_lifetime_ns": 10_000_000_000,
+                         "minimum_spread_dollars": "0.01", "quote_quantity_contracts": "1"},
+            "risk": {
+                "engine": "cxx_oracle_v1", "oracle_executable": "build/cpp/pmm_risk_oracle",
+                "limits": {"maximum_order_quantity_contracts": "2", "maximum_absolute_position_contracts": "2",
+                           "maximum_buy_exposure_contracts": "2", "maximum_sell_exposure_contracts": "2",
+                           "maximum_pending_exposure_contracts": "2", "maximum_active_orders": 2},
+            },
+            "accounting": {"schema": "pmm.accounting_policy.v1", "fee_per_contract_dollars": "0.01",
+                           "settlement_status": "unresolved"},
+            "fill_model": "trade_touch_v1",
+        }
+        config_path = self.generated_root / "cxx-config.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        manifest = phase7.run_backtest(config_path, self.generated_root / "run")
+        self.assertEqual(manifest["risk_engine"], "cxx_oracle_v1")
+        self.assertTrue(manifest["accounting"]["enabled"])
+        self.assertEqual(manifest["metrics"]["model_derived_fills"], 1)
+        ledger = list(phase7.iter_jsonl(self.generated_root / "run" / "ledger.jsonl"))
+        self.assertEqual(len(ledger), 1)
+        self.assertEqual(ledger[0]["fee_dollars"], "0.01")
+
 
 if __name__ == "__main__":
     unittest.main()
