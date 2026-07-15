@@ -106,9 +106,10 @@ struct RiskCheckpoint {
 };
 
 // Validation categories for restoring a checkpoint.  The first failure in the documented
-// order wins: live orders in vector order (zero quantity, then duplicate identifier), pending
-// orders in vector order (contract, zero quantity, post-only, zero ingress, duplicate ingress,
-// duplicate intent), then active-order count, open/pending exposure, and position.
+// order wins: live orders in vector order (zero quantity, duplicate identifier, then per-order
+// quantity limit), pending orders in vector order (contract, zero quantity, post-only, zero
+// ingress, duplicate ingress, duplicate intent, then per-order quantity limit), then active-order
+// count, open/pending exposure, and position.
 enum class CheckpointRejectCode {
   ZeroLiveQuantity,
   DuplicateOrderId,
@@ -123,6 +124,8 @@ enum class CheckpointRejectCode {
   SellExposureLimit,
   PendingExposureLimit,
   PositionLimit,
+  // Appended so existing category ordinals remain stable; validation order is documented above.
+  OrderQuantityLimit,
 };
 
 struct CheckpointRejection {

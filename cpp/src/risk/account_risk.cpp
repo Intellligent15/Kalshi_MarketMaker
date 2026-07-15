@@ -74,6 +74,10 @@ std::optional<CheckpointRejection> AccountRiskProjection::validate_checkpoint(
       return reject(CheckpointRejectCode::DuplicateOrderId,
                     "risk checkpoint contains duplicate live order identifiers");
     }
+    if (order.remaining_quantity > limits.maximum_order_quantity) {
+      return reject(CheckpointRejectCode::OrderQuantityLimit,
+                    "risk checkpoint live order quantity exceeds risk limit");
+    }
     (order.side == core::Side::Buy ? open_buy : open_sell) = accumulate(
         order.side == core::Side::Buy ? open_buy : open_sell, order.remaining_quantity.units());
   }
@@ -107,6 +111,10 @@ std::optional<CheckpointRejection> AccountRiskProjection::validate_checkpoint(
     if (!client_intents.insert(pending.intent.client_intent_id).second) {
       return reject(CheckpointRejectCode::DuplicateClientIntent,
                     "risk checkpoint contains duplicate client intents");
+    }
+    if (pending.intent.quantity > limits.maximum_order_quantity) {
+      return reject(CheckpointRejectCode::OrderQuantityLimit,
+                    "risk checkpoint reservation quantity exceeds risk limit");
     }
     (pending.intent.side == core::Side::Buy ? pending_buy : pending_sell) =
         accumulate(pending.intent.side == core::Side::Buy ? pending_buy : pending_sell,

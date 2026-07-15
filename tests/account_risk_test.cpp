@@ -339,7 +339,10 @@ void ExpectCheckpointRejection(const AccountBinding& binding, const RiskCheckpoi
   const auto rejection = AccountRiskProjection::validate_checkpoint(binding, Limits(), checkpoint);
   ASSERT_TRUE(rejection.has_value());
   EXPECT_EQ(rejection->code, code);
-  EXPECT_FALSE(AccountRiskProjection::restore(binding, Limits(), checkpoint).has_value());
+  EXPECT_EQ(rejection->error.code, core::DomainErrorCode::InvalidOrder);
+  const auto restored = AccountRiskProjection::restore(binding, Limits(), checkpoint);
+  ASSERT_FALSE(restored.has_value());
+  EXPECT_EQ(restored.error().code, core::DomainErrorCode::InvalidOrder);
 }
 
 TEST(AccountRisk, ValidatesEveryCheckpointRejectionCategory) {
@@ -359,6 +362,9 @@ TEST(AccountRisk, ValidatesEveryCheckpointRejectionCategory) {
                                             MakeLiveOrder(11, core::Side::Sell, 1)},
                                            {}},
                             CheckpointRejectCode::DuplicateOrderId);
+  ExpectCheckpointRejection(
+      binding, RiskCheckpoint{0, 0, false, {MakeLiveOrder(11, core::Side::Buy, 6)}, {}},
+      CheckpointRejectCode::OrderQuantityLimit);
   ExpectCheckpointRejection(
       binding,
       RiskCheckpoint{
@@ -399,6 +405,11 @@ TEST(AccountRisk, ValidatesEveryCheckpointRejectionCategory) {
                             CheckpointRejectCode::DuplicateClientIntent);
   ExpectCheckpointRejection(
       binding,
+      RiskCheckpoint{
+          0, 0, false, {}, {MakePendingOrder(1, contract, core::Side::Buy, 6, std::nullopt)}},
+      CheckpointRejectCode::OrderQuantityLimit);
+  ExpectCheckpointRejection(
+      binding,
       RiskCheckpoint{0,
                      0,
                      false,
@@ -408,15 +419,29 @@ TEST(AccountRisk, ValidatesEveryCheckpointRejectionCategory) {
                       MakePendingOrder(2, contract, core::Side::Sell, 1, 8)}},
       CheckpointRejectCode::ActiveOrderLimit);
   ExpectCheckpointRejection(
-      binding, RiskCheckpoint{0, 0, false, {MakeLiveOrder(11, core::Side::Buy, 6)}, {}},
+      binding,
+      RiskCheckpoint{0,
+                     0,
+                     false,
+                     {MakeLiveOrder(11, core::Side::Buy, 3), MakeLiveOrder(12, core::Side::Buy, 3)},
+                     {}},
       CheckpointRejectCode::BuyExposureLimit);
-  ExpectCheckpointRejection(
-      binding, RiskCheckpoint{0, 0, false, {MakeLiveOrder(11, core::Side::Sell, 6)}, {}},
-      CheckpointRejectCode::SellExposureLimit);
+  ExpectCheckpointRejection(binding,
+                            RiskCheckpoint{0,
+                                           0,
+                                           false,
+                                           {MakeLiveOrder(11, core::Side::Sell, 3),
+                                            MakeLiveOrder(12, core::Side::Sell, 3)},
+                                           {}},
+                            CheckpointRejectCode::SellExposureLimit);
   ExpectCheckpointRejection(
       binding,
-      RiskCheckpoint{
-          0, 0, false, {}, {MakePendingOrder(1, contract, core::Side::Buy, 6, std::nullopt)}},
+      RiskCheckpoint{0,
+                     0,
+                     false,
+                     {},
+                     {MakePendingOrder(1, contract, core::Side::Buy, 3, std::nullopt),
+                      MakePendingOrder(2, contract, core::Side::Buy, 3, std::nullopt)}},
       CheckpointRejectCode::PendingExposureLimit);
   ExpectCheckpointRejection(
       binding, RiskCheckpoint{0, 5, false, {MakeLiveOrder(11, core::Side::Buy, 1)}, {}},
@@ -436,6 +461,15 @@ TEST(AccountRisk, ChecksCheckpointCategoriesInFirstFailureOrder) {
                      {MakePendingOrder(1, binding.contract_id, core::Side::Buy, 1, 7),
                       MakePendingOrder(1, binding.contract_id, core::Side::Buy, 1, 7)}},
       CheckpointRejectCode::ZeroLiveQuantity);
+  // Existing duplicate-order precedence is preserved ahead of the new per-order limit.
+  ExpectCheckpointRejection(
+      binding,
+      RiskCheckpoint{0,
+                     0,
+                     false,
+                     {MakeLiveOrder(11, core::Side::Buy, 1), MakeLiveOrder(11, core::Side::Buy, 6)},
+                     {}},
+      CheckpointRejectCode::DuplicateOrderId);
   // Within a pending record, contract mismatch wins over the later duplicate-intent check.
   ExpectCheckpointRejection(
       binding,
@@ -447,6 +481,34 @@ TEST(AccountRisk, ChecksCheckpointCategoriesInFirstFailureOrder) {
                       MakePendingOrder(1, Require(core::ContractId::from_value(11)),
                                        core::Side::Buy, 1, std::nullopt)}},
       CheckpointRejectCode::ContractMismatch);
+  // Existing pending-record structure wins before the new per-order limit.
+  ExpectCheckpointRejection(
+      binding,
+      RiskCheckpoint{
+          0, 0, false, {}, {MakePendingOrder(1, binding.contract_id, core::Side::Buy, 6, 0)}},
+      CheckpointRejectCode::ZeroIngress);
+  // Per-order validation still wins before every aggregate limit.
+  ExpectCheckpointRejection(
+      binding, RiskCheckpoint{0, 5, false, {MakeLiveOrder(11, core::Side::Buy, 6)}, {}},
+      CheckpointRejectCode::OrderQuantityLimit);
+}
+
+TEST(AccountRisk, AcceptsCheckpointOrdersAtMaximumOrderQuantity) {
+  const core::Market market = MakeMarket();
+  const AccountBinding binding = Binding(market.contract().id());
+  const RiskCheckpoint checkpoint{
+      0,
+      0,
+      false,
+      {MakeLiveOrder(11, core::Side::Buy, 5)},
+      {MakePendingOrder(1, binding.contract_id, core::Side::Sell, 5, std::nullopt)}};
+
+  EXPECT_FALSE(
+      AccountRiskProjection::validate_checkpoint(binding, Limits(), checkpoint).has_value());
+  const AccountRiskProjection restored =
+      Require(AccountRiskProjection::restore(binding, Limits(), checkpoint));
+  EXPECT_EQ(restored.view().open_buy_quantity.units(), 5U);
+  EXPECT_EQ(restored.view().pending_sell_quantity.units(), 5U);
 }
 
 TEST(AccountRisk, ValidCheckpointHasNoRejectionAndRestores) {
