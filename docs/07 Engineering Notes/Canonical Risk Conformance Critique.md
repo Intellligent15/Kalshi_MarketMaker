@@ -6,6 +6,32 @@ Impact rates the consequence if the issue remains: 1 is minor and 5 blocks trust
 Ease rates the expected containment of the next corrective increment: 1 is broad or externally
 blocked and 5 is small and local. Priority favors correctness and claim discipline over convenience.
 
+## Ingress-safety and fixture-integrity increment critique
+
+This increment made one reservation-to-ingress invariant explicit, rejected zero fills, hardened
+checkpoint validation, added a reviewed duplicate-ingress fixture, and made the standard test
+script run the Python suite. It is useful foundation work, not the complete conformance milestone.
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | The corpus still has only two fixtures and does not cover the approved rejection, ordering, kill-switch, or restore matrix. | Missing tests | 5 | 3 | Passing the current suite proves two paths, not lifecycle-wide parity. | Add the focused reviewed fixtures from the approved matrix before calling this complete conformance. |
+| P1 | Checkpoint/restore has stronger direct C++ validation but no shared fixture protocol or Python-reference parity. | Missing tests / interface debt | 5 | 3 | Restore is precisely where a second implementation and serialized state need comparison. | Add the separate versioned, test-only checkpoint fixture harness; keep the V1 oracle frozen. |
+| P1 | Direct C++ tests and Python fixture tests still encode scenarios separately. | Future technical debt | 4 | 3 | A future change can update one representation but omit the other. | Make a test-only C++ fixture executor consume the same reviewed fixture documents. |
+| P2 | The Python oracle integration treats any oracle `ERROR` as a generic domain failure. | Unnecessary complexity / test precision | 3 | 4 | It proves unchanged state, but not a stable typed error contract. | Keep V1 behaviour as a transport regression; use typed fixture-harness results for the full suite. |
+| P2 | `restore` reports the existing generic "duplicate client intents" message for several new invalid-checkpoint cases. | Future technical debt | 2 | 5 | Tests correctly use success/failure, but diagnosis is less clear. | Return stable checkpoint-validation categories only in the future test harness; do not make V1 error text a public contract. |
+| P2 | The fixture manifest now has a payload hash and member hashes, but no standalone replay/verification command. | Missing documentation / tooling | 3 | 4 | Verification logic is embedded in unittest rather than reusable by a reviewer or CI job. | Add a small test-only verifier after the V2 corpus exists. |
+| P3 | The test script invokes `uv`, so a developer without the managed uv cache receives an environment error before Python validation. | Operational friction | 2 | 4 | The standard project workflow uses uv, but the failure is environmental rather than a test failure. | Document `uv sync --locked`; keep cache permissions outside repository logic. |
+| P3 | Full snapshots after every transition intentionally repeat live and pending records. | Future scalability concern | 2 | 3 | Trace size grows with open state times transitions. | Retain full snapshots for fixtures; consider verified compact deltas only after a replayer exists. |
+
+### Debt order in plain language
+
+1. **Finish the shared fixture matrix.** This is the highest-value missing proof.
+2. **Add test-only checkpoint/restore parity.** It is the main remaining state-serialization gap.
+3. **Make direct C++ consume the reviewed fixtures.** This removes duplicate scenario definitions.
+4. **Add a reusable manifest/trace verifier.** It makes the current hash rules easier to audit.
+5. **Optimize only after correctness coverage is complete.** Batching, caching, and compact traces
+   are not justified before then.
+
 ## Findings
 
 | Finding | Category | Impact | Ease | Why it matters | Recommended handling |

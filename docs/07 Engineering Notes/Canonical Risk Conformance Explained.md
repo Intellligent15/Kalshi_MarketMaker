@@ -103,3 +103,51 @@ This is a foundation, not full conformance yet.  We proved one representative li
 made all future traces inspectable.  The next work is repetitive but important: add the remaining
 small fixtures, especially rejection, restore, and malformed-input paths, before treating the
 suite as complete lifecycle coverage.
+
+## Latest ingress-safety and fixture-integrity increment
+
+### What we did
+
+We closed three small state-machine holes and added one negative fixture:
+
+- A pending reservation can now bind an ingress sequence only if no other reservation owns it.
+- A zero-quantity fill is rejected before it can advance the risk watermark.
+- Restoring a risk checkpoint now rejects invalid pending reservations and state that exceeds the
+  configured order, exposure, or position limits.
+- The fixture manifest now hashes its own canonical payload as well as every fixture and expected
+  trace. A second fixture proves that duplicate ingress binding fails without changing state.
+
+The standard `scripts/test.sh` command now runs the C++ CTest suite and the Python unittest suite.
+
+### How we did it
+
+```text
+admit two reservations
+        |
+bind client 1 to ingress 7
+        |
+attempt to bind client 2 to ingress 7
+        |
+reject, retain both reservations exactly as they were
+```
+
+The C++ projection enforces the rule. The Python test-only reference implements the same narrow
+rule. The reviewed fixture is replayed through both and `SNAPSHOT` compares watermark, position,
+exposures, live orders, pending reservations, and kill-switch state after each step.
+
+### Why we did it
+
+Ingress is the link between a risk reservation and a later exchange response. If two reservations
+could share it, an acknowledgement or rejection could release or activate the wrong reservation.
+That is a risk-state correctness problem even if the final inventory later happens to balance.
+
+The manifest-payload hash prevents a reviewer from trusting a manifest whose member list was
+changed but whose individual files were not. Replaying the fixture twice and comparing raw bytes
+checks that the test reference does not introduce hidden nondeterminism.
+
+### What this still does not mean
+
+This does not create a versioned production oracle protocol, durable full-run recovery, realistic
+fills, queue priority, PnL correctness, paper trading, or live readiness. The whitespace oracle
+remains the limited V1 local adapter. Full checkpoint/restore parity still belongs in a separate,
+versioned test-only fixture harness.
