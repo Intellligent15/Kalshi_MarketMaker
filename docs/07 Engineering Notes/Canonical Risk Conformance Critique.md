@@ -331,21 +331,70 @@ one place per language and avoids 32 repeated test bodies. The focused C++ selec
 under one second during implementation, so corpus caching or a narrower parser-only hook would add
 complexity without measured value.
 
+### Assessment of the design itself
+
+The implementation has two kinds of duplication, and they should not be treated the same way.
+Repeating the strict matrix in C++ and Python is intentional independence: one reader cannot make
+the other reader pass. Repeating temporary-directory setup, canonical writing, and rehashing inside
+every individual test would have been accidental complexity, so those mechanics stay in one helper
+per language. The chosen table is the middle ground: the rules remain visible while the machinery
+is shared.
+
+The main brittleness is not the table; it is how the donor checkpoint is addressed. Both tests use
+transition index 5 because that is where `roundtrip_live_and_pending` currently captures state. A
+future edit that inserts an operation before the checkpoint could make the mutation test fail for
+an indexing reason rather than a strict-rule regression. This is contained test debt, not a flaw in
+checkpoint semantics. A future cleanup should locate the unique `checkpoint` operation from the
+fixture and use its matching transition, while still asserting that exactly one donor capture was
+found.
+
+Diagnostic matching also has a deliberate tradeoff. Field-path assertions prevent a generic hash
+or schema failure from satisfying the test, but the C++ rows currently include short prose such as
+`must equal the fixture limits`. Improving that prose would require a test update even when reader
+behavior is unchanged. The tests should continue to require the stable field path; if diagnostic
+wording begins changing frequently, separate the path from the explanatory message rather than
+weakening the assertion to any exception.
+
 | Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
 | ---: | --- | --- | ---: | ---: | --- | --- |
 | P1 | Fixture authoring and permanent rehashing still have no checked-in helper or exact command. | Future technical debt / missing tooling | 3 | 4 | The temporary test helper is deliberately private to tests and does not make reviewed corpus edits reproducible for an author. | Keep the fixture-authoring/rehash helper as the next separate correctness-support increment. |
 | P2 | C++ and Python duplicate the 16-row strict mutation contract. | Unnecessary complexity / future drift risk | 2 | 3 | Independence is useful evidence, but a future strict field addition must update both tables. | Document every new strict field in this guide and require a named row in both readers; do not merge the implementations. |
+| P2 | Both matrices hard-code donor transition index 5. | Future technical debt / maintainability | 3 | 4 | Inserting an operation before the capture could redirect or break every mutation without changing the strict contract. | Resolve the capture transition from the donor's `checkpoint` operation and assert that the donor has exactly one capture. |
 | P2 | Python still lacks parity for several unrelated reader mutations already covered in C++. | Missing tests | 2 | 4 | Strict-capture parity is complete, but symlink, duplicate-member, wrong-schema, and continuation categories can still drift. | Close the remaining reader-mutation parity in its own package without changing checkpoint semantics. |
+| P2 | SHA coverage does not enumerate adjacent padding and block boundaries such as 55, 63, 64, and 65 input bytes. | Missing tests | 2 | 5 | The required empty, short, and 56-byte multi-block vectors exercise the algorithm well, but an off-by-one defect outside those lengths could remain. | Add a small boundary-vector table only if the helper changes; property or fuzz testing remains a separate lower-priority package. |
+| P2 | C++ diagnostics are asserted partly through human-readable prose. | Future technical debt / diagnostic coupling | 2 | 4 | A wording-only improvement can break the mutation test even though the rejection path remains correct. | Preserve field-path matching; split structured location from prose if diagnostic churn becomes real. |
+| P2 | The fixture guide explains canonical bytes and hashes but still gives no exact authoring and verification command. | Missing documentation | 3 | 4 | A reviewer can understand the contract but cannot reproducibly regenerate a deliberately edited corpus using a checked-in workflow. | Document the command together with the future authoring/rehash helper, not as an ad hoc shell recipe. |
 | P3 | Each strict row copies and verifies the complete 26-fixture corpus. | Possible optimization / future scalability concern | 1 | 3 | Isolation is valuable and current runtime is small; the cost will grow linearly if the corpus becomes much larger. | Retain full isolation until profiling shows material test cost, then consider a verified base copy or parameterized fixture cache. |
 | P3 | Identity failures share one C++ diagnostic and limits share another. | Diagnostic precision | 1 | 4 | Named rows identify the failed comparison in tests, but the loader's prose does not name the exact identity or limit field. | Leave unchanged unless fixture-authoring failures become difficult to diagnose; changing test-only prose is not required for correctness. |
+| P3 | One sorted manifest and canonical one-line traces remain review and merge hot spots. | Future scalability / review ergonomics | 2 | 3 | More fixtures increase line length, merge conflicts, and the cost of manually locating one changed transition even though runtime remains small. | Keep canonical files authoritative; add a read-only summary or pretty-printer before considering manifest sharding. |
+| P4 | `std::function` mutations in C++ and dynamically traversed paths in Python are more abstract than explicit test bodies. | Unnecessary complexity | 1 | 4 | A new contributor must understand the table machinery before reading one case, but the alternative is 32 repetitive bodies. | Keep the tables small and local; do not extract a general mutation framework. |
 
 ### Debt order after this increment
 
-1. Make permanent fixture authoring and rehashing reproducible.
-2. Close remaining Python reader-mutation parity as a separate test package.
-3. Preserve the duplicated strict matrix as independent evidence, updating both sides together.
-4. Defer corpus caching, parser exposure, and serialization optimization until runtime is measured
-   as a problem.
+1. Make permanent fixture authoring and rehashing reproducible, including an exact documented
+   command.
+2. Remove the hard-coded donor transition index without creating a general mutation framework.
+3. Close remaining Python reader-mutation parity as a separate test package.
+4. Preserve the duplicated strict matrix as independent evidence, updating both sides together.
+5. Add SHA boundary vectors only when the helper changes or evidence reveals a need.
+6. Defer corpus caching, manifest sharding, parser exposure, and serialization optimization until
+   runtime or authoring contention is measured as a problem.
+
+### Category summary
+
+- **Unnecessary complexity — impact 2/5 overall.** The duplicated language-level matrix is mostly
+  justified independent evidence. The table machinery itself is impact 1/5 and should remain
+  local rather than becoming a framework.
+- **Future technical debt — impact 3/5 overall.** The hard-coded capture index and absent permanent
+  authoring workflow are the most concrete maintenance risks.
+- **Missing tests — impact 2/5 overall.** Required strict rules and standard SHA vectors are
+  covered. Remaining gaps concern secondary reader parity and additional hash boundary lengths.
+- **Missing documentation — impact 3/5 overall.** The evidence contract is explained, but corpus
+  authors still lack one reproducible checked-in regeneration command.
+- **Possible optimizations — impact 1/5 overall.** Current focused runtime is below one second;
+  caching would presently cost more clarity than it saves.
+- **Future scalability concerns — impact 2/5 overall.** Full-corpus copies, one-line traces, and a
+  single manifest grow linearly, but none is a measured bottleneck at 26 fixtures.
 
 ### Retained limitations
 
