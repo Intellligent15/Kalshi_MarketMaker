@@ -94,6 +94,9 @@ AdmissionDecision AccountRiskProjection::admit(const OrderIntent& intent,
   if (intent.contract_id != binding_.contract_id) {
     return reject(AdmissionRejectCode::ContractMismatch, "intent contract is not bound to account");
   }
+  if (intent.quantity.is_zero()) {
+    return reject(AdmissionRejectCode::OrderQuantityLimit, "order quantity must be positive");
+  }
   if (pending_orders_.contains(intent.client_intent_id)) {
     return reject(AdmissionRejectCode::DuplicateClientIntent, "duplicate client intent identifier");
   }
@@ -193,9 +196,14 @@ core::Result<void> AccountRiskProjection::apply(const AccountEvent& event) {
       const PendingRiskOrder reservation = pending->second;
       if (reservation.intent.contract_id != acknowledgement->contract_id ||
           reservation.intent.side != acknowledgement->side ||
-          reservation.intent.quantity != acknowledgement->quantity) {
+          reservation.intent.quantity != acknowledgement->quantity ||
+          reservation.intent.limit_price != acknowledgement->limit_price) {
         return Error(core::DomainErrorCode::InvalidOrder,
                      "acknowledged order does not match risk reservation");
+      }
+      if (live_orders_.contains(acknowledgement->order_id)) {
+        return Error(core::DomainErrorCode::InvalidOrder,
+                     "acknowledged order identifier already exists in risk projection");
       }
       live_orders_.emplace(acknowledgement->order_id,
                            LiveRiskOrder{acknowledgement->order_id, acknowledgement->side,
@@ -209,6 +217,12 @@ core::Result<void> AccountRiskProjection::apply(const AccountEvent& event) {
         return Error(core::DomainErrorCode::OwnershipMismatch,
                      "account fill has a contract outside this risk binding");
       }
+      const auto live = live_orders_.find(fill->order_id);
+      if (live == live_orders_.end() || live->second.side != fill->side ||
+          live->second.remaining_quantity.units() < fill->quantity.units()) {
+        return Error(core::DomainErrorCode::InvalidOrder,
+                     "fill does not match projected live order");
+      }
       if (fill->quantity.units() >
           static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
         return Error(core::DomainErrorCode::PositionOverflow, "fill exceeds signed position range");
@@ -220,18 +234,12 @@ core::Result<void> AccountRiskProjection::apply(const AccountEvent& event) {
            net_position_ < std::numeric_limits<std::int64_t>::min() + quantity)) {
         return Error(core::DomainErrorCode::PositionOverflow, "account position overflow");
       }
-      net_position_ += fill->side == core::Side::Buy ? quantity : -quantity;
-      const auto live = live_orders_.find(fill->order_id);
-      if (live == live_orders_.end() || live->second.side != fill->side ||
-          live->second.remaining_quantity.units() < fill->quantity.units()) {
-        return Error(core::DomainErrorCode::InvalidOrder,
-                     "fill does not match projected live order");
-      }
       const auto remaining =
           quantity_from_units(live->second.remaining_quantity.units() - fill->quantity.units());
       if (!remaining) {
         return remaining.error();
       }
+      net_position_ += fill->side == core::Side::Buy ? quantity : -quantity;
       if (remaining.value().is_zero()) {
         live_orders_.erase(live);
       } else {
@@ -243,6 +251,9 @@ core::Result<void> AccountRiskProjection::apply(const AccountEvent& event) {
     if (live != live_orders_.end()) {
       if (outcome->remaining_quantity.is_zero()) {
         live_orders_.erase(live);
+      } else if (outcome->remaining_quantity > live->second.remaining_quantity) {
+        return Error(core::DomainErrorCode::InvalidOrder,
+                     "order outcome cannot increase projected remaining quantity");
       } else {
         live->second.remaining_quantity = outcome->remaining_quantity;
       }
@@ -268,6 +279,10 @@ core::Quantity AccountRiskProjection::aggregate_quantity(core::Side side, bool p
     for (const auto& [client_intent_id, reservation] : pending_orders_) {
       static_cast<void>(client_intent_id);
       if (reservation.intent.side == side) {
+        if (reservation.intent.quantity.units() >
+            std::numeric_limits<std::uint64_t>::max() - total) {
+          return core::Quantity::from_units(std::numeric_limits<std::int64_t>::max()).value();
+        }
         total += reservation.intent.quantity.units();
       }
     }
@@ -275,6 +290,9 @@ core::Quantity AccountRiskProjection::aggregate_quantity(core::Side side, bool p
     for (const auto& [order_id, order] : live_orders_) {
       static_cast<void>(order_id);
       if (order.side == side) {
+        if (order.remaining_quantity.units() > std::numeric_limits<std::uint64_t>::max() - total) {
+          return core::Quantity::from_units(std::numeric_limits<std::int64_t>::max()).value();
+        }
         total += order.remaining_quantity.units();
       }
     }

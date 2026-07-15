@@ -159,5 +159,101 @@ TEST(AccountRisk, AppliesModelDerivedResearchEventsUsingTheSameReservationRules)
   EXPECT_TRUE(risk.live_orders().empty());
 }
 
+TEST(AccountRisk, RejectsZeroQuantityWithoutCreatingAReservation) {
+  const core::Market market = MakeMarket();
+  AccountRiskProjection risk =
+      Require(AccountRiskProjection::create(Binding(market.contract().id()), Limits()));
+  const AdmissionDecision decision =
+      risk.admit(OrderIntent{Require(ClientIntentId::from_value(1)), market.contract().id(),
+                             core::Side::Buy, Require(core::Quantity::from_units(0)),
+                             Require(core::Price::from_units(50)), true},
+                 core::Timestamp::from_unix_nanoseconds(1));
+  ASSERT_FALSE(decision.approved());
+  ASSERT_TRUE(decision.rejection.has_value());
+  EXPECT_EQ(decision.rejection->code, AdmissionRejectCode::OrderQuantityLimit);
+  EXPECT_TRUE(risk.view().pending_buy_quantity.is_zero());
+}
+
+TEST(AccountRisk, RejectsInvalidFillWithoutMutatingPositionOrWatermark) {
+  const core::Market market = MakeMarket();
+  AccountRiskProjection risk =
+      Require(AccountRiskProjection::create(Binding(market.contract().id()), Limits()));
+  const auto order_id = Require(core::OrderId::from_value(11));
+  const auto result = risk.apply(AccountEvent{
+      Require(core::SequenceNumber::from_value(1)), core::Timestamp::from_unix_nanoseconds(1), 0,
+      AccountEventTruth::ModelDerived,
+      AccountFill{order_id, Binding(market.contract().id()).trader_id, market.contract().id(),
+                  core::Side::Buy, Require(core::Price::from_units(50)),
+                  Require(core::Quantity::from_units(1))}});
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(risk.view().net_position, 0);
+  EXPECT_EQ(risk.view().event_watermark, 0U);
+}
+
+TEST(AccountRisk, RequiresAcknowledgementPriceToMatchReservation) {
+  const core::Market market = MakeMarket();
+  AccountRiskProjection risk =
+      Require(AccountRiskProjection::create(Binding(market.contract().id()), Limits()));
+  const auto client_id = Require(ClientIntentId::from_value(1));
+  const auto quantity = Require(core::Quantity::from_units(1));
+  ASSERT_TRUE(risk.admit(OrderIntent{client_id, market.contract().id(), core::Side::Buy, quantity,
+                                     Require(core::Price::from_units(50)), true},
+                         core::Timestamp::from_unix_nanoseconds(1))
+                  .approved());
+  Require(risk.bind_ingress(client_id, 1));
+  const auto result = risk.apply(AccountEvent{
+      Require(core::SequenceNumber::from_value(1)), core::Timestamp::from_unix_nanoseconds(1), 1,
+      AccountEventTruth::ModelDerived,
+      AccountOrderAcknowledged{Require(core::OrderId::from_value(11)),
+                               Binding(market.contract().id()).trader_id, market.contract().id(),
+                               core::Side::Buy, quantity, Require(core::Price::from_units(51))}});
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(risk.view().event_watermark, 0U);
+  EXPECT_EQ(risk.view().pending_buy_quantity.units(), 1U);
+}
+
+TEST(AccountRisk, AppliesPartialFillCancellationKillSwitchAndCheckpointContinuation) {
+  const core::Market market = MakeMarket();
+  const AccountBinding binding = Binding(market.contract().id());
+  AccountRiskProjection risk = Require(AccountRiskProjection::create(binding, Limits()));
+  const auto client_id = Require(ClientIntentId::from_value(1));
+  const auto order_id = Require(core::OrderId::from_value(11));
+  const auto price = Require(core::Price::from_units(50));
+  const auto quantity = Require(core::Quantity::from_units(2));
+  const auto time = core::Timestamp::from_unix_nanoseconds(1);
+  ASSERT_TRUE(risk.admit(OrderIntent{client_id, market.contract().id(), core::Side::Buy, quantity,
+                                     price, true},
+                         time)
+                  .approved());
+  Require(risk.bind_ingress(client_id, 1));
+  Require(risk.apply(AccountEvent{
+      Require(core::SequenceNumber::from_value(1)), time, 1, AccountEventTruth::ModelDerived,
+      AccountOrderAcknowledged{order_id, binding.trader_id, binding.contract_id, core::Side::Buy,
+                               quantity, price}}));
+  Require(risk.apply(AccountEvent{
+      Require(core::SequenceNumber::from_value(2)), time, 0, AccountEventTruth::ModelDerived,
+      AccountFill{order_id, binding.trader_id, binding.contract_id, core::Side::Buy, price,
+                  Require(core::Quantity::from_units(1))}}));
+  EXPECT_EQ(risk.view().net_position, 1);
+  EXPECT_EQ(risk.view().open_buy_quantity.units(), 1U);
+  risk.activate_kill_switch();
+  const auto blocked =
+      risk.admit(OrderIntent{Require(ClientIntentId::from_value(2)), market.contract().id(),
+                             core::Side::Sell, Require(core::Quantity::from_units(1)), price, true},
+                 time);
+  ASSERT_FALSE(blocked.approved());
+  ASSERT_TRUE(blocked.rejection.has_value());
+  EXPECT_EQ(blocked.rejection->code, AdmissionRejectCode::KillSwitchActive);
+  const RiskCheckpoint checkpoint = risk.checkpoint();
+  AccountRiskProjection restored =
+      Require(AccountRiskProjection::restore(binding, Limits(), checkpoint));
+  Require(
+      restored.apply(AccountEvent{Require(core::SequenceNumber::from_value(3)), time, 0,
+                                  AccountEventTruth::ModelDerived, AccountCancellation{order_id}}));
+  EXPECT_EQ(restored.view().net_position, 1);
+  EXPECT_TRUE(restored.view().open_buy_quantity.is_zero());
+  EXPECT_TRUE(restored.view().kill_switch_active);
+}
+
 }  // namespace
 }  // namespace pmm::risk
