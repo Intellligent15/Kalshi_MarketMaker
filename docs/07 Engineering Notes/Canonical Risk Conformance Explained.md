@@ -246,3 +246,56 @@ to balance it out.
 
 The reader is test-only so fixture review does not create a production JSON format or alter Phase 3
 matching, core integer types, deterministic ordering, risk admission, or kill-switch ownership.
+
+## Checkpoint/restore conformance
+
+### What we did
+
+We gave serialized risk state its own reviewed, versioned, test-only corpus. A checkpoint document
+now writes down everything a restore needs — identity, limits, watermark, position, kill switch,
+live orders, and pending reservations with their ingress bindings — and the corpus proves both
+directions: a captured checkpoint has exactly the reviewed bytes, and an invalid checkpoint is
+refused for exactly the reviewed reason. `restore` itself did not change behavior; it now
+delegates to a pure `validate_checkpoint` that names which rule a bad checkpoint broke.
+
+### How it works
+
+```text
+build state through lifecycle operations
+        |
+   capture checkpoint  ->  bytes must equal the reviewed document
+        |
+      restore
+        |
+  original and restored projections
+        |
+   every later operation runs on both
+        |
+identical results, identical state, identical re-serialized bytes
+```
+
+Roundtrip fixtures prove nothing is lost across capture and restore, including the kill switch,
+a nonzero watermark, and partial-fill remainders. Document-restore fixtures prove the other
+boundary: authored documents with duplicate order identifiers, zero quantities, duplicate client
+intents, duplicate or zero ingress bindings, wrong contracts, non-post-only intents, or state
+beyond the configured limits are each rejected with one exact `checkpoint_<category>` result.
+The reader deliberately checks only syntax and canonical bytes on input documents so those
+semantic defects reach the C++ projection instead of being masked by the test harness. Malformed
+bytes, wrong hashes, unsafe paths, and unknown fields are separate reader rejections, each with
+its own negative test in both C++ and Python.
+
+### Why we did it
+
+Restore is where serialized state and a second implementation matter most: a checkpoint that
+silently drops a reservation or accepts an over-limit position can look fine until much later.
+Comparing the original and restored projections after every subsequent transition finds the first
+divergence, and asserting rejection categories — not prose — keeps diagnostics free to improve.
+The frozen V1 whitespace oracle gained nothing, and the Python checkpoint module lives only under
+`python/tests/` behind explicit entry points, so no second risk engine can leak into research
+runs.
+
+### What this still does not mean
+
+Checkpoint conformance is in-memory round-trip evidence. It is not durable full-run recovery, not
+a production serialization format, and it does not change any fill-model, PnL, settlement,
+collateral, paper-trading, or live-readiness claim.

@@ -39,4 +39,36 @@ it can faithfully express; for example contract mismatch remains direct-C++/Pyth
 
 V1 admission rejections assert their numeric `AdmissionRejectCode`. Non-admission V1 failures are
 generic `ERROR` results and must not be compared by diagnostic text. Checkpoint/restore is outside
-this schema and requires a separate versioned test-only harness.
+this schema; it lives in the separate checkpoint corpus described below.
+
+## Checkpoint corpus
+
+The corpus under `python/tests/fixtures/risk_conformance/checkpoint_v1/` is reviewed evidence for
+serialized risk state. Its manifest (`pmm.risk_checkpoint_conformance_fixture_manifest.v1`)
+follows the same canonical-bytes, payload-hash, member-hash, and path-safety rules as V1.
+
+A fixture (`pmm.risk_checkpoint_conformance_fixture.v1`) declares `kind: "roundtrip"` or
+`kind: "document_restore"`. Roundtrip fixtures use the V1 operation vocabulary plus two marker
+operations: `checkpoint` captures the projection state and `restore` must immediately follow a
+`checkpoint`. Document-restore fixtures embed a `pmm.risk_checkpoint.v1` document as input and
+take identity and limits from it. Executor eligibility defaults to `direct_cpp` and
+`python_reference`; the frozen `v1_oracle` is not a legal executor name here.
+
+A checkpoint document carries account/strategy/trader/contract identity, all six limits, the
+watermark, net position, kill-switch state, and identifier-sorted live and pending records.
+Input documents are checked for syntax and canonicality only — non-decreasing identifier order,
+canonical decimals, exact keys — so semantic defects such as duplicate identifiers, zero
+quantities, non-post-only intents, or limit violations reach `restore` and must be rejected
+there. Captured documents inside expected traces are strict: strictly sorted, positive
+quantities, post-only, nonzero ingress, and identity/limits equal to the fixture's.
+
+Expected traces (`pmm.risk_checkpoint_conformance_expected_trace.v1`) reuse the V1 complete-state
+shape. Capture transitions carry result `captured` plus the reviewed checkpoint document, whose
+canonical bytes must equal the serialized capture exactly. Restore transitions carry `restored`
+with the post-restore state, after which executors dual-run every later operation against both
+projections. A rejected document restore records exactly one `checkpoint_<category>` result with
+no state and no continuation; the category is asserted against the typed
+`CheckpointRejectCode` from `validate_checkpoint`, whose documented first-failure order is: live
+orders in document order (zero quantity, duplicate identifier), pending orders (contract, zero
+quantity, post-only, zero ingress, duplicate ingress, duplicate intent), active-order count,
+buy/sell/pending exposure, position.

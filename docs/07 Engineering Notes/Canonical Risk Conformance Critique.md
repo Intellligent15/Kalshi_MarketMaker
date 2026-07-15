@@ -208,3 +208,35 @@ deliberately deferred boundary into implied current support.
    production-like abstraction; maintain a small explicit schema matrix instead.
 5. **Improve developer ergonomics only after correctness.** Offline bootstrap, pretty output,
    caching, and streaming are worthwhile only when their costs are observed.
+
+## Checkpoint-conformance increment critique
+
+Impact measures the consequence of leaving an issue open: 1 is minor and 5 blocks trustworthy
+conformance evidence. Ease measures how contained the corrective increment is: 1 is broad or
+externally blocked and 5 is small and local. Priority favors impact, then ease.
+
+This increment closed the former P1: serialized risk state now has a versioned corpus, a
+byte-exact capture contract, a dual-run restore proof, typed rejection categories, and a
+per-rule negative matrix in both C++ and Python. The remaining debt is narrower.
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | Checkpoint conformance proves in-memory round-trips only; risk state has no durable persistence boundary, unlike the exchange WAL. | Non-claim discipline / future work | 4 | 2 | A reader could over-generalize passing fixtures into recovery claims. | Keep the non-claims explicit; design risk-state durability as its own increment with its own failure matrix. |
+| P2 | The limit arithmetic now exists three times: production C++, the direct C++ executor's expectations, and the Python reference. | Future technical debt | 4 | 3 | A future limit change can be applied to two surfaces and missed in the third. | Change limits only through a reviewed fixture that all executors must pass; never merge the readers into one abstraction. |
+| P2 | Checkpoint documents duplicate identity and limits that roundtrip fixtures also imply. | Unnecessary complexity | 2 | 4 | The verifier enforces agreement, but authors write the same values twice. | Keep the redundancy: an explicit restore input is worth the authoring friction; revisit only if the corpus grows large. |
+| P3 | The corpus is single account, single contract; portfolio-level checkpoint composition is undesigned. | Coverage debt | 3 | 2 | Multi-account recovery semantics cannot be inferred from this schema. | Treat portfolio checkpoints as new design work, not a schema extension. |
+| P3 | The `checkpoint_*` first-failure order is now load-bearing for fixtures. | Interface debt | 3 | 4 | Reordering validation in C++ silently changes reviewed answers. | The order is documented in the header and guide and pinned by an ordering fixture plus unit test; change it only with a reviewed corpus update. |
+| P4 | The negative matrix is enumerated, not generative; there is no fuzz or property testing of either reader. | Missing tests | 2 | 3 | A parser defect outside the enumerated categories could survive. | Consider a small structured fuzzer only after the enumerated matrix has proven insufficient. |
+
+### Debt order in plain language
+
+1. **Do not let round-trip evidence become a recovery claim.** Durable risk-state persistence is
+   separate future work with its own design gate.
+2. **Guard the triplicated limit arithmetic with fixtures.** Every limit-rule change must arrive
+   with a reviewed fixture that all three surfaces replay.
+3. **Leave the redundant identity/limits in documents.** Explicit restore inputs beat implicit
+   context, and the verifier already enforces consistency.
+4. **Treat validation order as part of the contract.** It is documented and pinned; reordering is
+   a corpus change, not a refactor.
+5. **Fuzz only if the enumerated matrix proves insufficient.** Correctness coverage is currently
+   explicit and reviewable; keep it that way until evidence demands more.

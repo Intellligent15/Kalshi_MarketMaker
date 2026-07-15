@@ -126,3 +126,37 @@ the reviewed unchanged state but do not make diagnostic prose a protocol contrac
 
 Checkpoint/restore remains outside fixture V1 and outside this increment. It requires a separate,
 versioned test-only fixture schema after this lifecycle-conformance closure.
+
+## Amendment: versioned checkpoint/restore conformance
+
+Serialized risk state now has its own reviewed corpus under
+`python/tests/fixtures/risk_conformance/checkpoint_v1/`. The schemas are
+`pmm.risk_checkpoint_conformance_fixture.v1`, `pmm.risk_checkpoint_conformance_expected_trace.v1`,
+a manifest with the established payload and member SHA-256 rules, and an inline
+`pmm.risk_checkpoint.v1` document carrying the complete restore input: account, strategy, trader,
+and contract identity, all six configured limits, the watermark, net position, kill-switch state,
+identifier-sorted live orders, and identifier-sorted pending reservations with their ingress
+bindings. The serialization is test-only evidence, not a production or durability format.
+
+A `roundtrip` fixture builds state through the existing V1 operation vocabulary, captures a
+checkpoint whose canonical bytes must equal the reviewed document, restores immediately, and then
+applies every later transition to both the original and restored projections, requiring identical
+results, identical complete state, and byte-identical re-serialized checkpoints after every step.
+A `document_restore` fixture restores an authored checkpoint document directly; its first
+transition is either `restored` with the complete post-state or exactly one
+`checkpoint_<category>` rejection, in which case nothing may continue.
+
+The reader validates syntax and canonicality only for input documents: zero quantities, duplicate
+identifiers, non-post-only intents, zero or duplicate ingress bindings, wrong contracts, and
+limit violations stay expressible so `AccountRiskProjection::restore` is shown to reject them.
+Reviewed captured documents are additionally strict. `pmm_risk` gains one addition: a typed
+`CheckpointRejectCode` returned by the pure `validate_checkpoint`, which `restore` now delegates
+to with an unchanged signature and unchanged accept/reject behavior. The first-failure order is
+documented and fixture-asserted; rejection prose remains non-contractual.
+
+Eligible executors are `direct_cpp` and the test-only Python reference through separate
+checkpoint entry points; `ReferenceRisk.apply` still refuses checkpoint operations, and the frozen
+V1 whitespace oracle is not a legal executor for this corpus. This amendment proves in-memory
+capture/restore fidelity only. It does not establish durable full-run recovery, calibrated fills,
+queue priority, execution realism, PnL correctness, settlement, collateral, paper trading, or
+live readiness.
