@@ -30,42 +30,116 @@ core::Result<AccountRiskProjection> AccountRiskProjection::restore(AccountBindin
   if (!restored) {
     return restored.error();
   }
+  if (const auto rejection = validate_checkpoint(binding, limits, checkpoint)) {
+    return rejection->error;
+  }
   AccountRiskProjection projection = std::move(restored).value();
   projection.event_watermark_ = checkpoint.event_watermark;
   projection.net_position_ = checkpoint.net_position;
   projection.kill_switch_active_ = checkpoint.kill_switch_active;
-  std::set<std::uint64_t> bound_ingress_sequences;
   for (const LiveRiskOrder& order : checkpoint.live_orders) {
-    if (order.remaining_quantity.is_zero() ||
-        !projection.live_orders_.emplace(order.order_id, order).second) {
-      return Error(core::DomainErrorCode::InvalidOrder,
-                   "risk checkpoint contains invalid live orders");
-    }
+    projection.live_orders_.emplace(order.order_id, order);
   }
   for (const PendingRiskOrder& pending : checkpoint.pending_orders) {
-    if (pending.intent.contract_id != binding.contract_id || pending.intent.quantity.is_zero() ||
-        !pending.intent.post_only ||
-        (pending.ingress_sequence.has_value() &&
-         (*pending.ingress_sequence == 0 ||
-          !bound_ingress_sequences.insert(*pending.ingress_sequence).second)) ||
-        !projection.pending_orders_.emplace(pending.intent.client_intent_id, pending).second) {
-      return Error(core::DomainErrorCode::InvalidOrder,
-                   "risk checkpoint contains duplicate client intents");
-    }
-  }
-  if (projection.live_orders_.size() + projection.pending_orders_.size() >
-      projection.limits_.maximum_active_orders) {
-    return Error(core::DomainErrorCode::InvalidOrder, "risk checkpoint exceeds active order limit");
-  }
-  if (projection.aggregate_quantity(core::Side::Buy, false) > limits.maximum_buy_exposure ||
-      projection.aggregate_quantity(core::Side::Sell, false) > limits.maximum_sell_exposure ||
-      projection.aggregate_quantity(core::Side::Buy, true) > limits.maximum_pending_exposure ||
-      projection.aggregate_quantity(core::Side::Sell, true) > limits.maximum_pending_exposure ||
-      projection.exceeds_position_limit(core::Side::Buy, core::Quantity::from_units(0).value())) {
-    return Error(core::DomainErrorCode::InvalidOrder,
-                 "risk checkpoint violates configured exposure limits");
+    projection.pending_orders_.emplace(pending.intent.client_intent_id, pending);
   }
   return projection;
+}
+
+std::optional<CheckpointRejection> AccountRiskProjection::validate_checkpoint(
+    const AccountBinding& binding, const RiskLimits& limits, const RiskCheckpoint& checkpoint) {
+  const auto reject = [](CheckpointRejectCode code, const char* message) {
+    return CheckpointRejection{code, risk_error(message)};
+  };
+  constexpr std::uint64_t kMaximumQuantity =
+      static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+  // Saturating like aggregate_quantity: an impossible aggregate still exceeds any valid limit.
+  const auto accumulate = [](std::uint64_t total, std::uint64_t quantity) {
+    if (quantity > std::numeric_limits<std::uint64_t>::max() - total ||
+        total + quantity > kMaximumQuantity) {
+      return kMaximumQuantity;
+    }
+    return total + quantity;
+  };
+
+  std::uint64_t open_buy = 0;
+  std::uint64_t open_sell = 0;
+  std::set<core::OrderId> order_ids;
+  for (const LiveRiskOrder& order : checkpoint.live_orders) {
+    if (order.remaining_quantity.is_zero()) {
+      return reject(CheckpointRejectCode::ZeroLiveQuantity,
+                    "risk checkpoint contains a zero-quantity live order");
+    }
+    if (!order_ids.insert(order.order_id).second) {
+      return reject(CheckpointRejectCode::DuplicateOrderId,
+                    "risk checkpoint contains duplicate live order identifiers");
+    }
+    (order.side == core::Side::Buy ? open_buy : open_sell) = accumulate(
+        order.side == core::Side::Buy ? open_buy : open_sell, order.remaining_quantity.units());
+  }
+  std::uint64_t pending_buy = 0;
+  std::uint64_t pending_sell = 0;
+  std::set<ClientIntentId> client_intents;
+  std::set<std::uint64_t> bound_ingress_sequences;
+  for (const PendingRiskOrder& pending : checkpoint.pending_orders) {
+    if (pending.intent.contract_id != binding.contract_id) {
+      return reject(CheckpointRejectCode::ContractMismatch,
+                    "risk checkpoint reservation is outside the account contract");
+    }
+    if (pending.intent.quantity.is_zero()) {
+      return reject(CheckpointRejectCode::ZeroPendingQuantity,
+                    "risk checkpoint contains a zero-quantity reservation");
+    }
+    if (!pending.intent.post_only) {
+      return reject(CheckpointRejectCode::NonPostOnlyIntent,
+                    "risk checkpoint reservation is not post-only");
+    }
+    if (pending.ingress_sequence.has_value()) {
+      if (*pending.ingress_sequence == 0) {
+        return reject(CheckpointRejectCode::ZeroIngress,
+                      "risk checkpoint reservation has a zero ingress sequence");
+      }
+      if (!bound_ingress_sequences.insert(*pending.ingress_sequence).second) {
+        return reject(CheckpointRejectCode::DuplicateIngress,
+                      "risk checkpoint reservations share an ingress sequence");
+      }
+    }
+    if (!client_intents.insert(pending.intent.client_intent_id).second) {
+      return reject(CheckpointRejectCode::DuplicateClientIntent,
+                    "risk checkpoint contains duplicate client intents");
+    }
+    (pending.intent.side == core::Side::Buy ? pending_buy : pending_sell) =
+        accumulate(pending.intent.side == core::Side::Buy ? pending_buy : pending_sell,
+                   pending.intent.quantity.units());
+  }
+  if (checkpoint.live_orders.size() + checkpoint.pending_orders.size() >
+      limits.maximum_active_orders) {
+    return reject(CheckpointRejectCode::ActiveOrderLimit,
+                  "risk checkpoint exceeds active order limit");
+  }
+  if (open_buy > limits.maximum_buy_exposure.units()) {
+    return reject(CheckpointRejectCode::BuyExposureLimit,
+                  "risk checkpoint exceeds buy exposure limit");
+  }
+  if (open_sell > limits.maximum_sell_exposure.units()) {
+    return reject(CheckpointRejectCode::SellExposureLimit,
+                  "risk checkpoint exceeds sell exposure limit");
+  }
+  if (pending_buy > limits.maximum_pending_exposure.units() ||
+      pending_sell > limits.maximum_pending_exposure.units()) {
+    return reject(CheckpointRejectCode::PendingExposureLimit,
+                  "risk checkpoint exceeds pending exposure limit");
+  }
+  const std::uint64_t worst_case_buy = accumulate(open_buy, pending_buy);
+  const std::uint64_t worst_case_sell = accumulate(open_sell, pending_sell);
+  const std::int64_t position_limit =
+      static_cast<std::int64_t>(limits.maximum_absolute_position.units());
+  if (checkpoint.net_position > position_limit - static_cast<std::int64_t>(worst_case_buy) ||
+      checkpoint.net_position < -position_limit + static_cast<std::int64_t>(worst_case_sell)) {
+    return reject(CheckpointRejectCode::PositionLimit,
+                  "risk checkpoint violates the configured position limit");
+  }
+  return std::nullopt;
 }
 
 AccountRiskView AccountRiskProjection::view() const {

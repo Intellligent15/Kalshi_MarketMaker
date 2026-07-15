@@ -319,6 +319,157 @@ TEST(AccountRisk, RejectsZeroFillWithoutAdvancingWatermark) {
   EXPECT_EQ(risk.live_orders().at(order).remaining_quantity.units(), 1U);
 }
 
+LiveRiskOrder MakeLiveOrder(std::uint64_t order_id, core::Side side, std::int64_t quantity) {
+  return LiveRiskOrder{
+      Require(core::OrderId::from_value(order_id)), side, Require(core::Price::from_units(50)),
+      Require(core::Quantity::from_units(quantity)), core::Timestamp::from_unix_nanoseconds(1)};
+}
+
+PendingRiskOrder MakePendingOrder(std::uint64_t client, core::ContractId contract_id,
+                                  core::Side side, std::int64_t quantity,
+                                  std::optional<std::uint64_t> ingress, bool post_only = true) {
+  return PendingRiskOrder{OrderIntent{Require(ClientIntentId::from_value(client)), contract_id,
+                                      side, Require(core::Quantity::from_units(quantity)),
+                                      Require(core::Price::from_units(50)), post_only},
+                          ingress};
+}
+
+void ExpectCheckpointRejection(const AccountBinding& binding, const RiskCheckpoint& checkpoint,
+                               CheckpointRejectCode code) {
+  const auto rejection = AccountRiskProjection::validate_checkpoint(binding, Limits(), checkpoint);
+  ASSERT_TRUE(rejection.has_value());
+  EXPECT_EQ(rejection->code, code);
+  EXPECT_FALSE(AccountRiskProjection::restore(binding, Limits(), checkpoint).has_value());
+}
+
+TEST(AccountRisk, ValidatesEveryCheckpointRejectionCategory) {
+  const core::Market market = MakeMarket();
+  const AccountBinding binding = Binding(market.contract().id());
+  const core::ContractId contract = binding.contract_id;
+  const core::ContractId other = Require(core::ContractId::from_value(11));
+
+  ExpectCheckpointRejection(
+      binding, RiskCheckpoint{0, 0, false, {MakeLiveOrder(11, core::Side::Buy, 0)}, {}},
+      CheckpointRejectCode::ZeroLiveQuantity);
+  ExpectCheckpointRejection(binding,
+                            RiskCheckpoint{0,
+                                           0,
+                                           false,
+                                           {MakeLiveOrder(11, core::Side::Buy, 1),
+                                            MakeLiveOrder(11, core::Side::Sell, 1)},
+                                           {}},
+                            CheckpointRejectCode::DuplicateOrderId);
+  ExpectCheckpointRejection(
+      binding,
+      RiskCheckpoint{
+          0, 0, false, {}, {MakePendingOrder(1, other, core::Side::Buy, 1, std::nullopt)}},
+      CheckpointRejectCode::ContractMismatch);
+  ExpectCheckpointRejection(
+      binding,
+      RiskCheckpoint{
+          0, 0, false, {}, {MakePendingOrder(1, contract, core::Side::Buy, 0, std::nullopt)}},
+      CheckpointRejectCode::ZeroPendingQuantity);
+  ExpectCheckpointRejection(
+      binding,
+      RiskCheckpoint{0,
+                     0,
+                     false,
+                     {},
+                     {MakePendingOrder(1, contract, core::Side::Buy, 1, std::nullopt, false)}},
+      CheckpointRejectCode::NonPostOnlyIntent);
+  ExpectCheckpointRejection(
+      binding,
+      RiskCheckpoint{0, 0, false, {}, {MakePendingOrder(1, contract, core::Side::Buy, 1, 0)}},
+      CheckpointRejectCode::ZeroIngress);
+  ExpectCheckpointRejection(binding,
+                            RiskCheckpoint{0,
+                                           0,
+                                           false,
+                                           {},
+                                           {MakePendingOrder(1, contract, core::Side::Buy, 1, 7),
+                                            MakePendingOrder(2, contract, core::Side::Buy, 1, 7)}},
+                            CheckpointRejectCode::DuplicateIngress);
+  ExpectCheckpointRejection(binding,
+                            RiskCheckpoint{0,
+                                           0,
+                                           false,
+                                           {},
+                                           {MakePendingOrder(1, contract, core::Side::Buy, 1, 7),
+                                            MakePendingOrder(1, contract, core::Side::Buy, 1, 8)}},
+                            CheckpointRejectCode::DuplicateClientIntent);
+  ExpectCheckpointRejection(
+      binding,
+      RiskCheckpoint{0,
+                     0,
+                     false,
+                     {MakeLiveOrder(11, core::Side::Buy, 1), MakeLiveOrder(12, core::Side::Buy, 1),
+                      MakeLiveOrder(13, core::Side::Buy, 1)},
+                     {MakePendingOrder(1, contract, core::Side::Sell, 1, 7),
+                      MakePendingOrder(2, contract, core::Side::Sell, 1, 8)}},
+      CheckpointRejectCode::ActiveOrderLimit);
+  ExpectCheckpointRejection(
+      binding, RiskCheckpoint{0, 0, false, {MakeLiveOrder(11, core::Side::Buy, 6)}, {}},
+      CheckpointRejectCode::BuyExposureLimit);
+  ExpectCheckpointRejection(
+      binding, RiskCheckpoint{0, 0, false, {MakeLiveOrder(11, core::Side::Sell, 6)}, {}},
+      CheckpointRejectCode::SellExposureLimit);
+  ExpectCheckpointRejection(
+      binding,
+      RiskCheckpoint{
+          0, 0, false, {}, {MakePendingOrder(1, contract, core::Side::Buy, 6, std::nullopt)}},
+      CheckpointRejectCode::PendingExposureLimit);
+  ExpectCheckpointRejection(
+      binding, RiskCheckpoint{0, 5, false, {MakeLiveOrder(11, core::Side::Buy, 1)}, {}},
+      CheckpointRejectCode::PositionLimit);
+}
+
+TEST(AccountRisk, ChecksCheckpointCategoriesInFirstFailureOrder) {
+  const core::Market market = MakeMarket();
+  const AccountBinding binding = Binding(market.contract().id());
+  // Live orders are checked before pending orders, and zero quantity before duplication.
+  ExpectCheckpointRejection(
+      binding,
+      RiskCheckpoint{0,
+                     0,
+                     false,
+                     {MakeLiveOrder(11, core::Side::Buy, 0), MakeLiveOrder(11, core::Side::Buy, 1)},
+                     {MakePendingOrder(1, binding.contract_id, core::Side::Buy, 1, 7),
+                      MakePendingOrder(1, binding.contract_id, core::Side::Buy, 1, 7)}},
+      CheckpointRejectCode::ZeroLiveQuantity);
+  // Within a pending record, contract mismatch wins over the later duplicate-intent check.
+  ExpectCheckpointRejection(
+      binding,
+      RiskCheckpoint{0,
+                     0,
+                     false,
+                     {},
+                     {MakePendingOrder(1, binding.contract_id, core::Side::Buy, 1, std::nullopt),
+                      MakePendingOrder(1, Require(core::ContractId::from_value(11)),
+                                       core::Side::Buy, 1, std::nullopt)}},
+      CheckpointRejectCode::ContractMismatch);
+}
+
+TEST(AccountRisk, ValidCheckpointHasNoRejectionAndRestores) {
+  const core::Market market = MakeMarket();
+  const AccountBinding binding = Binding(market.contract().id());
+  const RiskCheckpoint checkpoint{
+      3,
+      -1,
+      true,
+      {MakeLiveOrder(11, core::Side::Sell, 2)},
+      {MakePendingOrder(1, binding.contract_id, core::Side::Buy, 1, 7),
+       MakePendingOrder(2, binding.contract_id, core::Side::Buy, 1, std::nullopt)}};
+  EXPECT_FALSE(
+      AccountRiskProjection::validate_checkpoint(binding, Limits(), checkpoint).has_value());
+  const AccountRiskProjection restored =
+      Require(AccountRiskProjection::restore(binding, Limits(), checkpoint));
+  EXPECT_EQ(restored.view().event_watermark, 3U);
+  EXPECT_EQ(restored.view().net_position, -1);
+  EXPECT_TRUE(restored.view().kill_switch_active);
+  EXPECT_EQ(restored.view().open_sell_quantity.units(), 2U);
+  EXPECT_EQ(restored.view().pending_buy_quantity.units(), 2U);
+}
+
 TEST(AccountRisk, RestoreRejectsDuplicateIngressAndExposureViolations) {
   const core::Market market = MakeMarket();
   const AccountBinding binding = Binding(market.contract().id());

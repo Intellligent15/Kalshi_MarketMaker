@@ -105,6 +105,31 @@ struct RiskCheckpoint {
   std::vector<PendingRiskOrder> pending_orders;
 };
 
+// Validation categories for restoring a checkpoint.  The first failure in the documented
+// order wins: live orders in vector order (zero quantity, then duplicate identifier), pending
+// orders in vector order (contract, zero quantity, post-only, zero ingress, duplicate ingress,
+// duplicate intent), then active-order count, open/pending exposure, and position.
+enum class CheckpointRejectCode {
+  ZeroLiveQuantity,
+  DuplicateOrderId,
+  ContractMismatch,
+  ZeroPendingQuantity,
+  NonPostOnlyIntent,
+  ZeroIngress,
+  DuplicateIngress,
+  DuplicateClientIntent,
+  ActiveOrderLimit,
+  BuyExposureLimit,
+  SellExposureLimit,
+  PendingExposureLimit,
+  PositionLimit,
+};
+
+struct CheckpointRejection {
+  CheckpointRejectCode code;
+  core::DomainError error;
+};
+
 // Account events are the canonical input to account risk.  Production exchange events are
 // adapted into this shape, while research execution models may emit ModelDerived events without
 // pretending that observed Level-2 data was matched by the exchange.
@@ -164,6 +189,10 @@ class AccountRiskProjection final {
   [[nodiscard]] static core::Result<AccountRiskProjection> restore(AccountBinding binding,
                                                                    RiskLimits limits,
                                                                    RiskCheckpoint checkpoint);
+  // Pure first-failure validation of a checkpoint against a binding and limits.  `restore`
+  // delegates to it, so a checkpoint is restorable exactly when this returns no rejection.
+  [[nodiscard]] static std::optional<CheckpointRejection> validate_checkpoint(
+      const AccountBinding& binding, const RiskLimits& limits, const RiskCheckpoint& checkpoint);
 
   [[nodiscard]] const AccountBinding& binding() const {
     return binding_;
