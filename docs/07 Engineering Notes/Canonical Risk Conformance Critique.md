@@ -123,3 +123,42 @@ increment should be.  Priority is impact first, then ease.
 This work still does not establish calibrated fills, queue priority, venue-equivalent execution,
 PnL correctness, collateral, settlement, durable full-run recovery, paper trading, or live
 readiness.
+
+## Lifecycle-matrix follow-up
+
+The reviewed V1 corpus now closes the lifecycle-matrix coverage gap for every transition the
+frozen local adapter can faithfully express. The remaining P1 boundary is deliberately separate:
+versioned checkpoint/restore fixtures, including a serialization contract and invalid-checkpoint
+categories. This increment does not expand the V1 whitespace adapter.
+
+## Post-matrix implementation critique
+
+### Rating method
+
+Impact is the consequence of leaving an issue unresolved: 1 is minor and 5 blocks trustworthy
+conformance evidence. Ease is how contained the next corrective increment should be: 1 is broad
+or externally blocked and 5 is small and local. Priority favors correctness and clear claims over
+convenience.
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | Direct C++ unit tests do not yet execute the same reviewed fixture documents as Python and the V1 oracle. | Missing test / future debt | 5 | 3 | The oracle proves the C++ projection through its adapter, but a direct API change can still leave the corpus and direct-unit surface out of sync. | Add a strict test-only C++ fixture reader/executor before calling direct-C++ fixture parity complete. |
+| P1 | The frozen V1 adapter reports lifecycle failures as generic `ERROR`; the integration asserts rejection shape but not the numeric admission code. | Missing test precision | 4 | 4 | A wrong C++ admission category could still look like a generic rejection to this test. | Map the existing numeric `AdmissionRejectCode` values in the test adapter only; do not make error prose public API. |
+| P2 | Fixture schema validation is deliberately small and currently lives in unittest helpers. | Future technical debt | 3 | 4 | It rejects unknown operations and malformed high-level shape, but it is not yet a reusable strict verifier for every field, unit, or path rule. | Extract a test-only verifier with field-level diagnostics and a documented command after the direct-C++ fixture executor exists. |
+| P2 | Reviewed traces are one-line canonical JSON documents. | Unnecessary review friction | 3 | 4 | Byte stability is good, but human review of a large complete snapshot is awkward. | Keep canonical files authoritative; add a read-only pretty-print or trace-summary helper for reviewers. |
+| P2 | The test-only Python reference now reproduces configured limit arithmetic. | Future technical debt | 3 | 3 | It is intentional independent evidence, but every added shared operation increases drift risk. | Extend it only with a reviewed fixture and explicit unsupported-operation failure; never import it into production or backtest code. |
+| P3 | The oracle process is launched per fixture and receives a snapshot after every transition. | Possible optimization / scalability concern | 2 | 3 | Correctness fixtures are small today, but dense corpora pay process and JSON I/O overhead repeatedly. | Keep the exact transition assertions; batch only after a versioned transport or profiling evidence. |
+| P3 | Full snapshots repeat open order and reservation records after every operation. | Future scalability concern | 2 | 3 | The records are the audit value of the corpus, but trace size grows with open state times transitions. | Retain complete fixtures; consider verified compact deltas only after a replayer proves equivalence. |
+
+### Debt order in plain language
+
+1. **Make direct C++ consume the reviewed fixtures.** This is the largest remaining gap because
+   it removes a second scenario representation.
+2. **Check V1 admission categories exactly.** This is contained work that strengthens the frozen
+   adapter without extending it.
+3. **Turn schema checks into a reusable test-only verifier.** That makes malformed-input failures
+   easier to audit and diagnose.
+4. **Improve reviewer ergonomics, not fixture semantics.** Pretty output can help humans while
+   canonical one-line bytes remain the hashable source of truth.
+5. **Optimize only after the correctness boundary is complete.** Process batching and compact
+   traces should not weaken state-after-every-transition proof.

@@ -92,3 +92,15 @@ oracle transport remain later work.
 
 See [[07 Engineering Notes/Canonical Risk Conformance Explained]] for a plain-language walkthrough
 and [[07 Engineering Notes/Canonical Risk Conformance Critique]] for the ranked debt register.
+
+## Amendment: completed shared lifecycle matrix
+
+The V1 corpus now covers every `AdmissionRejectCode`, ingress-binding failure, acknowledgement and
+fill validation failure, command rejection, cancellation/logical expiry, invalid event ordering,
+and kill-switch transition. Each reviewed transition records its result and complete post-state.
+
+The V1 oracle is frozen as a compatibility adapter. Fixture integration uses only existing `INIT`,
+`ADMIT`, `BIND`, `ACK`, `FILL`, `REJECT`, `CANCEL`, `KILL`, and `SNAPSHOT` commands. Contract
+mismatch and foreign-identity cases stay direct-C++ only; checkpoint/restore remains the next,
+separate versioned test-only harness. Generic V1 errors are fixture-level domain failures, not a
+stable textual API contract.

@@ -151,3 +151,44 @@ This does not create a versioned production oracle protocol, durable full-run re
 fills, queue priority, PnL correctness, paper trading, or live readiness. The whitespace oracle
 remains the limited V1 local adapter. Full checkpoint/restore parity still belongs in a separate,
 versioned test-only fixture harness.
+
+## Completed lifecycle matrix
+
+The shared corpus now checks every admission rejection, bad reservation binding, bad
+acknowledgement or fill, command rejection, cancellation, logical expiry, bad event sequence, and
+kill-switch transition. Each row compares watermark, position, all exposure totals, sorted live
+orders, sorted pending reservations, and kill-switch state.
+
+The V1 oracle did not grow: it is used only where its existing commands faithfully express the
+fixture operation. Different-contract and foreign-identity boundaries stay direct-C++ only, and
+checkpoint/restore remains the next separate versioned test-only harness.
+
+## What we did, how we did it, and why
+
+### What we did
+
+We expanded two small fixtures into a reviewed lifecycle matrix. It covers the ways an order can
+be refused before reservation, the ways a reservation can fail to bind to ingress, bad exchange
+responses, ordinary lifecycle release, event ordering, and the kill switch. The matrix also checks
+that the manifest and expected traces have not been silently changed.
+
+### How we did it
+
+Each fixture gives the test-only Python reference a binding, optional risk limits, and a short list
+of operations. Its matching expected trace records the result and full account-risk state after
+each operation. The same V1-compatible operation list is sent to the existing local C++ oracle;
+after each response, `SNAPSHOT` must match the reviewed state exactly. Cases the V1 adapter cannot
+say faithfully, such as a different contract on admission, stay in direct C++ tests.
+
+### Why we did it
+
+Final position alone can be correct after an earlier bug leaked a reservation or advanced a failed
+event watermark. Comparing state at every step finds the first wrong transition. Keeping the
+Python model under tests creates an independent check without making it a second research engine,
+while freezing the whitespace adapter avoids accidentally presenting it as a production protocol.
+
+### What remains next
+
+The next correctness increment is not more V1 commands. It is a separate, versioned test-only
+checkpoint/restore harness, followed by a direct C++ fixture executor so all three test surfaces
+share the reviewed documents.
