@@ -421,13 +421,15 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
 
     # --- negative matrix: one broken verifier rule per test -----------------------------
 
-    def _mutated_corpus_fails(self, mutate) -> None:
+    def _mutated_corpus_fails(self, mutate, expected_diagnostic: str | None = None) -> None:
         with tempfile.TemporaryDirectory(prefix="pmm-risk-checkpoint-") as scratch:
             root = Path(scratch) / "checkpoint_v1"
             shutil.copytree(FIXTURE_ROOT, root)
             mutate(root)
-            with self.assertRaises(AssertionError):
+            with self.assertRaises(AssertionError) as caught:
                 self._verify_corpus(root)
+            if expected_diagnostic is not None:
+                self.assertIn(expected_diagnostic, str(caught.exception))
 
     @staticmethod
     def _write(root: Path, name: str, document: dict[str, Any]) -> None:
@@ -451,6 +453,44 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
             with (root / "roundtrip_empty_state.json").open("ab") as member:
                 member.write(b" ")
         self._mutated_corpus_fails(mutate)
+
+    def test_rejects_every_invalid_strict_captured_checkpoint_field(self) -> None:
+        duplicate_first_record = object()
+        mutations = (
+            ("account identity", ("account_id",), "2", "roundtrip_live_and_pending.expected.json[5]"),
+            ("strategy identity", ("strategy_id",), "2", "roundtrip_live_and_pending.expected.json[5]"),
+            ("trader identity", ("trader_id",), "2", "roundtrip_live_and_pending.expected.json[5]"),
+            ("contract identity", ("contract_id",), "2", "roundtrip_live_and_pending.expected.json[5]"),
+            ("maximum order quantity limit", ("limits", "maximum_order_quantity_contracts"), "6", "roundtrip_live_and_pending.expected.json[5]"),
+            ("maximum absolute position limit", ("limits", "maximum_absolute_position_contracts"), "6", "roundtrip_live_and_pending.expected.json[5]"),
+            ("maximum buy exposure limit", ("limits", "maximum_buy_exposure_contracts"), "6", "roundtrip_live_and_pending.expected.json[5]"),
+            ("maximum sell exposure limit", ("limits", "maximum_sell_exposure_contracts"), "6", "roundtrip_live_and_pending.expected.json[5]"),
+            ("maximum pending exposure limit", ("limits", "maximum_pending_exposure_contracts"), "6", "roundtrip_live_and_pending.expected.json[5]"),
+            ("maximum active orders limit", ("limits", "maximum_active_orders"), 5, "roundtrip_live_and_pending.expected.json[5]"),
+            ("strict live order sorting", ("live_orders",), duplicate_first_record, "roundtrip_live_and_pending.expected.json[5].checkpoint.live_orders[1]"),
+            ("strict pending order sorting", ("pending_orders",), duplicate_first_record, "roundtrip_live_and_pending.expected.json[5].checkpoint.pending_orders[1]"),
+            ("positive live quantity", ("live_orders", 0, "remaining_quantity_contracts"), "0", "roundtrip_live_and_pending.expected.json[5].checkpoint.live_orders[0].remaining_quantity_contracts"),
+            ("positive pending quantity", ("pending_orders", 0, "quantity_contracts"), "0", "roundtrip_live_and_pending.expected.json[5].checkpoint.pending_orders[0].quantity_contracts"),
+            ("post-only pending intent", ("pending_orders", 0, "post_only"), False, "roundtrip_live_and_pending.expected.json[5].checkpoint.pending_orders[0]"),
+            ("positive bound ingress", ("pending_orders", 0, "ingress_sequence"), "0", "roundtrip_live_and_pending.expected.json[5].checkpoint.pending_orders[0].ingress_sequence"),
+        )
+
+        for name, path, replacement, expected_diagnostic in mutations:
+            with self.subTest(name=name):
+                def mutate(root: Path) -> None:
+                    trace = self._load(root, "roundtrip_live_and_pending.expected.json")
+                    target = trace["transitions"][5]["checkpoint"]
+                    for key in path[:-1]:
+                        target = target[key]
+                    if replacement is duplicate_first_record:
+                        records = target[path[-1]]
+                        records.append(dict(records[0]))
+                    else:
+                        target[path[-1]] = replacement
+                    self._write(root, "roundtrip_live_and_pending.expected.json", trace)
+                    self._rehash(root)
+
+                self._mutated_corpus_fails(mutate, expected_diagnostic)
 
     def test_rejects_unknown_fixture_field(self) -> None:
         def mutate(root: Path) -> None:

@@ -3,8 +3,10 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "pmm/risk/account_risk.hpp"
@@ -289,6 +291,16 @@ class TemporaryCorpus final {
     EXPECT_THROW(static_cast<void>(LoadCheckpointCorpus(root_)), std::runtime_error);
   }
 
+  void ExpectRejectedAt(std::string_view expected_diagnostic) const {
+    try {
+      static_cast<void>(LoadCheckpointCorpus(root_));
+      ADD_FAILURE() << "expected corpus rejection containing: " << expected_diagnostic;
+    } catch (const std::runtime_error& error) {
+      EXPECT_NE(std::string(error.what()).find(expected_diagnostic), std::string::npos)
+          << "unexpected corpus rejection: " << error.what();
+    }
+  }
+
  private:
   Path root_;
 };
@@ -301,6 +313,78 @@ TEST(RiskCheckpointConformance, RejectsTamperedNoncanonicalMember) {
   output << ' ';
   output.close();
   corpus.ExpectRejected();
+}
+
+TEST(RiskCheckpointConformance, RejectsEveryInvalidStrictCapturedCheckpointField) {
+  struct Mutation {
+    std::string name;
+    std::function<void(Json&)> apply;
+    std::string expected_diagnostic;
+  };
+  const std::vector<Mutation> mutations{
+      {"account identity", [](Json& checkpoint) { checkpoint["account_id"] = "2"; },
+       ".transitions[5].checkpoint: must carry the fixture account identity"},
+      {"strategy identity", [](Json& checkpoint) { checkpoint["strategy_id"] = "2"; },
+       ".transitions[5].checkpoint: must carry the fixture account identity"},
+      {"trader identity", [](Json& checkpoint) { checkpoint["trader_id"] = "2"; },
+       ".transitions[5].checkpoint: must carry the fixture account identity"},
+      {"contract identity", [](Json& checkpoint) { checkpoint["contract_id"] = "2"; },
+       ".transitions[5].checkpoint: must carry the fixture account identity"},
+      {"maximum order quantity limit",
+       [](Json& checkpoint) { checkpoint["limits"]["maximum_order_quantity_contracts"] = "6"; },
+       ".transitions[5].checkpoint.limits: must equal the fixture limits"},
+      {"maximum absolute position limit",
+       [](Json& checkpoint) { checkpoint["limits"]["maximum_absolute_position_contracts"] = "6"; },
+       ".transitions[5].checkpoint.limits: must equal the fixture limits"},
+      {"maximum buy exposure limit",
+       [](Json& checkpoint) { checkpoint["limits"]["maximum_buy_exposure_contracts"] = "6"; },
+       ".transitions[5].checkpoint.limits: must equal the fixture limits"},
+      {"maximum sell exposure limit",
+       [](Json& checkpoint) { checkpoint["limits"]["maximum_sell_exposure_contracts"] = "6"; },
+       ".transitions[5].checkpoint.limits: must equal the fixture limits"},
+      {"maximum pending exposure limit",
+       [](Json& checkpoint) { checkpoint["limits"]["maximum_pending_exposure_contracts"] = "6"; },
+       ".transitions[5].checkpoint.limits: must equal the fixture limits"},
+      {"maximum active orders limit",
+       [](Json& checkpoint) { checkpoint["limits"]["maximum_active_orders"] = 5; },
+       ".transitions[5].checkpoint.limits: must equal the fixture limits"},
+      {"strict live order sorting",
+       [](Json& checkpoint) { checkpoint["live_orders"].push_back(checkpoint["live_orders"][0]); },
+       ".transitions[5].checkpoint.live_orders[1].order_id: must be canonically "
+       "identifier-sorted"},
+      {"strict pending order sorting",
+       [](Json& checkpoint) {
+         checkpoint["pending_orders"].push_back(checkpoint["pending_orders"][0]);
+       },
+       ".transitions[5].checkpoint.pending_orders[1].client_intent_id: must be canonically "
+       "identifier-sorted"},
+      {"positive live quantity",
+       [](Json& checkpoint) { checkpoint["live_orders"][0]["remaining_quantity_contracts"] = "0"; },
+       ".transitions[5].checkpoint.live_orders[0].remaining_quantity_contracts: must be positive "
+       "in a captured checkpoint"},
+      {"positive pending quantity",
+       [](Json& checkpoint) { checkpoint["pending_orders"][0]["quantity_contracts"] = "0"; },
+       ".transitions[5].checkpoint.pending_orders[0].quantity_contracts: must be positive in a "
+       "captured checkpoint"},
+      {"post-only pending intent",
+       [](Json& checkpoint) { checkpoint["pending_orders"][0]["post_only"] = false; },
+       ".transitions[5].checkpoint.pending_orders[0].post_only: must be true in a captured "
+       "checkpoint"},
+      {"positive bound ingress",
+       [](Json& checkpoint) { checkpoint["pending_orders"][0]["ingress_sequence"] = "0"; },
+       ".transitions[5].checkpoint.pending_orders[0].ingress_sequence: must be positive in a "
+       "captured checkpoint"},
+  };
+
+  for (const Mutation& mutation : mutations) {
+    SCOPED_TRACE(mutation.name);
+    TemporaryCorpus corpus;
+    Json trace = corpus.Load("roundtrip_live_and_pending.expected.json");
+    mutation.apply(trace["transitions"][5]["checkpoint"]);
+    corpus.Write("roundtrip_live_and_pending.expected.json", trace);
+    corpus.RehashManifest();
+    corpus.ExpectRejectedAt(mutation.expected_diagnostic);
+  }
 }
 
 TEST(RiskCheckpointConformance, RejectsUnknownFixtureField) {
