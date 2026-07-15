@@ -405,3 +405,44 @@ The previous highest-priority semantic gap is closed. The next package remains i
 smaller: add negative tests for strict captured-checkpoint validation and standard SHA-256
 known-answer vectors. Durable risk persistence, production serialization, process recovery, and
 portfolio recovery remain separate design work.
+
+## Strict capture and hash evidence hardening
+
+### What changed
+
+The strict promises made about a reviewed captured checkpoint now each have a focused negative
+test in C++ and Python. The tests cover every identity field, every configured limit, strict live
+and pending record order, positive quantities, post-only reservations, and positive bound ingress
+sequences. The test-only C++ SHA-256 helper now also has three standard known-answer vectors.
+
+No reviewed fixture or production risk rule changed. The new tests create invalid documents only
+inside temporary copies of the corpus.
+
+### How it works
+
+`roundtrip_live_and_pending` is the donor because its captured checkpoint contains one live order,
+one bound pending reservation, all four identity fields, and all six limits. A named table changes
+one fact at a time. After the expected trace is rewritten canonically, the test recomputes its
+member hash and the manifest payload hash before asking the reader to load it.
+
+That rehash step matters. Without it, every case would stop at the stale digest and say nothing
+about the intended strict rule. Each case also checks the expected field path or identity/limits
+diagnostic. If the targeted rule disappears, the otherwise valid temporary corpus loads and the
+test fails instead of accepting some unrelated later error.
+
+The sorting cases use a duplicate identifier rather than decreasing order. Authored restore inputs
+already reject decreasing identifiers, but deliberately allow equal identifiers so the production
+restore validator can diagnose duplicates. Reviewed captures require the stronger, strictly
+increasing rule, so equality isolates exactly that extra promise.
+
+The SHA test bypasses the corpus and calls `Sha256Hex` with the empty string, `abc`, and a
+multi-block NIST input. This separates algorithm correctness from the end-to-end manifest checks:
+the corpus still proves that real bytes are hashed, while the vectors prove that the digest itself
+is standard SHA-256.
+
+### Why this boundary stays small
+
+These are tests of existing evidence rules, not a new persistence design. `document_restore`
+remains lax, the frozen V1 oracle remains ineligible, and Python checkpoint code remains under the
+test tree. There is still no durable risk storage, process restart, portfolio recovery, or claim
+about realistic fills, queue position, PnL, settlement, paper trading, or live readiness.

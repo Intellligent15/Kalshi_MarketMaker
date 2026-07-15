@@ -79,3 +79,28 @@ Per-order and aggregate-limit fixtures must isolate their intended rule. Oversiz
 raise the aggregate limits so only `maximum_order_quantity_contracts` fails. Aggregate exposure
 fixtures use multiple individually legal records whose sum exceeds the relevant aggregate limit.
 This prevents a fixture name from depending accidentally on a different rule's precedence.
+
+## Strict captured-checkpoint mutation coverage
+
+The strict rules for reviewed captures are pinned independently in both readers. The tests copy
+the corpus to a temporary directory and mutate only the checkpoint embedded in the expected trace
+for `roundtrip_live_and_pending`. They do not mutate a `document_restore` input: those documents
+remain intentionally lax so semantic defects reach `AccountRiskProjection::restore`.
+
+The mirrored C++ and Python matrix has one named row for each account, strategy, trader, and
+contract identity field; one row for each of the six limits; separate live- and pending-record
+ordering rows; separate live and pending positive-quantity rows; a post-only row; and a nonzero
+bound-ingress row. The ordering mutations duplicate the donor's existing record. Equality is the
+strict-only distinction because input documents already reject decreasing identifiers while
+allowing duplicates through to restore.
+
+Every mutation is written as canonical JSON, then the expected-trace member hash and canonical
+manifest-payload hash are recomputed. The test requires the rule-specific field path or captured
+identity/limits diagnostic. A stale digest, generic corpus rejection, or later restore failure
+therefore cannot satisfy the assertion. The mutations are temporary test inputs; the 26 reviewed
+fixture pairs and checkpoint schema remain unchanged.
+
+The shared test-only C++ `Sha256Hex` helper is also checked directly against the standard empty,
+`abc`, and multi-block NIST known-answer vectors. Corpus hashes remain the integration evidence;
+the direct vectors establish that the helper producing and checking those hashes implements the
+expected algorithm.

@@ -313,3 +313,44 @@ This increment proves a necessary admission-derived quantity invariant only. It 
 complete historical lifecycle, durable persistence, process restart, portfolio recovery, or
 multi-account recovery, and it changes no claim about fills, queue priority, execution realism,
 PnL, collateral, settlement, paper trading, or live readiness.
+
+## Strict capture and SHA implementation critique
+
+This review covers the completed strict-capture mutation matrix and SHA-256 vectors. Impact rates
+the consequence of leaving an issue open from 1 (minor) to 5 (blocks trustworthy evidence). Ease
+rates how contained the correction is from 1 (broad or externally blocked) to 5 (small and local).
+
+The two former P1 test gaps are closed. C++ and Python now independently reject 16 one-defect
+captured checkpoints after their integrity metadata has been recomputed, and every row checks the
+intended diagnostic path. Separate identity and limit rows protect every comparison rather than
+using one representative value. The C++ hash helper independently matches three standard vectors,
+including a multi-block input. No production code, schema, reviewed fixture, or dependency changed.
+
+The table-driven form adds a small amount of test-local indirection, but keeps the full contract in
+one place per language and avoids 32 repeated test bodies. The focused C++ selection remained
+under one second during implementation, so corpus caching or a narrower parser-only hook would add
+complexity without measured value.
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | Fixture authoring and permanent rehashing still have no checked-in helper or exact command. | Future technical debt / missing tooling | 3 | 4 | The temporary test helper is deliberately private to tests and does not make reviewed corpus edits reproducible for an author. | Keep the fixture-authoring/rehash helper as the next separate correctness-support increment. |
+| P2 | C++ and Python duplicate the 16-row strict mutation contract. | Unnecessary complexity / future drift risk | 2 | 3 | Independence is useful evidence, but a future strict field addition must update both tables. | Document every new strict field in this guide and require a named row in both readers; do not merge the implementations. |
+| P2 | Python still lacks parity for several unrelated reader mutations already covered in C++. | Missing tests | 2 | 4 | Strict-capture parity is complete, but symlink, duplicate-member, wrong-schema, and continuation categories can still drift. | Close the remaining reader-mutation parity in its own package without changing checkpoint semantics. |
+| P3 | Each strict row copies and verifies the complete 26-fixture corpus. | Possible optimization / future scalability concern | 1 | 3 | Isolation is valuable and current runtime is small; the cost will grow linearly if the corpus becomes much larger. | Retain full isolation until profiling shows material test cost, then consider a verified base copy or parameterized fixture cache. |
+| P3 | Identity failures share one C++ diagnostic and limits share another. | Diagnostic precision | 1 | 4 | Named rows identify the failed comparison in tests, but the loader's prose does not name the exact identity or limit field. | Leave unchanged unless fixture-authoring failures become difficult to diagnose; changing test-only prose is not required for correctness. |
+
+### Debt order after this increment
+
+1. Make permanent fixture authoring and rehashing reproducible.
+2. Close remaining Python reader-mutation parity as a separate test package.
+3. Preserve the duplicated strict matrix as independent evidence, updating both sides together.
+4. Defer corpus caching, parser exposure, and serialization optimization until runtime is measured
+   as a problem.
+
+### Retained limitations
+
+This increment proves that reviewed captures obey the existing strict reader contract and that the
+test-only C++ digest helper matches standard SHA-256. It does not turn checkpoint JSON into a
+production persistence format or establish durable storage, WAL integration, process restart,
+portfolio or multi-account recovery, calibrated fills, queue priority, execution realism, PnL,
+collateral, settlement, paper trading, or live readiness.
