@@ -238,3 +238,35 @@ checkpoint member while leaving its manifest stale. The first `--write` must can
 member, update its member digest and the manifest payload digest, and change no other file. A
 following verification must succeed. A second `--write` must emit the already-current message and
 leave the entire temporary corpus byte-for-byte identical.
+
+## Lifecycle-root repair coverage
+
+Both allowlisted corpus roots now execute that complete temporary write cycle. The test
+parameterizes one copied-script protocol over the explicit checkpoint donor
+`checkpoint_v1/roundtrip_empty_state.json` and lifecycle donor `v1/lifecycle.json`; it does not
+repeat the parser, argparse, structural-refusal, or `all` selection matrices.
+
+For lifecycle V1, the test changes the temporary authored `fixture_id` from `lifecycle` to
+`lifecycle_cli_edited`, writes the document with noncanonical indentation, and deliberately leaves
+the temporary manifest stale. It then runs:
+
+```sh
+uv run python tools/risk_fixture_integrity.py --corpus v1 --write
+```
+
+The subprocess must return status 0, name exactly `v1/lifecycle.json` and `v1/manifest.json` on
+standard output, leave standard error empty, and change only those two files in a complete
+temporary-corpus byte snapshot. The repaired member must equal the canonical bytes of the authored
+document, and the authored identifier must remain present. The manifest entry's `fixture_sha256`
+is checked against the repaired member bytes, while `payload_sha256` is checked independently
+against the canonical manifest payload.
+
+A following `--corpus v1` verification must report canonical/current without changing the repaired
+snapshot. A second `--corpus v1 --write` must report already-current and leave the complete
+temporary corpus byte-identical.
+
+This is integrity-repair evidence only. The temporary identifier edit intentionally does not update
+or execute the reviewed expected trace. The integrity command preserves and hashes authored JSON;
+it does not decide whether the authored fixture is semantically valid, derive an expected result,
+or use any risk implementation to bless an answer. The checked-in 16-pair lifecycle corpus and
+26-pair checkpoint corpus remain unchanged.

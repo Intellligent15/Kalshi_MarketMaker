@@ -24,15 +24,16 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-16 |
-| Baseline commit | `1fcc7ae` (`docs(risk): deepen fixture integrity CLI explanation`) |
-| Branch state at review | `main` aligned with `origin/main` |
+| Baseline commit | `4e6336b` (`test(risk): exercise lifecycle fixture repair`) |
+| Branch state at review | `main` two commits ahead of `origin/main` at the implementation baseline |
+| Recent risk commits | `4e6336b`, `1fcc7ae`, `cc02126`, `9a05f77`, and `d725677` |
 | C++/CTest validation | 78 tests passing |
 | Python validation | 58 tests passing |
 | Focused fixture-integrity validation | 17 tests passing |
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | Lifecycle-V1 temporary mutation-and-repair coverage |
+| Next bounded package | Remaining Python checkpoint-reader mutation parity |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -238,7 +239,7 @@ oracle remains a compatibility adapter and is ineligible for checkpoint fixtures
 
 This track is small, local, and should end after the highest-value parity gaps are closed.
 
-### A1. Lifecycle-V1 mutation-and-repair cycle — next
+### A1. Lifecycle-V1 mutation-and-repair cycle — complete
 
 Goal: prove that the copied public integrity CLI performs the complete lifecycle-root write path,
 not only lifecycle selection and stale reporting.
@@ -258,7 +259,23 @@ Required evidence:
 Non-goal: do not change a reviewed lifecycle fixture, generate an expected trace, or duplicate the
 checkpoint refusal matrix.
 
-### A2. Remaining Python checkpoint-reader mutation parity — planned
+Completion evidence:
+
+- commit `4e6336b` parameterizes the copied-script write cycle over the existing checkpoint donor
+  and the explicit temporary lifecycle donor `v1/lifecycle.json`;
+- the lifecycle row changes the authored temporary `fixture_id` to `lifecycle_cli_edited`, uses
+  noncanonical indentation, and leaves its manifest stale before invoking the writer;
+- exact status and stream assertions require only `v1/lifecycle.json` and `v1/manifest.json` to be
+  reported and changed;
+- repaired bytes preserve the authored identifier and equal the canonical authored document;
+- member and manifest-payload SHA-256 values are reconstructed independently;
+- ordinary verification preserves the repaired snapshot; and
+- repeated `--write` is byte-identical.
+
+Boundary: this is temporary integrity-repair evidence. It does not change or execute a reviewed
+lifecycle pair, generate a semantic trace, or expand the integrity tool or frozen V1 adapter.
+
+### A2. Remaining Python checkpoint-reader mutation parity — next
 
 Goal: close schema-specific rejection cases that the C++ checkpoint reader covers but the Python
 reader does not yet mirror.
@@ -709,48 +726,47 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | Lifecycle-V1 temporary mutation-and-repair cycle | Closes the current small CLI writer gap. |
-| 2 | Remaining Python checkpoint-reader mutation parity | Closes the last meaningful mirrored-reader drift. |
-| 3 | Product metadata ingest and compatibility hashes | Required for truthful units, accounting, and cross-market work. |
-| 4 | Multi-market/reconnect/gap-recovery fixtures | Establishes broader observed-data validity. |
-| 5 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
-| 6 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
-| 7 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
-| 8 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
-| 9 | Durable full-run continuation | Required for long and operationally reliable experiments. |
-| 10 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
-| 11 | Predictive models and model registry | Follows held-out baseline evidence. |
-| 12 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
-| 13 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
-| 14 | Demo exchange integration | Follows stable paper operations and reconciliation. |
-| 15 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
+| 1 | Remaining Python checkpoint-reader mutation parity | Closes the last meaningful mirrored-reader drift. |
+| 2 | Product metadata ingest and compatibility hashes | Required for truthful units, accounting, and cross-market work. |
+| 3 | Multi-market/reconnect/gap-recovery fixtures | Establishes broader observed-data validity. |
+| 4 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
+| 5 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
+| 6 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
+| 7 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
+| 8 | Durable full-run continuation | Required for long and operationally reliable experiments. |
+| 9 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
+| 10 | Predictive models and model registry | Follows held-out baseline evidence. |
+| 11 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
+| 12 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
+| 13 | Demo exchange integration | Follows stable paper operations and reconciliation. |
+| 14 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
 
 This order is a default, not a prohibition on discovery work. A prototype may explore a later idea,
 but it must remain labelled experimental and must not bypass its promotion gates.
 
 ## Current next package
 
-The next agent should implement **Lifecycle-V1 temporary mutation-and-repair coverage**.
+The next agent should implement **remaining Python checkpoint-reader mutation parity**.
 
-Recommended test boundary:
+Required design boundary:
 
-- reuse the copied-real-script subprocess harness in
-  `python/tests/test_risk_fixture_integrity.py`;
-- use a temporary copy of `v1/lifecycle.json` unless inspection identifies a better explicit donor;
-- preserve authored values and avoid semantic expected-answer generation;
-- assert exact exit status and both output streams;
-- assert that only the temporary lifecycle member and manifest change;
-- assert canonical bytes and both SHA-256 relationships;
-- verify successfully afterward; and
-- require repeated `--write` byte identity.
+- inventory the exact schema-specific mutation rows covered by the C++ checkpoint reader but not
+  the Python reader before choosing donors;
+- keep the two reader implementations independent rather than sharing validation code;
+- make every temporary document canonical and keep both member and manifest-payload hashes current
+  so each case reaches its intended reader rule;
+- isolate one named defect per row and require a field-specific diagnostic;
+- preserve checkpoint rejection categories, enum ordinals, and first-failure ordering; and
+- keep checkpoint JSON and the Python checkpoint model test-only.
 
-Expected commits:
+The completed A1 package is preserved above and is evidenced by:
 
-1. `test(risk): exercise lifecycle fixture repair`
-2. `docs(risk): document lifecycle fixture repair coverage`
+- `4e6336b` (`test(risk): exercise lifecycle fixture repair`); and
+- the accompanying documentation commit that records the guide, explanation, critique, and this
+  status promotion.
 
-After that package, update this file so A1 becomes complete, A2 becomes next, validation counts and
-the baseline commit are current, and the recommended execution table still reflects reality.
+After A2, exit Track A and return to Phase 7 product metadata and research validity unless new
+evidence identifies a higher-impact conformance defect.
 
 ## Non-claims that must remain explicit
 

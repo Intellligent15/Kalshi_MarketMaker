@@ -1113,3 +1113,62 @@ This is a strong closure of the public CLI gap. The implementation is larger tha
 unit test because it proves a larger boundary, but its complexity is mostly visible evidence rather
 than abstraction debt. The remaining findings are impact 1 or 2 and should not trigger production
 changes, fixture rewrites, public root overrides, or broader risk claims.
+
+## Lifecycle-root write-repair implementation critique
+
+The former highest-ranked corpus-specific CLI gap is closed. The real copied script now completes
+the mutation, write, verification, and repeated no-op sequence for both fixed roots. Lifecycle V1
+uses an explicit temporary `lifecycle.json` donor, preserves its authored identifier, changes only
+that member and its manifest, and independently verifies both digest relationships.
+
+### Assessment of the design
+
+Parameterizing the established checkpoint write-cycle test was the smallest auditable structure.
+The two donors and expected edited identifiers are declared in a two-row table, while the mutation,
+snapshot timing, subprocess calls, exact stream assertions, changed-file set, canonical bytes,
+hashes, verification, and repeated-write identity remain visible in one body.
+
+A separate lifecycle test would make its name more prominent but duplicate nearly the entire
+protocol. Extracting a shared assertion helper would avoid duplication while hiding the ordering
+that gives the test its evidentiary value. The selected structure accepts a modest subtest table in
+exchange for one durable definition of the write contract.
+
+The focused module still reports 17 test methods because lifecycle is a second subtest of the
+existing write-cycle method. The count is not evidence of reduced coverage: the subprocess count
+for that method grows from three to six, and the lifecycle row independently receives a fresh
+temporary repository and complete before/after snapshots.
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | Python checkpoint-reader mutations remain less complete than the independent C++ reader's schema-specific coverage. | Missing tests / drift risk | 2 | 4 | This is now the last meaningful mirrored-reader gap in the conformance tail. | Inventory the asymmetric rows, add canonical single-defect temporary documents with current hashes, and preserve semantics and first-failure ordering. |
+| P2 | The strict captured-checkpoint matrices do not assert their intended 16-row cardinality explicitly. | Missing test precision | 1 | 5 | Named rows remain, but an accidental deletion would not produce a direct count failure. | Add the assertion when those matrices next change; do not combine it with reader parity unless the same files are already in scope. |
+| P2 | Root README checkpoint and integrity-workflow discoverability remains limited. | Missing documentation | 1 | 4 | The fixture guide and living roadmap are authoritative, but a new root-level reader may not find them immediately. | Keep the later README package concise and separate from semantic reader work. |
+| P2 | Donor names, edited identifiers, and exact tool-owned prose are compatibility surfaces. | Future maintenance | 1 | 4 | Fixture renames or wording changes require coordinated test and documentation edits. | Retain explicit coupling; it is easier to audit than opportunistic donor selection or loose output assertions. |
+| P3 | A successful two-corpus `all --write`, `--help`, and injected subprocess write failure remain untested. | Missing tests | 1 | 3 | Existing selection, dispatch, direct failure, and per-root write evidence compose strongly, so these are lower-value integration combinations. | Add only with an active interface or error-translation change. |
+| P3 | Fresh repositories and six subprocesses repeat copying, parsing, and hashing. | Possible optimization / scalability | 1 | 3 | Runtime grows with corpus size, but isolation prevents mutation leakage and currently remains sub-second. | Measure before introducing templates, caching, combined processes, streaming, or sharding. |
+
+### Reranked next work
+
+1. Close the remaining Python checkpoint-reader mutation parity.
+2. Return to Phase 7 product metadata and research-validity work after that package, as required by
+   the conformance-tail exit rule.
+3. Add strict-matrix cardinality assertions when those matrices next change.
+4. Keep README discoverability, current-state navigation, integer endpoints, Windows setup,
+   `--help`, successful `all --write`, and injected subprocess failure separate.
+5. Defer fuzz/property testing, extra SHA vectors, caching, streaming, sharding, locking, and
+   transactions until evidence or measurement justifies them.
+
+### Retained limitations
+
+This package proves byte-integrity repair for a temporary lifecycle member. It does not establish
+that the edited temporary fixture and unchanged trace are a valid semantic pair, and it does not
+execute any risk implementation to create or bless an expected answer.
+
+No checked-in fixture pair, schema, production risk semantic, checkpoint rejection category, enum
+ordinal, first-failure order, matching behavior, integer type, watermark, post-only rule, external
+admission boundary, or kill-switch ownership changes. The V1 oracle remains frozen, while checkpoint
+serialization and the Python checkpoint model remain test-only.
+
+Nothing here establishes durable storage, WAL integration, process restart, portfolio or
+multi-account recovery, calibrated fills, queue priority, execution realism, PnL, collateral,
+settlement, paper trading, live readiness, or profitability.

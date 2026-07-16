@@ -1913,3 +1913,116 @@ copied-script approach closed that gap without widening production behavior.
 The next increment should remain similarly narrow: give lifecycle V1 one complete temporary
 mutation-and-repair cycle. That will close the one corpus-specific writer path not yet exercised
 without repeating the full CLI matrix or changing semantic fixtures.
+
+## Lifecycle V1 now completes the write-repair cycle
+
+### What changed
+
+The copied-script subprocess test now runs the same complete write cycle against both allowlisted
+corpora. The established checkpoint case remains the first explicit row; lifecycle V1 adds
+`v1/lifecycle.json` as the second. No checked-in fixture changes, and
+`tools/risk_fixture_integrity.py` remains unchanged.
+
+The lifecycle row proves the corpus-specific part that selection and stale reporting did not: the
+real public command can canonicalize a lifecycle member, repair the lifecycle manifest, verify the
+result, and recognize a repeated write as a byte-for-byte no-op.
+
+### How it works
+
+The test builds a miniature temporary repository containing a copy of the real script and only the
+selected corpus. For lifecycle V1 it loads `lifecycle.json`, changes the authored identifier from
+`lifecycle` to `lifecycle_cli_edited`, and writes indented JSON without repairing the manifest.
+
+That creates two planned byte changes:
+
+```text
+v1/lifecycle.json
+    authored identifier changed
+    representation is noncanonical
+
+v1/manifest.json
+    fixture_sha256 describes the old member
+    payload_sha256 describes the old manifest payload
+```
+
+The test snapshots every temporary corpus file and launches:
+
+```text
+risk_fixture_integrity.py --corpus v1 --write
+```
+
+It requires status 0, empty stderr, and these exact stdout lines in member-then-manifest order:
+
+```text
+updated python/tests/fixtures/risk_conformance/v1/lifecycle.json
+updated python/tests/fixtures/risk_conformance/v1/manifest.json
+```
+
+The before/after snapshots must differ at exactly those two relative paths. The repaired lifecycle
+bytes must equal `canonical_bytes` of the deliberately authored document, and parsing those bytes
+must still return `fixture_id: lifecycle_cli_edited`.
+
+The two hash relationships are then reconstructed separately:
+
+```text
+SHA-256(repaired lifecycle bytes)
+    == manifest entry fixture_sha256
+
+SHA-256(canonical manifest payload bytes)
+    == manifest payload_sha256
+```
+
+The test does not accept the subprocess's success status as proof of either relationship; it reads
+the resulting bytes and computes both digests independently.
+
+Two fresh subprocesses finish the proof. Ordinary `--corpus v1` verification must return the exact
+canonical/current message and preserve the repaired snapshot. A repeated `--corpus v1 --write`
+must return the distinct already-current message and preserve the same complete snapshot.
+
+### Why the existing test was parameterized
+
+Checkpoint and lifecycle roots use the same public write protocol. A separate lifecycle test would
+repeat the complete three-process sequence and its byte/hash assertions. A shared assertion helper
+would keep separate test names but hide the important mutation, snapshot, write, verify, and repeat
+ordering behind another interface.
+
+One explicit two-row test table is the smaller auditable choice. The donor filenames and expected
+authored identifiers remain visible, while every process and byte assertion stays in the test
+body. A failure is still identified by its `corpus` subtest.
+
+### Why this remains integrity-only
+
+Changing `fixture_id` does not ask the tool to create a meaningful risk scenario. The temporary
+expected trace remains untouched and is never executed. That temporary pair may therefore be
+semantically inconsistent, which is acceptable for this test boundary.
+
+The important separation is:
+
+```text
+integrity test
+    preserve authored JSON -> canonicalize bytes -> repair hashes
+
+semantic conformance test
+    execute reviewed fixture -> compare reviewed transition answers
+```
+
+Running `AccountRiskProjection`, the test-only Python reference, or the frozen V1 oracle here would
+blur those responsibilities and risk turning one implementation's output into an expected answer.
+
+### What this closes and what remains
+
+Both fixed corpus roots now have a complete temporary mutation, write, verification, and repeated
+no-op cycle. Lifecycle selection, schema wiring, output paths, member canonicalization, manifest
+repair, authored-value preservation, and idempotence are covered without repeating checkpoint
+refusals or changing the public tool.
+
+The next bounded conformance package is the remaining Python checkpoint-reader mutation parity.
+Strict-matrix cardinality, integer endpoints, Windows setup, root README discoverability, `--help`,
+successful `all --write`, subprocess write-failure injection, locking, transactions, additional SHA
+vectors, and fuzz/property testing remain separate lower-priority work.
+
+This increment changes no production risk behavior, checkpoint category or ordering, fixture
+schema, reviewed answer, frozen-oracle capability, matching rule, integer type, watermark,
+post-only rule, external admission ownership, or kill-switch boundary. It adds no durable storage,
+restart recovery, portfolio recovery, calibrated execution, PnL, collateral, settlement, paper
+trading, live readiness, or profitability evidence.
