@@ -825,3 +825,291 @@ Checkpoint serialization and the Python checkpoint model remain test-only. The l
 adapter remains frozen and checkpoint-ineligible. Nothing here establishes durable storage, WAL
 integration, restart recovery, portfolio or multi-account recovery, calibrated fills, queue
 priority, execution realism, PnL, collateral, settlement, paper trading, or live readiness.
+
+## Deeper post-implementation review of the public CLI coverage
+
+This review examines the committed subprocess tests rather than the approved design. Impact uses
+1 for minor maintenance friction and 5 for a gap that would undermine the integrity workflow's
+core evidence. The ratings measure the consequence of leaving a finding open; they do not imply
+that every low-impact observation deserves immediate code.
+
+### Overall judgment
+
+The implementation closes the intended boundary cleanly. Five new test methods add process-level
+coverage without changing `risk_fixture_integrity.py`. They execute a byte-for-byte copy of the
+real script, preserve its fixed root derivation and allowlisted registry, and isolate every mutation
+inside a temporary repository. The focused integrity module now completes 17 tests in roughly six
+tenths of a second, while the full repository remains at 78 CTest tests and 58 Python tests.
+
+The strongest evidence is not simply that a subprocess was launched. It is the combination of:
+
+- real top-level script execution;
+- exact exit and stream assertions;
+- snapshots taken after test mutation but before the command;
+- exact changed-file sets after `--write`;
+- digest-content checks after repair; and
+- a verify-then-repeat sequence after the first write.
+
+Those checks make false positives difficult. A test cannot pass merely because some exception
+occurred, some path appeared in combined output, or some bytes changed. Each case has a specific
+process result and a specific permitted byte effect.
+
+### Category ratings
+
+| Category | Impact | Assessment |
+| --- | ---: | --- |
+| Unnecessary complexity | 2 | The 219-line addition contains four CLI helpers, five behavior tests, a nested selection table, and several exact-output constructions. Most of the size makes the evidence explicit, but the test module is now large enough that future additions need discipline. |
+| Future technical debt | 2 | Donor filenames, the presence of `fixture_id`, exact tool-owned messages, and POSIX-style repository-relative output are intentional couplings. They are appropriate today but will require coordinated maintenance when donors, wording, or supported platforms change. |
+| Missing tests | 2 | The required CLI contract is covered. Remaining gaps are adjacent: lifecycle-V1 write repair, subprocess translation of an injected write failure, `--help`, successful `--corpus all --write`, accepted integer endpoints, and unrelated Python checkpoint-reader parity. |
+| Missing documentation | 2 | The fixture guide and long-form explanation now cover the CLI well. Root README discoverability, a compact current-state index, and an explicit supported-platform note remain absent or dispersed. |
+| Possible optimizations | 1 | Fresh processes and full corpus copies repeat work, but the measured focused runtime is small. Optimizing now would risk shared state or hide the repository shape being tested. |
+| Future scalability concerns | 2 | Runtime grows with subprocess cases times corpus size, and chronological engineering notes continue to grow. Neither is a current bottleneck, but both will become review friction before they become compute bottlenecks. |
+
+No category exceeds impact 2. That is an important conclusion: the package has no correctness gap
+that warrants reopening the integrity tool, changing a fixture schema, or broadening the public
+interface.
+
+### Unnecessary complexity
+
+#### 1. The CLI setup is spread across four helpers — impact 2/5
+
+`_copy_cli_repository`, `_snapshot_cli_corpora`, `_run_cli`, and
+`_make_cli_member_stale` each expose one step of the test protocol. A single fixture object could
+bundle repository creation, mutation, execution, and snapshots, reducing repeated arguments.
+
+That abstraction would also hide important boundaries. A reviewer can currently see when the
+temporary repository is created, which corpora are copied, when the invalid input becomes the
+snapshot baseline, and exactly which process is launched. A stateful harness object would make the
+test shorter but make ordering assumptions less visible.
+
+Recommended handling: keep the helpers procedural until another CLI tool needs the same protocol.
+If reuse appears, extract only repository-copy and snapshot mechanics; do not create a general
+mutation framework.
+
+#### 2. The selection table has three related dimensions — impact 1/5
+
+Each row declares the CLI selection, copied roots, and mutations. That duplication is deliberate:
+the single-corpus cases omit the unselected root, while `all` contains both. Deriving copied roots
+from mutations would shorten the rows but weaken the visible proof that the test controls which
+repository roots exist.
+
+Recommended handling: retain the explicit three-part rows. Add a named data structure only if the
+table gains substantially more selections.
+
+#### 3. Exact output strings appear in more than one test — impact 1/5
+
+The canonical/current message occurs in verification and post-repair assertions. Extracting it as
+a test constant would remove repetition, but it would also make the assertions less local. The
+message is short, public, and intentionally pinned.
+
+Recommended handling: keep local literals while there are only a few uses. Extract constants if a
+future CLI package adds more cases or variants.
+
+### Future technical debt
+
+#### 1. Mutation donors are name- and shape-coupled — impact 2/5
+
+Checkpoint coverage assumes `roundtrip_empty_state.json` exists and carries `fixture_id`.
+Lifecycle selection assumes `lifecycle.json` has the same authored identifier field. Renaming a
+donor or replacing its shape would break the tests even if CLI behavior remained correct.
+
+This is acceptable maintenance coupling rather than a hidden correctness defect. Named reviewed
+fixtures are easier to audit than a search that silently chooses whichever document happens to
+contain a mutable string.
+
+Recommended handling: keep named donors. If donor churn occurs, add a helper that requires exactly
+one explicitly declared donor with `fixture_id`; do not select one opportunistically from the
+manifest.
+
+#### 2. Tool-owned prose is now a compatibility surface — impact 2/5
+
+Success, stale-path, rerun, update-path, and already-current messages are compared exactly. A
+cosmetic wording change will require test and documentation changes.
+
+That cost is intentional. These lines are the author and CI interface. Exact assertions detect a
+regression where a message moves to the wrong stream, omits a path, or stops instructing the author
+how to repair safely. Argparse and temporary-path output remain fragment-based because those parts
+are not fully owned by the tool.
+
+Recommended handling: continue exact assertions for tool-owned stable lines. Treat wording changes
+as explicit interface changes with corresponding documentation review.
+
+#### 3. Exact path output is POSIX-oriented — impact 1/5
+
+The copied script prints `Path` values. On the current macOS/Linux authoring environment, the
+repository-relative paths contain `/`, matching the asserted strings. Native Windows path display
+would require a separate expectation or normalization policy.
+
+Recommended handling: retain the current platform claim. Add Windows-specific setup only if
+Windows becomes a supported validation target; do not normalize the production tool solely for an
+unsupported test environment.
+
+#### 4. The test file now mixes function-level and process-level evidence — impact 1/5
+
+Keeping both in one module makes the integrity workflow easy to find, but the file has grown from
+parser and writer tests into a layered suite. Future contributors may add process cases where a
+direct test would be clearer, or direct cases that fail to protect CLI translation.
+
+Recommended handling: preserve the naming distinction (`test_cli_...`) and split into a separate
+module only when navigation, not raw line count, becomes a demonstrated problem.
+
+### Missing tests
+
+#### 1. Lifecycle V1 lacks a complete write-repair cycle — impact 2/5
+
+The new `v1` case proves registry selection and read-only stale reporting. It does not run
+`--write`, validate the lifecycle member digest, verify the manifest payload digest, re-run
+verification, and prove a repeated no-op. Checkpoint V1 supplies that complete path through the
+same writer, so the gap is narrow: lifecycle-specific root/schema wiring could still drift during
+write repair.
+
+Recommended handling: make one lifecycle member-and-manifest repair cycle the next bounded
+increment. Reuse the process harness but do not repeat canonical, argparse, structural-refusal, or
+`all` cases.
+
+#### 2. Subprocess translation of an atomic write failure is not injected — impact 1/5
+
+Existing direct tests patch `os.replace` and prove destination safety and `CorpusError`. The CLI
+subprocess suite proves a structural `CorpusError` becomes exit 2, but it does not inject a failure
+inside the copied process during `--write`.
+
+A subprocess injection seam would require changing the tool, patching the copied source, or relying
+on platform-specific permission behavior. Each option would make the test less representative or
+less portable than the direct failure test.
+
+Recommended handling: leave the layers compositional. Add process-level write-failure injection
+only if `main` error translation changes or a natural test seam appears.
+
+#### 3. `--corpus all --write` is not exercised successfully — impact 1/5
+
+The `all` verification case proves both allowlisted roots are planned. The checkpoint write case
+proves `--write` dispatch. Their composition strongly covers `all --write`, but there is no single
+subprocess that repairs both corpora and asserts both manifest updates.
+
+Recommended handling: do not add it to this package. The next lifecycle repair can decide whether
+one `all --write` case adds useful registry evidence without duplicating the checkpoint lifecycle.
+
+#### 4. `--help` is not pinned — impact 1/5
+
+The parser description and `--write` help text could regress while missing/invalid argument cases
+still pass. Help prose is useful, but it is lower risk than exit, stream, selection, and write
+behavior.
+
+Recommended handling: add a fragment-based help test only when the command help is revised or
+becomes part of a broader developer-tool documentation standard.
+
+#### 5. Adjacent reader and numeric gaps remain separate — impact 2/5
+
+Accepted signed/unsigned endpoints, strict-matrix cardinality, and remaining Python checkpoint
+reader mutations were already documented debt. CLI coverage neither worsens nor closes them.
+
+Recommended handling: preserve their separate ordering: lifecycle repair first, Python reader
+parity second, cardinality assertions when those matrices next change, endpoints when numeric
+compatibility becomes active work.
+
+### Missing documentation
+
+#### 1. Root README discoverability remains limited — impact 1/5
+
+The author commands live in the fixture guide and the tool has a concise `tools/README.md` entry.
+The root README does not point directly to checkpoint fixtures or the integrity workflow.
+
+Recommended handling: keep this out of the bounded CLI-review commits. Address it with the already
+separate checkpoint discoverability package so the root README gains one curated navigation entry
+rather than more chronological detail.
+
+#### 2. Supported platform assumptions are dispersed — impact 1/5
+
+The parser-refusal explanation discusses POSIX backslash behavior, and the CLI test now also pins
+POSIX-style path output. There is no single statement defining macOS/Linux as the currently tested
+authoring environments.
+
+Recommended handling: add a compact platform note when Windows validation is considered. Avoid
+claiming Windows support or adding speculative compatibility code now.
+
+#### 3. Current-state navigation is still missing — impact 2/5
+
+The critique and explanation preserve valuable chronological reasoning, but they now exceed what a
+new reviewer can scan quickly. The newest sections are accurate, yet finding the current top debt
+still requires searching near the end of long files.
+
+Recommended handling: add a compact current-state index during the next major risk-conformance
+package. Link to the current corpus counts, closed CLI debt, active lifecycle-repair debt, and
+retained non-claims without rewriting historical sections.
+
+### Possible optimizations
+
+#### 1. Reuse an immutable temporary corpus template — impact 1/5
+
+The tests repeatedly copy 16- and 26-pair corpora. A session-level pristine template could reduce
+filesystem work, with each test cloning from that temporary base rather than the checked-in roots.
+
+The current focused runtime is roughly 0.6 seconds. A shared template would introduce lifecycle,
+cleanup, and mutation-leak risks for negligible savings.
+
+Recommended handling: defer until measured runtime becomes material. If needed, clone from a
+verified immutable temporary base into a fresh per-case destination; never share writable roots.
+
+#### 2. Combine subprocess invocations — impact 1/5
+
+Repair uses three processes: initial write, verification, and repeated write. Combining operations
+inside one Python process would run faster, but it would stop proving independent command
+invocations—the way authors and CI actually use the tool.
+
+Recommended handling: preserve separate processes. Their startup cost is part of the public
+workflow being tested.
+
+#### 3. Replace full snapshots with hashes — impact 1/5
+
+Snapshots retain every file's bytes, while aggregate digests would consume less memory for large
+corpora. Raw bytes provide stronger failure diagnostics and make exact member assertions simple.
+
+Recommended handling: retain raw snapshots at current size. Consider per-file streaming hashes
+only if corpus memory becomes measurable, while keeping repaired-member byte assertions.
+
+### Future scalability concerns
+
+#### 1. Runtime grows as cases times corpus size — impact 2/5
+
+Every isolated case copies and snapshots complete selected roots. Growth is approximately linear
+in fixture bytes multiplied by subprocess rows. A substantially larger corpus or many new CLI
+behaviors could turn the current sub-second module into noticeable test time.
+
+Recommended handling: measure before optimizing. First reduce accidental duplicate behavioral
+cases; then consider an immutable copy template. Do not weaken fresh-write isolation.
+
+#### 2. Registry expansion will widen the selection table — impact 1/5
+
+A future corpus requires a new fixed `CORPORA` entry and proportional selection coverage. That is
+intentional friction: every writable root and schema should be explicitly reviewed.
+
+Recommended handling: keep the registry allowlisted. Extend the selection table once per new
+corpus rather than parameterizing over arbitrary paths.
+
+#### 3. Documentation volume is growing faster than the implementation — impact 2/5
+
+The test package is bounded, but its historical critique and explanation are extensive. Continued
+append-only sections will eventually make correct information hard to locate and increase the risk
+that an older "next step" is mistaken for the current one.
+
+Recommended handling: preserve the chronological record but add current-state navigation. Do not
+delete earlier reasoning; label active versus closed debt clearly.
+
+### Priority order after the deeper review
+
+1. Add one lifecycle-V1 mutation-and-repair cycle.
+2. Close remaining Python checkpoint-reader mutation parity.
+3. Add a compact current-state index with checkpoint and integrity-workflow discoverability during
+   the next substantial documentation package.
+4. Add strict-matrix cardinality assertions when those matrices next change.
+5. Keep `--help`, `all --write`, accepted endpoints, Windows setup, and injected subprocess write
+   failure conditional on an active interface change or demonstrated need.
+6. Defer copy caching, combined processes, hash-only snapshots, streaming, sharding, locking, and
+   transaction work until measurement justifies them.
+
+### Final assessment
+
+This is a strong closure of the public CLI gap. The implementation is larger than a mock-based
+unit test because it proves a larger boundary, but its complexity is mostly visible evidence rather
+than abstraction debt. The remaining findings are impact 1 or 2 and should not trigger production
+changes, fixture rewrites, public root overrides, or broader risk claims.
