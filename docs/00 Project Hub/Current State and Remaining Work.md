@@ -24,9 +24,9 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-16 |
-| Baseline commit | `ecca209` (`test(risk): close Python checkpoint reader parity`) |
-| Branch state at review | `main` seven commits ahead of `origin/main` at the implementation baseline |
-| Recent risk commits | `ecca209`, `cc980d4`, `7642969`, `7f8b2bc`, and `54d030b` |
+| Baseline commit | `5a21e83` (`docs(risk): deepen Python reader parity explanation`) |
+| Branch state at review | `main` ten commits ahead of `origin/main` |
+| Recent risk commits | `5a21e83`, `7a4e72d`, `47fde6d`, `ecca209`, and `cc980d4` |
 | C++/CTest validation | 78 tests passing |
 | Python validation | 59 tests passing |
 | Focused checkpoint-reader validation | 17 tests passing |
@@ -34,7 +34,7 @@ complete, this current-state document wins; the older note remains useful histor
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | Authoritative product metadata and research validity |
+| Next bounded package | B1a authoritative product-term schema and identity integration design |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -354,7 +354,7 @@ keep the conformance tail active.
 
 This is the highest-value project track after the conformance tail.
 
-### B1. Authoritative product metadata — planned, high priority
+### B1. Authoritative product metadata — next, high priority
 
 The repository needs versioned venue product terms for every researched contract:
 
@@ -376,6 +376,62 @@ Acceptance gate:
 
 Why it comes first: execution, accounting, and ML labels can all be internally consistent while
 still being wrong for the actual venue contract if product terms are missing.
+
+#### B1a. Product-term schema and identity integration — next bounded package
+
+The first B1 package is design-first. It should define how authoritative, versioned venue terms
+enter the existing Phase 7 pipeline before adding accounting, multi-market behavior, or a live
+metadata dependency.
+
+Current implementation boundary:
+
+- normalization writes `product.json` with schema `pmm.historical.product_map.v1` from capture and
+  message identity;
+- that document records ticker, venue market identity, and provenance, but it is not an
+  independently sourced product-term record;
+- normalized and backtest manifests do not yet require the exact tick, lot, payout, lifecycle,
+  settlement, and fee-term identity described by ADR-007 and ADR-008; and
+- current integer-cent and whole-contract behavior is a declared research limitation, not proof
+  that every venue product has those terms.
+
+Required B1a design questions:
+
+1. Compare extending `product.json`, adding a separate immutable `product_terms.json`, and making
+   product terms a configuration-owned input.
+2. Decide which fields are authoritative venue facts, which are local conversion policy, and which
+   are unsupported until sourced.
+3. Define schema versioning, effective-time/version identity, source URL or document provenance,
+   retrieval time, raw-source content hash, and canonical product-term content hash.
+4. Define how ticker, event, market, and contract identity bind the terms to normalized records.
+5. Define how normalization, feature, configuration, and result manifests carry or reference the
+   exact terms hash without silently copying incompatible values.
+6. Define deterministic price-grid and quantity-unit conversion, including refusal of unsupported
+   or nonrepresentable values before a final artifact is published.
+7. Define compatibility rules so runs with different product terms, fee schedules, or conversion
+   policies cannot be compared silently.
+8. Decide how tests use reviewed local source fixtures without network access or mutable current
+   venue state.
+9. Identify whether an ADR-007/ADR-008 amendment or a new ADR is warranted before implementation.
+
+Recommended design direction to evaluate, not assume: keep capture-derived identity separate from
+an immutable source-backed product-term document, reference the latter by canonical content hash,
+and keep network retrieval outside deterministic normalization and backtest execution. The next
+agent must compare alternatives and justify the selected ownership boundary before editing code.
+
+B1a non-goals:
+
+- do not implement fees, double-entry accounting, collateral, settlement processing, or PnL;
+- do not add calibrated fills, queue priority, paper trading, gateways, or live order behavior;
+- do not broaden Phase 3 matching or replace fixed integer core types in this first package;
+- do not silently infer venue terms from one captured WebSocket stream;
+- do not make tests depend on live network responses;
+- do not treat a source URL without retained content and hashes as reproducible provenance;
+- do not mix B2 multi-market/reconnect recovery or B3 experiment reporting into B1a; and
+- do not reopen closed Track A work unless new evidence shows a higher-impact defect.
+
+B1a design gate: the new agent must inspect the current artifacts and present the schema,
+ownership, compatibility, migration, test, documentation, and phased implementation proposal for
+approval before making changes.
 
 ### B2. Broader observed-market coverage and recovery — planned
 
@@ -786,7 +842,7 @@ but it must remain labelled experimental and must not bypass its promotion gates
 
 ## Current next package
 
-The next agent should design **authoritative product metadata and research validity** under B1.
+The next agent should design **B1a authoritative product-term schema and identity integration**.
 
 Required design boundary:
 
@@ -799,6 +855,12 @@ Required design boundary:
   values; and
 - do not mix accounting, calibrated execution, ML, gateway, paper-trading, or live behavior into
   the first metadata package.
+
+The handoff begins from `5a21e83`, after the completed A2 implementation (`ecca209`), completion
+documentation (`47fde6d`), impact-rated critique (`7a4e72d`), and deep explanation (`5a21e83`).
+The last validated implementation baseline remains 78 CTest tests, 59 Python tests, 17 focused
+checkpoint-reader tests, and canonical/current lifecycle and checkpoint corpora. Documentation-only
+follow-ups did not change executable behavior or reviewed corpus bytes.
 
 Track A is closed by `4e6336b` for A1 and `ecca209` for A2, with their documentation packages.
 Deferred A3 hardening remains available only when evidence raises its impact or its containing
