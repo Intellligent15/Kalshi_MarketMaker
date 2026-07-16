@@ -680,3 +680,91 @@ or semantic expected answer. Checkpoint serialization and the Python checkpoint 
 test-only; the lifecycle V1 oracle remains frozen and checkpoint-ineligible. No durable storage,
 WAL integration, restart recovery, portfolio recovery, execution realism, PnL, collateral,
 settlement, paper-trading, or live-readiness claim is added.
+
+## Deeper post-implementation review of the parser-refusal matrix
+
+This review examines the committed test rather than the approved design. Impact uses 1 for minor
+review or maintenance friction and 5 for a gap that would block trustworthy conformance evidence.
+Ease uses 1 for broad or risky work and 5 for a small local correction. The ratings describe the
+cost of leaving each issue open; they do not imply that every low-impact item should be fixed now.
+
+### Overall judgment
+
+The implementation satisfies the package contract. All ten named refusals reach `CorpusError`,
+require a stable diagnostic fragment, and compare the entire temporary corpus before and after the
+planning call. The integer cases repair their temporary member and payload digests; unsafe-name and
+ordering cases rewrite canonical manifests; the absolute path still addresses an existing file;
+and the backslash case renames its file to match. These choices prevent a stale digest, missing
+member, or unreferenced document from masquerading as the intended parser refusal.
+
+The strongest design property is the timing of the snapshot. It is taken after the test deliberately
+creates the invalid corpus but before `build_plan` runs. Equality afterward therefore proves that
+planning did not repair, canonicalize, stage, or replace a corpus file. Comparing with the pristine
+copy instead would be wrong because the deliberate mutation itself is expected to change bytes.
+
+The implementation is proportionate, but not tiny. One test method adds 158 lines around ten rows.
+Most of that size comes from making the mutations honest rather than from the table itself: hashes
+must be kept current, files must continue to exist, the root-symlink target must remain inspectable,
+and diagnostics must stay specific. A shorter version would be easier to scan but would provide
+weaker evidence.
+
+### Category ratings
+
+| Category | Impact | Ease | Assessment |
+| --- | ---: | ---: | --- |
+| Unnecessary complexity | 2 | 4 | Several nested mutation functions, two higher-order helpers, mutable untyped JSON navigation, and schema-setting lambdas surround a ten-row table. The machinery is justified by single-defect isolation, but the method is denser than the refusal list itself. |
+| Future technical debt | 2 | 4 | Integer mutation depends on one named donor fixture; path and ordering cases depend on the first two manifest entries; diagnostic fragments include entry indices; and the absolute-path outcome overlaps the broader slash check on POSIX. These are contained test-maintenance couplings. |
+| Missing tests | 2 | 5 | The public CLI contract, lifecycle-v1 repair cycle, accepted integer endpoints, and some internal predicate distinctions remain unpinned. The required refusal outcomes are covered, so these gaps do not invalidate the package. |
+| Missing documentation | 2 | 4 | The guide and explanation cover the package well, but the chronological risk notes are now long, platform assumptions are scattered, and there is no compact current-state index separating closed debt from active debt. |
+| Possible optimizations | 1 | 3 | Ten independent full-corpus copies and parses are measurably unnecessary work in theory, but the focused module completes in roughly three tenths of a second. Isolation is currently more valuable than caching. |
+| Future scalability concerns | 2 | 2 | Runtime grows with matrix rows times corpus size, while hard-coded donor names, entry positions, a one-line manifest, and long chronological notes become more awkward as corpora and contributors grow. None is a current bottleneck. |
+
+### Detailed findings
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | Public CLI behaviour is still inferred from direct `build_plan` tests. | Missing tests | 2 | 5 | Argument parsing, fixed-registry selection, exit statuses 0/1/2, stdout/stderr routing, and `--write` dispatch can regress while every parser row remains green. | Make subprocess coverage the next bounded package. Preserve the fixed public roots; use a test-only seam rather than an arbitrary user-facing `--root`. |
+| P2 | The absolute-path row does not isolate the `Path(name).is_absolute()` predicate on POSIX. | Missing test precision / future debt | 1 | 3 | A normal absolute path contains `/`, so the earlier slash condition rejects it first. The row correctly proves that an absolute manifest name is refused, but deleting only the explicit absolute predicate would not fail this row on macOS or Linux. | Keep the outcome test. Treat the explicit predicate as defensive cross-platform clarity; add platform-specific branch testing only if path logic is refactored. |
+| P2 | The backslash case is intentionally POSIX-oriented. | Portability / future debt | 1 | 2 | macOS and Linux permit a literal backslash in a filename, allowing the test to prove that the file exists and only the manifest rule is wrong. Windows treats backslash as a separator, so the same setup would require a different construction. | Document macOS/Linux as the tested authoring environment. Design a Windows variant only when Windows becomes a supported validation target. |
+| P2 | Donor selection is partly positional and partly name-based. | Future technical debt | 2 | 4 | The integer rows require `checkpoint_active_order_limit.json`; unsafe-name rows target entry zero; sorting swaps entries zero and one; diagnostics pin those indices. Renaming or reordering valid donors can break the matrix for maintenance reasons. | Keep the explicit donors while the manifest is stable. If donor churn occurs, locate entries by semantic property and have setup return the resulting diagnostic location. Do not build a framework preemptively. |
+| P2 | Accepted numeric endpoints are not focused directly. | Missing tests | 1 | 5 | The matrix proves rejection immediately outside `-2^63` and `2^64-1`, but does not independently prove that those exact endpoints parse. Existing corpora exercise ordinary integers only. | Add accepted endpoint rows only when integer parsing changes or when the C++ reader boundary becomes a broader compatibility concern. |
+| P2 | Lifecycle V1 still has no actual mutation-and-repair cycle. | Missing tests | 2 | 5 | Both corpora share `build_plan`, but only checkpoint V1 has exercised deliberate repair. Registry or schema wiring specific to lifecycle V1 could drift. | Parameterize one existing repair test over both corpora in its own small package; do not duplicate the refusal matrix. |
+| P2 | Mutable JSON values are annotated as `dict[str, object]` while the test indexes them as nested dictionaries and lists. | Unnecessary complexity / tooling debt | 1 | 5 | Runtime is correct and the repository has no static type gate, but a future type checker would reject much of this navigation or force casts. The annotation communicates less truth than an explicit JSON alias or `Any`. | Leave it local today. Introduce one test-only JSON type alias if static checking is adopted; do not add casts solely for cosmetic precision. |
+| P3 | Schema mutations use `__setitem__` lambdas. | Unnecessary complexity / readability | 1 | 5 | They fit the common callable shape but are less immediately readable than two small named functions with ordinary assignment. | Prefer ordinary assignment if this method is edited substantially. Do not reopen passing code for style alone. |
+| P3 | The snapshot proves regular file bytes, not directory metadata or every symlink property. | Test-scope precision | 1 | 4 | This is exactly the acceptance boundary—no corpus file was written or repaired—but it is not a general filesystem immutability proof. | Keep the claim narrow. Add metadata assertions only if `build_plan` ever starts touching permissions or directory entries. |
+| P3 | Full-corpus isolation repeats copy, parse, canonicalization, and hashing work ten times. | Possible optimization / scalability | 1 | 3 | Cost grows linearly, but shared mutable fixtures would risk row contamination and make failures order-dependent. | Retain isolation until profiling shows meaningful test time. A verified immutable base copy is preferable to shared mutable state if optimization is eventually required. |
+| P3 | The current critique and explainer are chronological append-only records. | Missing documentation / scalability | 2 | 4 | Historical reasoning is preserved, but a new reviewer must scan more than a thousand lines to find the current boundary and next work. | Add a compact current-state index when the next major conformance package lands; avoid rewriting history during a bounded test increment. |
+
+### Complexity that should remain
+
+Some apparent complexity is evidence, not waste:
+
+- Recomputing temporary hashes prevents stale metadata from winning before the intended parser
+  check.
+- Renaming the backslash member and pointing the absolute member at an existing file prevent a
+  missing-file failure from satisfying the path rows.
+- Fresh corpus copies keep one defect from contaminating another row.
+- Rule-specific fragments prevent generic parser failure from counting as coverage.
+- Calling `build_plan` directly keeps parser evidence separate from CLI process behaviour.
+
+Removing these pieces would shorten the test but weaken what a passing row proves. The better
+maintenance rule is to keep them local and explicit, not to replace them with a generic mutation
+framework.
+
+### Updated priority order
+
+1. Add public integrity-CLI subprocess coverage.
+2. Add one lifecycle-v1 mutation-and-repair cycle.
+3. Close the remaining Python checkpoint-reader mutation parity.
+4. Add the existing strict matrices' 16-row cardinality assertions when those tests next change.
+5. Add a compact current-state navigation section when the next major risk-conformance package
+   extends these already long notes.
+6. Defer accepted integer endpoints, Windows-specific path setup, fuzzing, caching, streaming,
+   sharding, and locking until their boundaries become active or measured.
+
+### Final rating
+
+This is a strong, appropriately bounded test increment. Its highest remaining impact is 2/5: the
+public command still lacks subprocess proof, but the parser safety claims requested by the package
+are now durable. No finding warrants changing production code, fixture schemas, reviewed corpus
+bytes, checkpoint semantics, or the frozen V1 adapter.
