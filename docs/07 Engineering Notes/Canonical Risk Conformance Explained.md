@@ -956,3 +956,68 @@ When the donor or strict contract changes, a reviewer should ask:
 This checklist preserves the central idea: the fixture program chooses the capture, the reviewed
 trace must align with it, and integrity metadata must be valid before a strict rule can count as
 tested.
+
+## Named parser refusals in plain language
+
+### What changed
+
+The integrity tool already refused ambiguous bytes, unsafe paths, unsupported integer values, bad
+manifest order, and mismatched schemas. Broad negative tests exercised some of that behaviour, but
+they did not prove every advertised rule independently. A refactor could remove one check while a
+test continued passing because the same temporary corpus happened to fail an earlier check.
+
+The test suite now has one named row for each previously unpinned refusal. Signed underflow and
+unsigned overflow are separate because the accepted interval has two independent boundaries:
+signed 64-bit on the lower side and unsigned 64-bit on the upper side.
+
+### How the proof works
+
+```text
+valid checkpoint corpus copy
+            |
+            v
+one deliberate parser defect
+            |
+            v
+snapshot every temporary file byte
+            |
+            v
+build_plan must raise CorpusError
+            |
+            +--> diagnostic must name the intended refusal
+            |
+            v
+every file byte must still match the snapshot
+```
+
+The mutations preserve the rest of the envelope. For example, the out-of-range integer occupies a
+real integer field and its temporary hashes describe the invalid bytes. An absolute member name
+still points to the same existing file, and a backslash-containing member is renamed so that the
+manifest does not also describe a missing file. Manifest values are canonically rewritten and the
+payload hash is updated when the intended defect allows parsing that far.
+
+The root-symlink row moves the copied directory to a real sibling and places a symlink at the
+original temporary root. Planning must reject the root before reading its manifest. Temporary-
+directory cleanup removes both paths, and the target corpus's byte snapshot proves no file was
+repaired through the link.
+
+### Why the test calls `build_plan` directly
+
+`build_plan` is the integrity tool's public, read-only planning boundary and is already used by the
+tool tests. Calling it directly exposes the exact `CorpusError` and allows every row to use a
+temporary corpus without adding an arbitrary public `--root` option. Argument parsing, exit-code
+translation, stdout and stderr, and `--write` dispatch belong to the separate public CLI contract
+and remain the recommended next increment.
+
+The complete refusal matrix uses `checkpoint_v1` only because the lifecycle and checkpoint corpora
+share this parser and integrity envelope. Duplicating the rows would repeat one implementation, not
+provide independent semantic evidence. The checked-in corpora remain unchanged, and the integrity
+tool still does not execute risk logic or derive expected transitions.
+
+### What this does not prove
+
+The matrix is enumerated safety coverage, not fuzzing, hostile-filesystem hardening, corpus-wide
+transactions, or durable storage. It changes no risk result, rejection ordering, fixture schema,
+reviewed expected answer, or V1 oracle capability. It does not establish process recovery,
+portfolio recovery, realistic fills, queue priority, PnL, collateral, settlement, paper trading,
+or live readiness.

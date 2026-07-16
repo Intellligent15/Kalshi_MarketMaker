@@ -173,3 +173,33 @@ siblings, flushed, and atomically installed, with `manifest.json` installed last
 cannot leave a half-written JSON file. An interruption after a member replacement but before the
 manifest replacement leaves stale hashes, so the normal readers fail closed and a later `--write`
 can finish the repair. This is intentionally not a transactional durable-storage protocol.
+
+## Pinned integrity-parser refusals
+
+The integrity tool's documented parser boundary is covered by one named, table-driven matrix in
+`python/tests/test_risk_fixture_integrity.py`. Each row copies `checkpoint_v1` to a fresh temporary
+directory, introduces one defect, calls `build_plan`, requires `CorpusError` plus a diagnostic for
+that exact rule, and proves that every temporary corpus file has the same bytes before and after
+planning.
+
+The matrix independently pins:
+
+- a UTF-8 byte-order mark and invalid UTF-8;
+- signed 64-bit underflow and unsigned 64-bit overflow;
+- a fixture-root symlink;
+- absolute and backslash-containing manifest member names;
+- decreasing manifest-entry order; and
+- mismatched top-level and payload manifest schemas.
+
+Mutations remain otherwise current wherever the intended refusal permits it. Integer cases use an
+existing integer field and update the temporary member and payload hashes. Path and ordering cases
+rewrite the temporary manifest canonically and update its payload hash. The absolute member still
+points to the same existing file, and the backslash-named file is renamed to match its manifest
+entry. These details prevent stale metadata, a missing member, or an unreferenced document from
+satisfying a row before the named parser rule is reached.
+
+`checkpoint_v1` is sufficient because both allowlisted corpora use the same integrity parser,
+canonical-byte rules, manifest envelope, path checks, and planning boundary; only their schema
+strings and semantic documents differ. The normal no-op test and the three verification commands
+continue to cover both checked-in roots. Public CLI exit codes, output streams, and `--write`
+dispatch remain a separate test boundary.

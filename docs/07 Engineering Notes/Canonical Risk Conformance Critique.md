@@ -625,3 +625,58 @@ production risk rule. It does not create production serialization, durable stora
 process restart, portfolio or multi-account recovery, calibrated fills, queue priority, execution
 realism, PnL, collateral, settlement, paper trading, or live readiness. The frozen lifecycle V1
 oracle remains unchanged and ineligible for checkpoint fixtures.
+
+## Parser-refusal matrix implementation critique
+
+The former top remaining test debt is closed. The integrity-tool suite now has ten named rows that
+independently pin BOM, invalid UTF-8, both integer-range boundaries, root symlinks, both unsafe
+member-name forms, manifest ordering, and both manifest schema comparisons. Every row requires
+`CorpusError`, a rule-specific diagnostic fragment, and an unchanged temporary-corpus byte
+snapshot. The integer and path mutations keep their surrounding metadata and files valid so stale
+hashes, missing members, or later unreferenced-document checks cannot make a row pass accidentally.
+
+### Assessment of the design
+
+The local table is the smallest auditable shape. Shared copy, snapshot, exception, diagnostic, and
+cleanup mechanics keep the rows consistent, while named mutation functions leave the actual defect
+visible. Extracting a general mutation framework would add an interface for one test; separate test
+bodies would repeat the same safety assertions ten times.
+
+Direct `build_plan` calls deliberately exclude the CLI contract. This makes the new evidence
+precise: failures are parser refusals, not argparse, process, stream, or exit-code behaviour. The
+cost is that the documented public command still needs subprocess coverage. That is now the
+highest-value bounded follow-up.
+
+Using only `checkpoint_v1` is also deliberate. Both corpora share one integrity parser and envelope,
+so duplicating the matrix would add runtime and maintenance without an independent implementation.
+The existing checked-in no-op test and explicit verifier runs continue to cover both registered
+roots.
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | The public integrity CLI still lacks subprocess tests for exit codes, stdout, stderr, and `--write` dispatch. | Missing tests | 2 | 5 | `build_plan` can remain correct while command-line argument or result translation regresses. | Add a narrow temporary-root test seam or patched subprocess environment without exposing an arbitrary public write root. |
+| P2 | Lifecycle V1 still lacks a mutation-and-repair cycle matching checkpoint V1. | Missing tests | 2 | 5 | The shared envelope is now strongly pinned, but the second allowlisted corpus has only checked-in no-op verification. | Parameterize one repair case over both corpora; do not duplicate this negative matrix. |
+| P2 | Python checkpoint-reader mutations still cover fewer schema-specific categories than C++. | Missing tests / drift risk | 2 | 4 | Integrity-parser coverage is complete for this package, but the separate semantic reader can still lose an unmirrored refusal. | Close reader parity in its own package without changing checkpoint semantics. |
+| P2 | Absolute and backslash member names share the tool's broad bare-filename diagnostic. | Diagnostic precision | 1 | 4 | Named rows and distinct field locations prove both branches, but the prose does not identify the offending character class. | Keep the stable location and rule diagnostic; split path categories only if author debugging becomes difficult. |
+| P3 | The table is enumerated rather than generative. | Missing tests / future work | 2 | 3 | Inputs outside the documented categories are not explored automatically. | Keep the explicit matrix reviewable; consider fuzz or property testing only as a separate evidence-driven increment. |
+| P4 | Every row copies and parses the complete 26-pair checkpoint corpus. | Possible optimization / scalability | 1 | 3 | Isolation costs milliseconds today and prevents mutation leakage between rows. | Retain full isolation until profiling shows material cost; do not add caching, streaming, or sharding now. |
+
+### Reranked next work
+
+1. Add public integrity-CLI subprocess coverage for exit codes, output streams, and `--write`
+   dispatch.
+2. Exercise lifecycle V1 through one mutation-and-repair cycle.
+3. Close remaining Python checkpoint-reader mutation parity.
+4. Add the strict matrices' explicit 16-row cardinality assertions when those matrices next change.
+5. Keep README discoverability, duplicated defaults and vocabularies, locking, transaction support,
+   SHA padding vectors, and fuzz/property testing as separate increments.
+6. Defer caching, streaming, manifest sharding, and serialization optimization until measured need.
+
+### Retained limitations
+
+This package pins existing parser safety and read-only planning only. It changes no production risk
+semantics, checkpoint category, enum ordinal, first-failure order, fixture schema, reviewed fixture,
+or semantic expected answer. Checkpoint serialization and the Python checkpoint model remain
+test-only; the lifecycle V1 oracle remains frozen and checkpoint-ineligible. No durable storage,
+WAL integration, restart recovery, portfolio recovery, execution realism, PnL, collateral,
+settlement, paper-trading, or live-readiness claim is added.
