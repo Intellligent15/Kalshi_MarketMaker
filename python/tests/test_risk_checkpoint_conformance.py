@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -90,8 +91,17 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
     def _exact_keys(self, value: object, required: set[str], optional: set[str], context: str) -> dict[str, Any]:
         self.assertIsInstance(value, dict, context)
         object_value = value
-        self.assertTrue(set(object_value) <= required | optional, context)
-        self.assertTrue(required <= set(object_value), context)
+        actual = set(object_value)
+        unexpected = sorted(actual - required - optional)
+        missing = sorted(required - actual)
+        self.assertFalse(
+            unexpected,
+            f"{context}: has unknown field(s) {', '.join(repr(key) for key in unexpected)}",
+        )
+        self.assertFalse(
+            missing,
+            f"{context}: missing required field(s) {', '.join(repr(key) for key in missing)}",
+        )
         return object_value
 
     def _unsigned(self, value: object, context: str, *, positive: bool = False) -> int:
@@ -158,7 +168,7 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
             {"account_id", "contract_id", "event_watermark", "kill_switch_active", "limits", "live_orders", "net_position_contracts", "pending_orders", "schema", "strategy_id", "trader_id"},
             set(), context,
         )
-        self.assertEqual(value["schema"], CHECKPOINT_SCHEMA, context)
+        self.assertEqual(value["schema"], CHECKPOINT_SCHEMA, f"{context}.schema")
         for key in ("account_id", "strategy_id", "trader_id", "contract_id"):
             self._unsigned(value[key], f"{context}.{key}", positive=True)
         limits = self._exact_keys(value["limits"], LIMIT_KEYS, set(), f"{context}.limits")
@@ -178,9 +188,12 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
             item = self._exact_keys(order, {"acknowledged_at_utc_ns", "limit_price_cents", "order_id", "remaining_quantity_contracts", "side"}, set(), item_context)
             order_id = self._unsigned(item["order_id"], f"{item_context}.order_id", positive=True)
             if index:
-                self.assertTrue(order_id > prior_order if strict else order_id >= prior_order, item_context)
+                self.assertTrue(
+                    order_id > prior_order if strict else order_id >= prior_order,
+                    f"{item_context}.order_id: must be canonically identifier-sorted",
+                )
             prior_order = order_id
-            self.assertIn(item["side"], {"buy", "sell"}, item_context)
+            self.assertIn(item["side"], {"buy", "sell"}, f"{item_context}.side")
             self._unsigned(item["remaining_quantity_contracts"], f"{item_context}.remaining_quantity_contracts", positive=strict)
             self._unsigned(item["limit_price_cents"], f"{item_context}.limit_price_cents")
             self._signed(item["acknowledged_at_utc_ns"], f"{item_context}.acknowledged_at_utc_ns")
@@ -190,7 +203,10 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
             item = self._exact_keys(order, {"client_intent_id", "contract_id", "ingress_sequence", "limit_price_cents", "post_only", "quantity_contracts", "side"}, set(), item_context)
             client_id = self._unsigned(item["client_intent_id"], f"{item_context}.client_intent_id", positive=True)
             if index:
-                self.assertTrue(client_id > prior_client if strict else client_id >= prior_client, item_context)
+                self.assertTrue(
+                    client_id > prior_client if strict else client_id >= prior_client,
+                    f"{item_context}.client_intent_id: must be canonically identifier-sorted",
+                )
             prior_client = client_id
             self._unsigned(item["contract_id"], f"{item_context}.contract_id", positive=True)
             self.assertIsInstance(item["post_only"], bool, item_context)
@@ -198,7 +214,7 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
                 self.assertTrue(item["post_only"], item_context)
             if item["ingress_sequence"] is not None:
                 self._unsigned(item["ingress_sequence"], f"{item_context}.ingress_sequence", positive=strict)
-            self.assertIn(item["side"], {"buy", "sell"}, item_context)
+            self.assertIn(item["side"], {"buy", "sell"}, f"{item_context}.side")
             self._unsigned(item["quantity_contracts"], f"{item_context}.quantity_contracts", positive=strict)
             self._unsigned(item["limit_price_cents"], f"{item_context}.limit_price_cents")
         return value
@@ -287,7 +303,10 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
         result = first.get("result")
         if result in CHECKPOINT_REJECTIONS:
             self._exact_keys(first, {"result"}, set(), f"{filename}[0]")
-            self.assertEqual(operations, [], filename)
+            self.assertFalse(
+                operations,
+                f"{filename}: must not continue after a rejected restore",
+            )
         else:
             step = self._exact_keys(first, {"result", "state"}, set(), f"{filename}[0]")
             self.assertEqual(step["result"], "restored", f"{filename}[0]")
@@ -305,7 +324,13 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
         self.assertEqual(top["schema"], MANIFEST_SCHEMA)
         payload = self._exact_keys(top["payload"], {"schema", "entries"}, set(), "manifest.payload")
         self.assertEqual(payload["schema"], MANIFEST_SCHEMA)
-        self.assertEqual(top["payload_sha256"], hashlib.sha256((phase7.canonical_json(payload) + "\n").encode("utf-8")).hexdigest())
+        self.assertEqual(
+            top["payload_sha256"],
+            hashlib.sha256(
+                (phase7.canonical_json(payload) + "\n").encode("utf-8")
+            ).hexdigest(),
+            "manifest.payload_sha256: does not match canonical payload bytes",
+        )
         self.assertIsInstance(payload["entries"], list)
         self.assertTrue(payload["entries"])
         expected_members = {"manifest.json"}
@@ -320,13 +345,30 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
             self.assertEqual(Path(trace_name).name, trace_name)
             self.assertGreater(fixture_name, prior_fixture)
             prior_fixture = fixture_name
-            self.assertNotIn(fixture_name, expected_members)
+            self.assertNotIn(
+                fixture_name,
+                expected_members,
+                f"manifest.entries[{index}].fixture: duplicate manifest member "
+                f"{fixture_name!r}",
+            )
             expected_members.add(fixture_name)
-            self.assertNotIn(trace_name, expected_members)
+            self.assertNotIn(
+                trace_name,
+                expected_members,
+                f"manifest.entries[{index}].expected_trace: duplicate manifest member "
+                f"{trace_name!r}",
+            )
             expected_members.add(trace_name)
             for name, hash_name in ((fixture_name, "fixture_sha256"), (trace_name, "expected_trace_sha256")):
                 member_path = root / name
-                self.assertTrue(member_path.is_file() and not member_path.is_symlink(), member_path)
+                self.assertFalse(
+                    member_path.is_symlink(),
+                    f"{name}: must name a regular non-symlink file",
+                )
+                self.assertTrue(
+                    member_path.is_file(),
+                    f"{name}: must name a regular non-symlink file",
+                )
                 member_raw, _ = self._canonical_document(member_path)
                 self.assertRegex(value[hash_name], r"[0-9a-f]{64}\Z")
                 self.assertEqual(hashlib.sha256(member_raw).hexdigest(), value[hash_name])
@@ -421,13 +463,28 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
 
     # --- negative matrix: one broken verifier rule per test -----------------------------
 
+    @staticmethod
+    def _snapshot(root: Path) -> dict[str, tuple[str, bytes]]:
+        snapshot: dict[str, tuple[str, bytes]] = {}
+        for path in sorted(root.iterdir()):
+            if path.is_symlink():
+                snapshot[path.name] = (
+                    "symlink",
+                    os.fsencode(os.readlink(path)),
+                )
+            elif path.is_file():
+                snapshot[path.name] = ("file", path.read_bytes())
+        return snapshot
+
     def _mutated_corpus_fails(self, mutate, expected_diagnostic: str | None = None) -> None:
         with tempfile.TemporaryDirectory(prefix="pmm-risk-checkpoint-") as scratch:
             root = Path(scratch) / "checkpoint_v1"
             shutil.copytree(FIXTURE_ROOT, root)
             mutate(root)
+            before = self._snapshot(root)
             with self.assertRaises(AssertionError) as caught:
                 self._verify_corpus(root)
+            self.assertEqual(self._snapshot(root), before)
             if expected_diagnostic is not None:
                 self.assertIn(expected_diagnostic, str(caught.exception))
 
@@ -487,6 +544,132 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
             with (root / "roundtrip_empty_state.json").open("ab") as member:
                 member.write(b" ")
         self._mutated_corpus_fails(mutate)
+
+    def test_rejects_every_remaining_cpp_reader_mutation(self) -> None:
+        def missing_fixture_kind(root: Path) -> None:
+            fixture = self._load(root, "roundtrip_empty_state.json")
+            del fixture["kind"]
+            self._write(root, "roundtrip_empty_state.json", fixture)
+            self._rehash(root)
+
+        def numeric_json_for_decimal_string(root: Path) -> None:
+            fixture = self._load(root, "checkpoint_zero_ingress.json")
+            fixture["checkpoint"]["net_position_contracts"] = 1
+            self._write(root, "checkpoint_zero_ingress.json", fixture)
+            self._rehash(root)
+
+        def unknown_checkpoint_side(root: Path) -> None:
+            fixture = self._load(root, "checkpoint_buy_exposure_limit.json")
+            fixture["checkpoint"]["live_orders"][0]["side"] = "hold"
+            self._write(root, "checkpoint_buy_exposure_limit.json", fixture)
+            self._rehash(root)
+
+        def decreasing_checkpoint_identifiers(root: Path) -> None:
+            fixture = self._load(root, "checkpoint_active_order_limit.json")
+            live_orders = fixture["checkpoint"]["live_orders"]
+            live_orders[0], live_orders[1] = live_orders[1], live_orders[0]
+            self._write(root, "checkpoint_active_order_limit.json", fixture)
+            self._rehash(root)
+
+        def wrong_checkpoint_schema(root: Path) -> None:
+            fixture = self._load(root, "checkpoint_zero_ingress.json")
+            fixture["checkpoint"]["schema"] = "pmm.risk_checkpoint.v2"
+            self._write(root, "checkpoint_zero_ingress.json", fixture)
+            self._rehash(root)
+
+        def bad_manifest_payload_hash(root: Path) -> None:
+            manifest = self._load(root, "manifest.json")
+            manifest["payload_sha256"] = "a" * 64
+            self._write(root, "manifest.json", manifest)
+
+        def symlink_manifest_member(root: Path) -> None:
+            member = root / "roundtrip_empty_state.json"
+            real_bytes = root / "roundtrip_empty_state.real"
+            member.rename(real_bytes)
+            member.symlink_to(real_bytes)
+
+        def duplicate_manifest_member(root: Path) -> None:
+            manifest = self._load(root, "manifest.json")
+            entries = manifest["payload"]["entries"]
+            entries[1]["expected_trace"] = entries[0]["expected_trace"]
+            entries[1]["expected_trace_sha256"] = entries[0][
+                "expected_trace_sha256"
+            ]
+            manifest["payload_sha256"] = hashlib.sha256(
+                (phase7.canonical_json(manifest["payload"]) + "\n").encode("utf-8")
+            ).hexdigest()
+            self._write(root, "manifest.json", manifest)
+
+        def continuation_after_rejected_restore(root: Path) -> None:
+            donor = self._load(
+                root, "document_restore_unbound_pending.expected.json"
+            )
+            fixture = self._load(root, "checkpoint_zero_ingress.json")
+            fixture["operations"] = [
+                {"active": True, "operation": "kill_switch"}
+            ]
+            trace = self._load(root, "checkpoint_zero_ingress.expected.json")
+            trace["transitions"].append(
+                {
+                    "result": "applied",
+                    "state": donor["transitions"][0]["state"],
+                }
+            )
+            self._write(root, "checkpoint_zero_ingress.json", fixture)
+            self._write(root, "checkpoint_zero_ingress.expected.json", trace)
+            self._rehash(root)
+
+        mutations = (
+            (
+                "missing fixture kind",
+                missing_fixture_kind,
+                "roundtrip_empty_state.json: missing required field(s) 'kind'",
+            ),
+            (
+                "numeric JSON for a decimal string",
+                numeric_json_for_decimal_string,
+                "checkpoint_zero_ingress.json.checkpoint.net_position_contracts",
+            ),
+            (
+                "unknown checkpoint side",
+                unknown_checkpoint_side,
+                "checkpoint_buy_exposure_limit.json.checkpoint.live_orders[0].side",
+            ),
+            (
+                "decreasing checkpoint identifiers",
+                decreasing_checkpoint_identifiers,
+                "checkpoint_active_order_limit.json.checkpoint.live_orders[1].order_id",
+            ),
+            (
+                "wrong checkpoint schema",
+                wrong_checkpoint_schema,
+                "checkpoint_zero_ingress.json.checkpoint.schema",
+            ),
+            (
+                "bad manifest payload hash",
+                bad_manifest_payload_hash,
+                "manifest.payload_sha256: does not match canonical payload bytes",
+            ),
+            (
+                "symlink manifest member",
+                symlink_manifest_member,
+                "roundtrip_empty_state.json: must name a regular non-symlink file",
+            ),
+            (
+                "duplicate manifest member",
+                duplicate_manifest_member,
+                "manifest.entries[1].expected_trace: duplicate manifest member",
+            ),
+            (
+                "continuation after a rejected restore",
+                continuation_after_rejected_restore,
+                "checkpoint_zero_ingress.expected.json: must not continue after a rejected restore",
+            ),
+        )
+
+        for name, mutate, expected_diagnostic in mutations:
+            with self.subTest(name=name):
+                self._mutated_corpus_fails(mutate, expected_diagnostic)
 
     def test_checkpoint_donor_lookup_rejects_every_invalid_shape(self) -> None:
         fixture_name = "roundtrip_live_and_pending.json"
