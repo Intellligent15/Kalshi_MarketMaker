@@ -1592,3 +1592,388 @@ read-only evidence. Its main cost is one long test method and repeated temporary
 both proportionate to a fixed nine-row matrix. There is no high-impact conformance defect left in
 the planned tail. Track A should close, and Phase 7 authoritative product metadata should become
 the next package.
+
+## Deep category audit of A2
+
+### Rating method
+
+Impact uses the following scale:
+
+| Rating | Meaning in this review |
+| ---: | --- |
+| 1 | Cosmetic or local inconvenience; no credible correctness loss at current scale. |
+| 2 | Bounded maintainability or coverage weakness that could obscure a future regression. |
+| 3 | Material engineering debt that should be planned before the affected surface expands. |
+| 4 | High-value correctness or research-validity gap that constrains credible use. |
+| 5 | Foundational gap that can invalidate downstream interpretation or readiness claims. |
+
+The rating is impact, not urgency by itself. A low-impact item can be easy to fix but still be the
+wrong next package. Conversely, product metadata is impact 5/5 even though it was intentionally
+outside A2.
+
+### Summary by requested category
+
+| Category | Highest A2-local impact | Highest broader-project impact | Overall conclusion |
+| --- | ---: | ---: | --- |
+| Unnecessary complexity | 2/5 | — | The long local matrix is visible complexity, but most of it preserves auditability. |
+| Future technical debt | 3/5 | 5/5 | Manual independent-reader parity needs discipline; missing product terms dominate project debt. |
+| Missing tests | 2/5 | — | Useful hardening remains, but no missing test blocks Track A exit. |
+| Missing documentation | 3/5 | — | Content is deep; navigation through the chronological notes is now the larger documentation problem. |
+| Possible optimizations | 1/5 | — | Current runtime and corpus size do not justify optimization. |
+| Future scalability concerns | 3/5 | 4/5 | Manual matrix growth and documentation volume will matter before raw CPU or memory. |
+
+## Unnecessary complexity
+
+### 1. One test method contains nine local mutation functions — impact 2/5
+
+The method is long because it contains six JSON-member cases, one deliberately stale manifest
+case, one symlink case, and one coordinated fixture/trace case. A reviewer must scroll between the
+local functions and the tuple that names their expected diagnostics.
+
+Some of this complexity is necessary. The rows have genuinely different integrity ownership:
+
+```text
+member change        -> complete member and payload rehash
+manifest payload     -> payload-only rehash
+bad payload digest   -> deliberately no rehash
+symlink              -> no JSON rewrite
+rejected continuation-> two canonical member rewrites plus complete rehash
+```
+
+Collapsing those distinctions into flags such as `rehash="all"` or `filesystem="symlink"` would
+make the method shorter while moving the important reasoning into a framework. At nine fixed rows,
+the visible duplication is safer than hidden policy.
+
+Recommended handling: retain the local functions. Reconsider only if the matrix grows beyond a
+small, reviewable inventory or if several new rows repeat exactly the same mutation shape.
+
+### 2. Mutation name and mutation function name repeat the same idea — impact 1/5
+
+For example, `unknown_checkpoint_side` appears as a function and `unknown checkpoint side` as a
+subtest name. The duplication is intentional because Python function names are code navigation,
+while the human-readable string is unittest failure context.
+
+Recommended handling: keep both. Deriving display names mechanically would save a few strings but
+make failure wording depend on implementation naming.
+
+### 3. `_snapshot` duplicates the concept used by fixture-integrity tests — impact 1/5
+
+There are now multiple local snapshot helpers in the test suite. They are similar but not
+identical: the A2 snapshot preserves symlink type and target, while the integrity-tool snapshots
+exclude symlinks and focus on ordinary corpus file bytes.
+
+A shared helper would create a new cross-test dependency and require a universal node model for
+proofs that currently have different boundaries.
+
+Recommended handling: accept this duplication. Share only after at least three consumers require
+the same topology-aware contract.
+
+### 4. Assertions remain embedded in the loader rather than returning typed reader errors — impact 2/5
+
+The Python reader is a unittest-owned verifier. It uses `self.assert*` directly, so diagnostics and
+control flow are coupled to `unittest`. A reusable parser would instead raise a dedicated error
+with a stable location and category.
+
+Creating that abstraction now would make a test-only reader look like a supported library and
+could encourage production reuse. The current package needs test evidence, not a new public parser.
+
+Recommended handling: keep assertion-driven validation while the reader remains local to this
+test class. Introduce typed errors only if a second non-test caller appears and its ownership is
+approved explicitly.
+
+## Future technical debt
+
+### 1. Independent readers require an explicit parity inventory — impact 3/5
+
+Independence prevents one implementation from blessing the other, but it also means a new C++
+reader rule does not automatically create a Python test. A future change can recreate the exact
+drift A2 closed.
+
+This is structural debt, not an implementation mistake. The alternatives are worse:
+
+- shared validation code would weaken independent evidence;
+- generated tests would require a third schema source and generator review;
+- making one reader authoritative would remove mirrored-reader proof.
+
+Recommended handling: when either reader adds or changes a corpus rule, require the review to state
+whether the other reader needs a positive case, a negative case, both, or an explicit asymmetry.
+Keep that checklist in the fixture guide rather than introducing code generation.
+
+### 2. Stable fragments still depend on human-maintained diagnostic paths — impact 2/5
+
+The tests intentionally avoid pinning complete unittest prose, but paths such as
+`checkpoint_active_order_limit.json.checkpoint.live_orders[1].order_id` are still written by hand.
+A donor rename or structure change requires coordinated test updates.
+
+That coupling is useful: a schema or donor change should force review of what the row proves. Fully
+dynamic diagnostics could let the test follow an unintended donor silently.
+
+Recommended handling: keep explicit expected paths. Use dynamic construction only when position is
+not part of the contract, as already done for the shifted strict-checkpoint donor.
+
+### 3. The duplicate-member row relies on first-failure ordering inside the reader — impact 2/5
+
+Duplicating entry 0's trace in entry 1 necessarily leaves entry 1's former trace unreferenced. The
+test proves duplicate membership wins because it expects the entry-1 duplicate diagnostic.
+
+If manifest validation order changes, this row may fail with an unreferenced-file message even
+though duplicate detection still exists. That would be a meaningful behavioral change, not merely
+test brittleness, because A2 intentionally pins the earliest refusal.
+
+Recommended handling: retain the exact diagnostic. Document any future ordering change before
+updating the test.
+
+### 4. The symlink test is POSIX-shaped — impact 2/5
+
+The temporary symlink points at an absolute path and relies on local symlink creation permissions.
+That matches the currently supported environment and the C++ donor. Windows developer mode,
+privilege requirements, and path spelling could differ.
+
+Recommended handling: do not weaken the POSIX test. Add platform setup or conditional Windows
+evidence only when Windows becomes a supported target.
+
+### 5. Broad `_rehash` favors safety over precise dependency expression — impact 1/5
+
+Six cases recalculate all 52 checkpoint member hashes even though only one or two members changed.
+This avoids selecting the wrong manifest entry but does not express the minimal dependency graph in
+the test code.
+
+Recommended handling: keep the broad helper at current size. If the corpus becomes large, add a
+separate tested helper that updates named members and then cross-check it against a complete
+rehash, rather than replacing correctness with speed.
+
+### 6. Missing authoritative product terms remains the dominant project debt — impact 5/5
+
+A2 proves that malformed risk evidence is refused consistently. It cannot prove that a backtest's
+tick size, quantity unit, payout, expiration, settlement source, fee schedule, or market identity
+matches the venue contract. Incorrect product assumptions can make a deterministic run precisely
+reproducible and still economically meaningless.
+
+Recommended handling: keep B1 authoritative product metadata as the next package. Do not reopen
+low-impact conformance work merely because it is easier.
+
+## Missing tests
+
+### 1. The nine-row matrix has no explicit cardinality assertion — impact 2/5
+
+The tuple currently contains nine named rows, but the test does not say `len(mutations) == 9`. An
+accidental row deletion reduces coverage without a dedicated count failure. The method name would
+still sound complete.
+
+The row contents and C++ comparison remain reviewable in source, so this is not an immediate
+correctness hole. An explicit count would make the intended inventory mechanically visible.
+
+Recommended handling: add a nine-row count if this matrix is next edited. Keep it separate from the
+already-deferred 16-row strict-matrix cardinality assertions.
+
+### 2. Strict captured-checkpoint matrices still lack explicit 16-row counts — impact 1/5
+
+Both readers have named strict mutations, but accidental deletion produces only reduced coverage.
+This was explicitly deferred from A2 to avoid mixing a completed package with adjacent hardening.
+
+Recommended handling: add counts when the strict matrices next change in both languages.
+
+### 3. Accepted signed and unsigned boundary values are not pinned — impact 1/5
+
+The suite covers malformed decimal strings and out-of-range refusals elsewhere, but exact accepted
+endpoints are not a named mirrored matrix. Boundary acceptance matters if integer parsing changes,
+but it is unrelated to the nine asymmetric categories.
+
+Recommended handling: add a small positive boundary package only when numeric parsing is active
+work. Do not attach it retroactively to A2.
+
+### 4. Positive corpus verification has no topology-aware before/after snapshot — impact 1/5
+
+Negative cases now prove `_verify_corpus` is read-only. The checked-in positive corpus test verifies
+canonicality and semantics but does not snapshot the root around verification in this module.
+Other integrity tests already prove ordinary verification does not write.
+
+Recommended handling: no immediate addition. Add a positive local snapshot only if the checkpoint
+reader gains any code path capable of writing.
+
+### 5. No property or fuzz testing covers combinations of reader defects — impact 2/5
+
+The matrix isolates first failures intentionally. It does not explore arbitrary combinations such
+as an unsafe path plus bad digest or wrong schema plus duplicate records.
+
+Combination fuzzing could find parser robustness bugs, but it would be poor evidence for named
+first-failure rules unless failures were classified carefully. It also risks producing broad
+coverage claims without reviewed minimal cases.
+
+Recommended handling: keep explicit matrices authoritative. Add fuzzing later as supplementary
+crash/robustness evidence, not as a replacement for named rows.
+
+### 6. No Windows symlink/path test exists — impact 1/5 today, potentially 3/5 if Windows is supported
+
+Current tests prove the supported POSIX-shaped environment. The impact rises only if portability
+becomes a declared repository goal.
+
+Recommended handling: tie the test to an explicit supported-platform decision.
+
+## Missing documentation
+
+### 1. The chronological risk notes need current-state navigation — impact 3/5
+
+The explanation and critique files now contain several generations of correct historical review.
+Older sections still say that work later completed is “next.” The living roadmap resolves
+authority, but a reader entering through an engineering note can spend substantial time locating
+the latest boundary.
+
+Recommended handling: during the next deliberate documentation-structure package, add a short
+top-of-file index containing:
+
+- current status and authoritative roadmap link;
+- latest implementation/explanation/critique anchors;
+- historical-section warning; and
+- the current next package.
+
+Do not rewrite or delete the chronological evidence.
+
+### 2. The root README does not surface checkpoint conformance directly — impact 1/5
+
+The Project Hub and living roadmap lead to the risk notes, but a reader looking only at the README
+will not immediately discover the checkpoint corpus and its test-only boundary.
+
+Recommended handling: keep this deferred unless README navigation is already being edited. The
+living roadmap is the more appropriate current-status entry point.
+
+### 3. No compact maintainer checklist exists specifically for A2 — impact 2/5
+
+The guide describes the nine rows and the explanation describes the design, but a future editor
+must synthesize the invariants from prose.
+
+Recommended handling: add a checklist in the deeper explanation in this documentation package,
+covering fresh roots, canonical writes, rehash ownership, exact diagnostics, snapshots, corpus
+invariance, and reader independence.
+
+### 4. The diagnostic contract boundary could be easier to find — impact 1/5
+
+The docs explain that stable fragments are test evidence rather than a public textual API, but that
+point is embedded in the long explanation.
+
+Recommended handling: preserve the statement near the A2 guide section. Do not create a public
+error-message compatibility promise.
+
+## Possible optimizations
+
+### 1. Copy-on-write or reflink temporary roots — impact 1/5
+
+Nine full corpus copies are simple but duplicate filesystem work. A platform-specific reflink or
+copy-on-write template could reduce setup cost.
+
+The focused module completes in roughly half a second. Platform-specific copy logic would cost
+more maintenance than it saves and could weaken isolation if a clone unexpectedly shares writable
+state.
+
+Recommended handling: measure first; preserve ordinary fresh copies.
+
+### 2. Rehash only changed members — impact 1/5
+
+Named-member rehashing would reduce reads and hashing. It would also make each mutation responsible
+for finding the correct manifest entry and could allow an unrelated stale member to survive setup.
+
+Recommended handling: retain complete `_rehash` for member mutations. Optimize only with a tested
+equivalence check against full reconstruction.
+
+### 3. Snapshot hashes instead of complete bytes — impact 1/5
+
+SHA-256 snapshots would reduce memory for large corpora. Complete bytes provide better diffs and
+currently occupy negligible memory. The snapshot is test evidence, not a storage format.
+
+Recommended handling: keep bytes until profiling shows memory pressure. If changed later, retain
+node type and symlink target explicitly.
+
+### 4. Parallelize the nine subtests — impact 1/5
+
+The rows are independent, but standard `unittest` subtests run sequentially. Parallel execution
+would add scheduling and temporary-directory complexity for sub-second work.
+
+Recommended handling: do not parallelize. Deterministic serial failure output is more valuable.
+
+### 5. Stop verification immediately after the named donor — impact 1/5
+
+The manifest is processed in order, and some donor failures occur late. A donor-specific reader
+entry point could run faster but would stop proving that the normal whole-corpus loader reaches the
+rule under real ordering.
+
+Recommended handling: keep the public whole-corpus verification path.
+
+## Future scalability concerns
+
+### 1. Runtime grows as rows times corpus size — impact 2/5
+
+With `R` mutation rows, `N` manifest entries, and `B` total bytes, setup and verification are
+approximately `O(R * (N + B))`. This is harmless for nine rows and 26 pairs but can become visible
+if the corpus grows by orders of magnitude.
+
+Recommended handling: establish a measured threshold before changing the design. The first safe
+optimization is an immutable verified template copied into fresh destinations, not shared writable
+roots.
+
+### 2. A much larger refusal inventory will overwhelm one local matrix — impact 3/5
+
+The current structure is ideal for nine heterogeneous cases. At dozens of rows, local functions
+and a distant tuple would become hard to scan, and one method failure would produce a long subtest
+report.
+
+Recommended handling: split by owned layer when growth occurs:
+
+```text
+manifest envelope refusals
+fixture schema refusals
+checkpoint document refusals
+trace/lifecycle refusals
+filesystem refusals
+```
+
+Do not split merely to reduce line count; split when ownership and setup protocols differ.
+
+### 3. Manual C++/Python inventory comparison does not scale automatically — impact 3/5
+
+Each independent implementation can add a rule without a compile-time or generated indication
+that the other suite needs review. This is the largest A2-specific scalability concern.
+
+Recommended handling: add a review checklist and consider a small documentation inventory if the
+rule count grows. Avoid a shared validator or generated common implementation, which would defeat
+independence.
+
+### 4. Diagnostic strings may become a de facto compatibility surface — impact 2/5
+
+As more tests assert fragments, maintainers may become reluctant to improve wording. The intended
+contract is field/rule identity, not prose.
+
+Recommended handling: continue asserting the shortest stable path or rule fragment. If categories
+grow substantially, consider a test-only structured error containing location and reason while
+keeping presentation text free to evolve.
+
+### 5. Documentation volume is already scaling worse than runtime — impact 3/5
+
+The implementation is bounded, but the explanation and critique are now long chronological
+documents. Search remains possible, yet onboarding cost and risk of following stale “next” advice
+increase with every appended review.
+
+Recommended handling: make the living roadmap the only status authority, add current-state
+navigation, and reserve future deep appendices for genuinely new reasoning.
+
+### 6. Product metadata and multi-market work will dwarf checkpoint corpus scale — impact 4/5
+
+The next phase introduces versioned venue facts across products and time. Its scalability problem
+is not merely file count: product-term compatibility affects normalization, configuration,
+artifacts, accounting, and experiment comparison.
+
+Recommended handling: design B1 around immutable product-term identities and compatibility gates
+before adding many markets. Do not reuse the test-only checkpoint schema as a general metadata
+framework.
+
+## Prioritized action after the category audit
+
+1. Proceed with B1 authoritative product metadata — impact 5/5.
+2. Add current-state navigation when the long risk notes next receive structural work — impact 3/5.
+3. Require explicit mirrored-reader review whenever either reader changes — impact 3/5.
+4. Add the nine-row and strict-matrix cardinality assertions only when those matrices next change — impact 1–2/5.
+5. Add integer endpoints, Windows coverage, or fuzzing only when their owning boundary becomes active — impact 1–2/5 today.
+6. Defer copying, hashing, snapshot, and parallelism optimizations until measurement justifies them — impact 1/5 today.
+
+The key judgment is that A2's remaining debt is real but bounded. None of it justifies reopening
+Track A ahead of product metadata. The most dangerous outcome would be polishing a sub-second
+test harness while research continues without authoritative venue terms.
