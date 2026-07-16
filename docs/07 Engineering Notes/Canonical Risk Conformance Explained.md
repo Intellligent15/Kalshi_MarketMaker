@@ -1434,3 +1434,482 @@ This does not add lifecycle V1 mutation-and-repair parity beyond selection proof
 the remaining Python checkpoint-reader mutations, add the strict matrices' cardinality assertions,
 or test accepted integer endpoints. It does not change fixture semantics, generate expected
 answers, expand the frozen V1 oracle, or turn checkpoint serialization into production storage.
+
+## A deeper walkthrough of the public CLI subprocess tests
+
+### The short version
+
+We tested the integrity command the same way a human or CI job uses it: start a new Python process,
+pass command-line arguments, observe its exit status and two output streams, and inspect what
+happened to the files.
+
+We did not point that real command at the checked-in fixtures. Instead, we copied the command and
+the required fixture corpora into a miniature temporary repository. Because the script discovers
+the repository from its own file location, the copy behaves normally while every possible write is
+confined to disposable files.
+
+That design closes a specific gap:
+
+```text
+already tested                       newly tested
+--------------                       ------------
+JSON parsing                         script startup
+canonical-byte planning              argparse behavior
+manifest validation                  fixed corpus selection
+atomic replacement helpers           process exit statuses
+CorpusError details                  stdout versus stderr
+                                      --write dispatch
+```
+
+### First, what the integrity tool is and is not
+
+The tool manages an integrity envelope around reviewed test evidence. It answers questions such as:
+
+- Is each JSON document encoded in the accepted canonical byte form?
+- Does the manifest name the expected local files?
+- Do its SHA-256 values describe those candidate bytes?
+- Which safe byte replacements would be required?
+- If explicitly authorized with `--write`, can those replacements be installed safely?
+
+It does not answer:
+
+- Is this risk transition semantically correct?
+- Should an order have been admitted or rejected?
+- Is this checkpoint a realistic result of exchange history?
+- Does the expected trace match `AccountRiskProjection`?
+
+Those semantic questions belong to independent C++ and test-only Python executors comparing
+reviewed expected answers. The CLI tests deliberately mutate `fixture_id` because the integrity
+tool must preserve an authored value, canonicalize its bytes, and rehash it without pretending to
+know whether that identifier makes a good risk scenario.
+
+This boundary is essential:
+
+```text
+author chooses JSON values
+          |
+          v
+integrity tool canonicalizes and hashes those values
+          |
+          v
+independent executors test whether reviewed answers match behavior
+```
+
+If the integrity tool generated expected transitions from one risk implementation, the hashes
+would describe bytes but the corpus would no longer be independent reviewed evidence.
+
+### Why direct tests were not enough
+
+Before this increment, direct tests already called `build_plan` and `write_plans`. That was strong
+coverage for the internal mechanics. It still left a thin but real untested layer.
+
+Consider five possible regressions:
+
+1. `--corpus` accidentally stops being required.
+2. `--corpus v1` selects the checkpoint root.
+3. stale verification returns 0 even though it prints paths.
+4. an error is printed to stdout instead of stderr.
+5. `--write` is parsed but never calls the writer.
+
+Every direct `build_plan` test could remain green in those situations. The planner would still
+parse, validate, and construct correct candidates. The documented command used by authors and CI
+would nevertheless be wrong.
+
+The subprocess tests cover the composition around those functions:
+
+```text
+operating system starts Python
+             |
+             v
+copied script executes __main__
+             |
+             v
+argparse creates or refuses arguments
+             |
+             v
+fixed registry selects corpus roots
+             |
+             v
+planner builds candidates
+             |
+             +---- verification reports without writing
+             |
+             +---- --write installs candidates
+             |
+             v
+main returns and SystemExit sets process status
+```
+
+### Building the temporary repository
+
+The helper creates a fresh `TemporaryDirectory`, then constructs only the layout the script needs:
+
+```text
+pmm-risk-integrity-cli-.../
+└── repository/
+    ├── tools/
+    │   └── risk_fixture_integrity.py
+    └── python/tests/fixtures/risk_conformance/
+        ├── checkpoint_v1/
+        └── v1/
+```
+
+Not every case receives both corpora. A checkpoint-only case copies only `checkpoint_v1`; a
+lifecycle-only case copies only `v1`; the `all` case copies both. This is part of the selection
+proof, not merely a speed optimization.
+
+The script contains:
+
+```python
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+```
+
+For the copied file, that expression resolves to the temporary `repository/` directory. Its normal
+`FIXTURE_ROOT` and `CORPORA` entries therefore point at the temporary copies automatically. The
+checked-in script is not edited, and the checked-in fixture paths are never patched.
+
+### Launching the real command
+
+The helper calls the current interpreter explicitly:
+
+```python
+subprocess.run(
+    [sys.executable, copied_script, *arguments],
+    cwd=temporary_repository,
+    capture_output=True,
+    text=True,
+    check=False,
+)
+```
+
+Each choice is deliberate:
+
+- `sys.executable` uses the interpreter running the test suite.
+- The copied filename executes the real source as a script, including `__main__`.
+- The temporary repository is the working directory authors would expect.
+- `capture_output=True` keeps stdout and stderr independent.
+- `text=True` makes the public lines easy to assert.
+- `check=False` lets the test inspect expected statuses 1 and 2 instead of turning them into a
+  generic `CalledProcessError`.
+
+The result carries three independent observations: `returncode`, `stdout`, and `stderr`. Every CLI
+case asserts all three.
+
+### The snapshot model
+
+The snapshot helper walks every regular file under the temporary risk-conformance root and records:
+
+```text
+relative path -> exact bytes
+```
+
+Relative paths distinguish the two corpora. Exact bytes distinguish a true no-op from a parse and
+rewrite that happens to preserve the JSON value.
+
+Timing matters. For a negative or stale case, the test first creates the intended input, then takes
+the snapshot:
+
+```text
+canonical temporary copy
+          |
+          | test setup introduces one intended condition
+          v
+snapshot A = input to the command
+          |
+          | subprocess runs
+          v
+snapshot B = state after the command
+```
+
+Read-only behavior means `A == B`. Comparing B with the original canonical copy would be wrong:
+the setup mutation is part of the intended input and is supposed to differ from the pristine
+corpus.
+
+### Case 1: canonical verification
+
+The first case copies canonical checkpoint V1 and runs:
+
+```text
+--corpus checkpoint_v1
+```
+
+It requires:
+
+- status 0;
+- exactly `fixture integrity metadata is canonical and current` on stdout;
+- empty stderr; and
+- identical before/after corpus snapshots.
+
+This proves more than "the planner found no changes." It proves the public command routes a clean
+result to the intended stream, translates it to the documented status, and remains read-only.
+
+### Case 2: safe stale verification and registry selection
+
+A safe stale input is valid JSON that the tool can canonicalize without inventing values. The
+helper loads a named member, appends `_cli_edited` to its authored `fixture_id`, and writes indented
+JSON while leaving the manifest untouched.
+
+The candidate plan then contains two changes:
+
+```text
+member
+  - needs compact canonical bytes
+  - has a new SHA-256 because the authored value changed
+
+manifest
+  - needs the new member digest
+  - needs a new payload_sha256
+```
+
+Without `--write`, the command must return status 1, print nothing to stdout, print the two
+`would update` paths plus the review-and-rerun instruction to stderr, and leave snapshot A intact.
+
+The same proof shape covers selection proportionately:
+
+| Selection | Temporary roots | Deliberate stale members | Required reported roots |
+| --- | --- | --- | --- |
+| `checkpoint_v1` | checkpoint only | checkpoint donor | checkpoint only |
+| `v1` | lifecycle only | lifecycle donor | lifecycle only |
+| `all` | both | one in each | lifecycle then checkpoint |
+
+Why does this prove selection?
+
+- If the checkpoint case selected V1, that root would not exist and the expected paths would not
+  appear.
+- If the V1 case selected checkpoint, the same failure would occur in reverse.
+- If `all` silently visited only one root, only two of the four required changed paths would appear.
+
+This is stronger than running `all` against two canonical roots. A broken implementation that
+checked only one canonical root could still print the same success message.
+
+### Case 3: structurally refused input
+
+The refusal case adds a UTF-8 byte-order mark to the temporary checkpoint manifest. That is not a
+safe stale representation to rewrite silently; it violates the documented parser boundary.
+
+The command must:
+
+- return status 2;
+- leave stdout empty;
+- begin stderr directly with `error:`;
+- include the BOM-specific diagnostic;
+- omit argparse's usage block; and
+- preserve the refused bytes exactly.
+
+This connects an actual `CorpusError` from the copied script to the public process contract. It does
+not accept a generic exception or merely check that the status is nonzero.
+
+### Case 4: argparse refusal
+
+Two parser cases run before any corpus is needed:
+
+```text
+missing:  risk_fixture_integrity.py
+invalid:  risk_fixture_integrity.py --corpus invalid
+```
+
+Argparse also returns status 2, so the number alone cannot distinguish command-syntax failure from
+corpus refusal.
+
+The shapes are intentionally different:
+
+```text
+argparse failure
+    stderr begins: usage:
+    later contains: risk_fixture_integrity.py: error:
+
+CorpusError failure
+    stderr begins: error:
+    contains no usage block
+```
+
+The tests require these prefixes and the relevant missing/invalid-choice fragment. They do not
+compare the complete argparse text because Python versions may wrap usage lines differently.
+
+### Case 5: explicit repair and repeated no-op
+
+The write case begins with the same safe stale checkpoint donor, then runs:
+
+```text
+--corpus checkpoint_v1 --write
+```
+
+The first process must return status 0, print the exact two updated paths to stdout, and leave
+stderr empty. The test compares pre-write and post-write dictionaries and requires the changed set
+to be exactly:
+
+```text
+checkpoint_v1/roundtrip_empty_state.json
+checkpoint_v1/manifest.json
+```
+
+That prevents an implementation from rewriting every selected fixture while still producing a
+valid corpus.
+
+The content checks then reconstruct the integrity relationships:
+
+```text
+canonical member bytes
+        |
+        v
+SHA-256 == manifest entry fixture_sha256
+
+canonical manifest payload bytes
+        |
+        v
+SHA-256 == manifest payload_sha256
+```
+
+The test also requires the repaired member bytes to equal the canonical serialization of the
+deliberately authored document. The `_cli_edited` identifier survives. This proves the writer did
+not derive or replace semantic content.
+
+Two more independent commands finish the lifecycle:
+
+1. Verification returns status 0 and leaves the repaired snapshot unchanged.
+2. A repeated `--write` returns status 0 with the distinct "already canonical and current"
+   message and leaves the same snapshot unchanged.
+
+The second step is important. A writer can produce valid bytes once while still being
+non-idempotent—for example, by changing formatting, order, or metadata on each invocation. Exact
+snapshot equality rules that out for the complete selected temporary corpus.
+
+### Why some output is exact and some is fragment-based
+
+The tests divide output by ownership and stability.
+
+Tool-owned, repository-relative output is exact:
+
+- canonical/current success;
+- already-current no-op write;
+- `would update` paths;
+- `updated` paths; and
+- the instruction to review values and rerun with `--write`.
+
+Exact equality is appropriate because these messages are the public author workflow. Stream
+routing and path order are part of what the test protects.
+
+Output influenced by the environment is shape-based:
+
+- argparse usage wrapping can differ by Python version;
+- `CorpusError` paths contain a random temporary directory.
+
+Those assertions use stable prefixes and rule-specific fragments. This avoids brittle tests
+without weakening the behavior being claimed.
+
+### Why we did not add a root option
+
+The simplest-looking test interface would be:
+
+```text
+risk_fixture_integrity.py --root /tmp/my-corpus --write
+```
+
+That would be a poor production interface. The current registry is an allowlist: the tool may
+write only reviewed roots paired with known schemas. An arbitrary root option would turn a narrow
+repository maintenance command into a general JSON rewriter and would require new safety and
+support claims.
+
+Other alternatives also weakened the evidence:
+
+| Alternative | What it would miss or risk |
+| --- | --- |
+| Patch `CORPORA` with `python -c` | Skips real root and registry initialization. |
+| Add a test-only environment variable | Creates a hidden mode that can be inherited accidentally. |
+| Call `main(argv)` directly | Skips script startup, real argparse exit, and OS-level streams. |
+| Mock `write_plans` | Proves a call shape, not actual canonical repair and file effects. |
+| Run against checked-in corpora | Makes a negative or write test unsafe and difficult to isolate. |
+
+Copying the script and repository shape is slightly more filesystem work, but it preserves the
+actual interface and contains all effects.
+
+### The accepted tradeoffs
+
+#### More test code
+
+The package added 219 lines for five CLI tests and their helpers. A shorter mock-based test could
+assert that `main` returned certain numbers. It would not prove real process behavior or byte
+effects.
+
+The size is acceptable because the steps remain local and readable. The suite does not introduce a
+general-purpose harness class, a production seam, or a mutation framework.
+
+#### Repeated copies and processes
+
+Each behavioral case receives fresh roots, and repair deliberately launches three processes. This
+costs more than shared in-memory state but prevents mutation leakage and models actual command
+usage. The focused module remains around six tenths of a second, so optimization is not justified.
+
+#### Donor coupling
+
+The tests name `roundtrip_empty_state.json` and `lifecycle.json`. That means a fixture rename
+requires a test edit. The alternative—searching dynamically for any mutable-looking member—could
+silently select the wrong evidence after corpus changes. Explicit donors are the safer coupling.
+
+#### Stable prose becomes an interface
+
+Exact messages make cosmetic changes more expensive. That is reasonable for a documented author
+command: wording that tells a user what changed, where it changed, and whether to rerun with
+`--write` is behavior worth reviewing.
+
+### What a reviewer should check in future changes
+
+When editing this CLI or its tests, ask:
+
+1. Does the subprocess still execute the copied real script rather than an imported replacement?
+2. Does every mutation remain under a fresh temporary repository?
+3. Is the baseline snapshot taken after setup and before the command?
+4. Does every case assert return code, stdout, stderr, and permitted byte effects?
+5. Are tool-owned lines exact and environment-owned portions fragment-based?
+6. Does `all` still require evidence from every allowlisted corpus?
+7. Does repair change only the intended member and manifest?
+8. Are both the member digest and manifest payload digest reconstructed independently?
+9. Does verification succeed after repair?
+10. Is repeated `--write` byte-identical?
+11. Did any checked-in fixture, schema, production risk rule, or frozen-oracle capability change?
+
+### What the completed work proves
+
+- The actual script starts and parses its public arguments.
+- Missing and invalid corpus arguments follow argparse's status-2 contract.
+- `checkpoint_v1`, `v1`, and `all` reach the intended fixed registry roots.
+- Canonical verification returns 0, uses stdout, and writes nothing.
+- Safe stale verification returns 1, uses stderr, names planned paths, and writes nothing.
+- Structural `CorpusError` returns 2, uses stderr, and writes nothing.
+- Tool-level and argparse-level status 2 are distinguishable.
+- `--write` performs real canonical repair in the temporary repository.
+- Only the intended member and manifest change.
+- Member and manifest payload hashes describe the repaired bytes.
+- The authored JSON value is preserved rather than semantically regenerated.
+- The repaired corpus verifies successfully.
+- Repeated `--write` is a byte-for-byte no-op.
+- The checked-in 16-pair lifecycle and 26-pair checkpoint corpora remain unchanged.
+
+### What it does not prove
+
+This is command-contract evidence, not semantic risk evidence. It does not prove that any reviewed
+expected transition is correct, and it does not run `AccountRiskProjection`, the Python reference,
+or the frozen V1 oracle to bless an answer.
+
+It does not yet give lifecycle V1 its own complete write-repair cycle. It does not inject an atomic
+replacement failure through the subprocess, pin `--help`, run a successful two-corpus
+`all --write`, test accepted integer endpoints, or close remaining Python checkpoint-reader
+parity. Those are separate and mostly low-impact boundaries.
+
+It changes no production risk semantics, rejection category, enum ordinal, first-failure ordering,
+fixture schema, reviewed fixture, matching behavior, core integer type, watermark, post-only rule,
+external admission ownership, or kill-switch boundary.
+
+It does not create production checkpoint serialization, durable storage, WAL integration, process
+restart, portfolio recovery, multi-account recovery, calibrated fills, queue priority, execution
+realism, PnL, collateral, settlement, paper trading, or live readiness.
+
+### Why this was the right next increment
+
+The parser rules were already tested directly. The documented command was the narrowest remaining
+boundary where a regression could make correct internal functions unusable to authors and CI. The
+copied-script approach closed that gap without widening production behavior.
+
+The next increment should remain similarly narrow: give lifecycle V1 one complete temporary
+mutation-and-repair cycle. That will close the one corpus-specific writer path not yet exercised
+without repeating the full CLI matrix or changing semantic fixtures.
