@@ -448,38 +448,130 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
         manifest["payload_sha256"] = hashlib.sha256((phase7.canonical_json(manifest["payload"]) + "\n").encode("utf-8")).hexdigest()
         cls._write(root, "manifest.json", manifest)
 
+    @staticmethod
+    def _locate_unique_checkpoint_capture(
+        fixture: dict[str, Any],
+        trace: dict[str, Any],
+        fixture_name: str,
+        trace_name: str,
+    ) -> tuple[int, str]:
+        operations = fixture.get("operations")
+        if not isinstance(operations, list):
+            raise AssertionError(f"{fixture_name}.operations: must be an operation array")
+        transitions = trace.get("transitions")
+        if not isinstance(transitions, list):
+            raise AssertionError(f"{trace_name}.transitions: must be a transition array")
+        if len(operations) != len(transitions):
+            raise AssertionError(f"{trace_name}: operation and transition counts must align")
+        capture_indices = [
+            index
+            for index, operation in enumerate(operations)
+            if isinstance(operation, dict) and operation.get("operation") == "checkpoint"
+        ]
+        if len(capture_indices) != 1:
+            raise AssertionError(
+                f"{fixture_name}.operations: must contain exactly one checkpoint operation; "
+                f"found {len(capture_indices)}"
+            )
+        index = capture_indices[0]
+        transition = transitions[index]
+        if not isinstance(transition, dict) or not isinstance(transition.get("checkpoint"), dict):
+            raise AssertionError(
+                f"{trace_name}[{index}]: must contain the checkpoint document aligned with "
+                "the fixture operation"
+            )
+        return index, f"{trace_name}[{index}]"
+
     def test_rejects_tampered_noncanonical_member(self) -> None:
         def mutate(root: Path) -> None:
             with (root / "roundtrip_empty_state.json").open("ab") as member:
                 member.write(b" ")
         self._mutated_corpus_fails(mutate)
 
-    def test_rejects_every_invalid_strict_captured_checkpoint_field(self) -> None:
-        duplicate_first_record = object()
-        mutations = (
-            ("account identity", ("account_id",), "2", "roundtrip_live_and_pending.expected.json[5]"),
-            ("strategy identity", ("strategy_id",), "2", "roundtrip_live_and_pending.expected.json[5]"),
-            ("trader identity", ("trader_id",), "2", "roundtrip_live_and_pending.expected.json[5]"),
-            ("contract identity", ("contract_id",), "2", "roundtrip_live_and_pending.expected.json[5]"),
-            ("maximum order quantity limit", ("limits", "maximum_order_quantity_contracts"), "6", "roundtrip_live_and_pending.expected.json[5]"),
-            ("maximum absolute position limit", ("limits", "maximum_absolute_position_contracts"), "6", "roundtrip_live_and_pending.expected.json[5]"),
-            ("maximum buy exposure limit", ("limits", "maximum_buy_exposure_contracts"), "6", "roundtrip_live_and_pending.expected.json[5]"),
-            ("maximum sell exposure limit", ("limits", "maximum_sell_exposure_contracts"), "6", "roundtrip_live_and_pending.expected.json[5]"),
-            ("maximum pending exposure limit", ("limits", "maximum_pending_exposure_contracts"), "6", "roundtrip_live_and_pending.expected.json[5]"),
-            ("maximum active orders limit", ("limits", "maximum_active_orders"), 5, "roundtrip_live_and_pending.expected.json[5]"),
-            ("strict live order sorting", ("live_orders",), duplicate_first_record, "roundtrip_live_and_pending.expected.json[5].checkpoint.live_orders[1]"),
-            ("strict pending order sorting", ("pending_orders",), duplicate_first_record, "roundtrip_live_and_pending.expected.json[5].checkpoint.pending_orders[1]"),
-            ("positive live quantity", ("live_orders", 0, "remaining_quantity_contracts"), "0", "roundtrip_live_and_pending.expected.json[5].checkpoint.live_orders[0].remaining_quantity_contracts"),
-            ("positive pending quantity", ("pending_orders", 0, "quantity_contracts"), "0", "roundtrip_live_and_pending.expected.json[5].checkpoint.pending_orders[0].quantity_contracts"),
-            ("post-only pending intent", ("pending_orders", 0, "post_only"), False, "roundtrip_live_and_pending.expected.json[5].checkpoint.pending_orders[0]"),
-            ("positive bound ingress", ("pending_orders", 0, "ingress_sequence"), "0", "roundtrip_live_and_pending.expected.json[5].checkpoint.pending_orders[0].ingress_sequence"),
+    def test_checkpoint_donor_lookup_rejects_every_invalid_shape(self) -> None:
+        fixture_name = "roundtrip_live_and_pending.json"
+        trace_name = "roundtrip_live_and_pending.expected.json"
+        reviewed_fixture = self._load(FIXTURE_ROOT, fixture_name)
+        reviewed_trace = self._load(FIXTURE_ROOT, trace_name)
+        reviewed_index, _ = self._locate_unique_checkpoint_capture(
+            reviewed_fixture, reviewed_trace, fixture_name, trace_name
         )
 
-        for name, path, replacement, expected_diagnostic in mutations:
+        def remove_capture(fixture: dict[str, Any], trace: dict[str, Any]) -> None:
+            del trace
+            fixture["operations"][reviewed_index] = {
+                "operation": "kill_switch",
+                "active": False,
+            }
+
+        def add_capture(fixture: dict[str, Any], trace: dict[str, Any]) -> None:
+            fixture["operations"].insert(reviewed_index, {"operation": "checkpoint"})
+            trace["transitions"].insert(
+                reviewed_index, dict(trace["transitions"][reviewed_index])
+            )
+
+        def misalign_counts(fixture: dict[str, Any], trace: dict[str, Any]) -> None:
+            del fixture
+            trace["transitions"].pop()
+
+        def remove_document(fixture: dict[str, Any], trace: dict[str, Any]) -> None:
+            del fixture
+            del trace["transitions"][reviewed_index]["checkpoint"]
+
+        invalid_shapes = (
+            ("no checkpoint operation", remove_capture, "must contain exactly one checkpoint operation; found 0"),
+            ("multiple checkpoint operations", add_capture, "must contain exactly one checkpoint operation; found 2"),
+            ("operation and transition count mismatch", misalign_counts, "operation and transition counts must align"),
+            ("matching transition without a checkpoint document", remove_document, "must contain the checkpoint document aligned with the fixture operation"),
+        )
+        for name, mutate, expected_diagnostic in invalid_shapes:
+            with self.subTest(name=name):
+                fixture = json.loads(json.dumps(reviewed_fixture))
+                trace = json.loads(json.dumps(reviewed_trace))
+                mutate(fixture, trace)
+                with self.assertRaisesRegex(AssertionError, expected_diagnostic):
+                    self._locate_unique_checkpoint_capture(
+                        fixture, trace, fixture_name, trace_name
+                    )
+
+    def test_rejects_every_invalid_strict_captured_checkpoint_field(self) -> None:
+        fixture_name = "roundtrip_live_and_pending.json"
+        trace_name = "roundtrip_live_and_pending.expected.json"
+        _, donor_diagnostic_prefix = self._locate_unique_checkpoint_capture(
+            self._load(FIXTURE_ROOT, fixture_name),
+            self._load(FIXTURE_ROOT, trace_name),
+            fixture_name,
+            trace_name,
+        )
+        duplicate_first_record = object()
+        mutations = (
+            ("account identity", ("account_id",), "2", ""),
+            ("strategy identity", ("strategy_id",), "2", ""),
+            ("trader identity", ("trader_id",), "2", ""),
+            ("contract identity", ("contract_id",), "2", ""),
+            ("maximum order quantity limit", ("limits", "maximum_order_quantity_contracts"), "6", ""),
+            ("maximum absolute position limit", ("limits", "maximum_absolute_position_contracts"), "6", ""),
+            ("maximum buy exposure limit", ("limits", "maximum_buy_exposure_contracts"), "6", ""),
+            ("maximum sell exposure limit", ("limits", "maximum_sell_exposure_contracts"), "6", ""),
+            ("maximum pending exposure limit", ("limits", "maximum_pending_exposure_contracts"), "6", ""),
+            ("maximum active orders limit", ("limits", "maximum_active_orders"), 5, ""),
+            ("strict live order sorting", ("live_orders",), duplicate_first_record, ".checkpoint.live_orders[1]"),
+            ("strict pending order sorting", ("pending_orders",), duplicate_first_record, ".checkpoint.pending_orders[1]"),
+            ("positive live quantity", ("live_orders", 0, "remaining_quantity_contracts"), "0", ".checkpoint.live_orders[0].remaining_quantity_contracts"),
+            ("positive pending quantity", ("pending_orders", 0, "quantity_contracts"), "0", ".checkpoint.pending_orders[0].quantity_contracts"),
+            ("post-only pending intent", ("pending_orders", 0, "post_only"), False, ".checkpoint.pending_orders[0]"),
+            ("positive bound ingress", ("pending_orders", 0, "ingress_sequence"), "0", ".checkpoint.pending_orders[0].ingress_sequence"),
+        )
+
+        for name, path, replacement, diagnostic_suffix in mutations:
             with self.subTest(name=name):
                 def mutate(root: Path) -> None:
-                    trace = self._load(root, "roundtrip_live_and_pending.expected.json")
-                    target = trace["transitions"][5]["checkpoint"]
+                    fixture = self._load(root, fixture_name)
+                    trace = self._load(root, trace_name)
+                    transition_index, _ = self._locate_unique_checkpoint_capture(
+                        fixture, trace, fixture_name, trace_name
+                    )
+                    target = trace["transitions"][transition_index]["checkpoint"]
                     for key in path[:-1]:
                         target = target[key]
                     if replacement is duplicate_first_record:
@@ -487,10 +579,61 @@ class RiskCheckpointConformanceTests(unittest.TestCase):
                         records.append(dict(records[0]))
                     else:
                         target[path[-1]] = replacement
-                    self._write(root, "roundtrip_live_and_pending.expected.json", trace)
+                    self._write(root, trace_name, trace)
                     self._rehash(root)
 
-                self._mutated_corpus_fails(mutate, expected_diagnostic)
+                self._mutated_corpus_fails(
+                    mutate, donor_diagnostic_prefix + diagnostic_suffix
+                )
+
+    def test_strict_checkpoint_donor_lookup_is_position_independent(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pmm-risk-checkpoint-") as scratch:
+            root = Path(scratch) / "checkpoint_v1"
+            shutil.copytree(FIXTURE_ROOT, root)
+            fixture_name = "roundtrip_live_and_pending.json"
+            trace_name = "roundtrip_live_and_pending.expected.json"
+            fixture = self._load(root, fixture_name)
+            trace = self._load(root, trace_name)
+            original_index, _ = self._locate_unique_checkpoint_capture(
+                fixture, trace, fixture_name, trace_name
+            )
+            self.assertGreater(original_index, 0)
+
+            fixture["operations"].insert(
+                original_index, {"operation": "kill_switch", "active": False}
+            )
+            trace["transitions"].insert(
+                original_index,
+                {
+                    "result": "applied",
+                    "state": trace["transitions"][original_index - 1]["state"],
+                },
+            )
+            self._write(root, fixture_name, fixture)
+            self._write(root, trace_name, trace)
+            self._rehash(root)
+
+            verified = self._verify_corpus(root)
+            donor_fixture, donor_trace = next(
+                pair for pair in verified if pair[0]["fixture_id"] == "roundtrip_live_and_pending"
+            )
+            self._run_fixture(donor_fixture, donor_trace)
+
+            shifted_index, diagnostic_prefix = self._locate_unique_checkpoint_capture(
+                fixture, trace, fixture_name, trace_name
+            )
+            self.assertEqual(shifted_index, original_index + 1)
+            trace["transitions"][shifted_index]["checkpoint"]["pending_orders"][0][
+                "post_only"
+            ] = False
+            self._write(root, trace_name, trace)
+            self._rehash(root)
+            with self.assertRaises(AssertionError) as caught:
+                self._verify_corpus(root)
+            self.assertIn(
+                diagnostic_prefix + ".checkpoint.pending_orders[0]",
+                str(caught.exception),
+            )
 
     def test_rejects_unknown_fixture_field(self) -> None:
         def mutate(root: Path) -> None:

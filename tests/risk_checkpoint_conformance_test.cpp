@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -204,6 +206,50 @@ T Require(core::Result<T> result) {
                                                           : RunDocumentRestore(fixture);
 }
 
+struct CheckpointCaptureLocation {
+  std::size_t transition_index;
+  std::string diagnostic_prefix;
+};
+
+[[nodiscard]] CheckpointCaptureLocation LocateUniqueCheckpointCapture(const Json& fixture,
+                                                                      const Json& trace,
+                                                                      std::string_view fixture_name,
+                                                                      std::string_view trace_name) {
+  if (!fixture.contains("operations") || !fixture.at("operations").is_array()) {
+    Fail(std::string(fixture_name) + ".operations", "must be an operation array");
+  }
+  if (!trace.contains("transitions") || !trace.at("transitions").is_array()) {
+    Fail(std::string(trace_name) + ".transitions", "must be a transition array");
+  }
+  const Json& operations = fixture.at("operations");
+  const Json& transitions = trace.at("transitions");
+  if (operations.size() != transitions.size()) {
+    Fail(std::string(trace_name), "operation and transition counts must align");
+  }
+  std::vector<std::size_t> capture_indices;
+  for (std::size_t index = 0; index < operations.size(); ++index) {
+    const Json& operation = operations.at(index);
+    if (operation.is_object() && operation.contains("operation") &&
+        operation.at("operation").is_string() &&
+        operation.at("operation").get<std::string>() == "checkpoint") {
+      capture_indices.push_back(index);
+    }
+  }
+  if (capture_indices.size() != 1U) {
+    Fail(std::string(fixture_name) + ".operations",
+         "must contain exactly one checkpoint operation; found " +
+             std::to_string(capture_indices.size()));
+  }
+  const std::size_t index = capture_indices.front();
+  const Json& transition = transitions.at(index);
+  if (!transition.is_object() || !transition.contains("checkpoint") ||
+      !transition.at("checkpoint").is_object()) {
+    Fail(std::string(trace_name) + ".transitions[" + std::to_string(index) + "]",
+         "must contain the checkpoint document aligned with the fixture operation");
+  }
+  return CheckpointCaptureLocation{index, ".transitions[" + std::to_string(index) + "]"};
+}
+
 TEST(RiskCheckpointConformance, VerifiesEveryCheckedInDocument) {
   EXPECT_NO_THROW({
     const std::vector<CheckpointFixture> fixtures = LoadCheckpointCorpus(CheckpointFixtureRoot());
@@ -228,6 +274,63 @@ TEST(RiskCheckpointConformance, ReplayIsByteIdentical) {
     }
     SCOPED_TRACE(fixture.fixture_id);
     EXPECT_EQ(RunFixture(fixture), RunFixture(fixture));
+  }
+}
+
+TEST(RiskCheckpointConformance, CheckpointDonorLookupRejectsEveryInvalidShape) {
+  const Path root = CheckpointFixtureRoot();
+  const std::string fixture_name = "roundtrip_live_and_pending.json";
+  const std::string trace_name = "roundtrip_live_and_pending.expected.json";
+  const Json reviewed_fixture = Json::parse(ReadFile(root / fixture_name));
+  const Json reviewed_trace = Json::parse(ReadFile(root / trace_name));
+  const CheckpointCaptureLocation reviewed_location =
+      LocateUniqueCheckpointCapture(reviewed_fixture, reviewed_trace, fixture_name, trace_name);
+
+  struct InvalidShape {
+    std::string name;
+    std::function<void(Json&, Json&)> apply;
+    std::string expected_diagnostic;
+  };
+  const std::vector<InvalidShape> invalid_shapes{
+      {"no checkpoint operation",
+       [index = reviewed_location.transition_index](Json& fixture, Json&) {
+         fixture["operations"][index] = Json{{"active", false}, {"operation", "kill_switch"}};
+       },
+       "must contain exactly one checkpoint operation; found 0"},
+      {"multiple checkpoint operations",
+       [index = reviewed_location.transition_index](Json& fixture, Json& trace) {
+         fixture["operations"].insert(
+             fixture["operations"].begin() + static_cast<std::ptrdiff_t>(index),
+             Json{{"operation", "checkpoint"}});
+         trace["transitions"].insert(
+             trace["transitions"].begin() + static_cast<std::ptrdiff_t>(index),
+             trace["transitions"][index]);
+       },
+       "must contain exactly one checkpoint operation; found 2"},
+      {"operation and transition count mismatch",
+       [](Json&, Json& trace) { trace["transitions"].erase(trace["transitions"].end() - 1); },
+       "operation and transition counts must align"},
+      {"matching transition without a checkpoint document",
+       [index = reviewed_location.transition_index](Json&, Json& trace) {
+         trace["transitions"][index].erase("checkpoint");
+       },
+       "must contain the checkpoint document aligned with the fixture operation"},
+  };
+
+  for (const InvalidShape& invalid_shape : invalid_shapes) {
+    SCOPED_TRACE(invalid_shape.name);
+    Json fixture = reviewed_fixture;
+    Json trace = reviewed_trace;
+    invalid_shape.apply(fixture, trace);
+    try {
+      static_cast<void>(LocateUniqueCheckpointCapture(fixture, trace, fixture_name, trace_name));
+      ADD_FAILURE() << "expected donor lookup rejection containing: "
+                    << invalid_shape.expected_diagnostic;
+    } catch (const std::runtime_error& error) {
+      EXPECT_NE(std::string(error.what()).find(invalid_shape.expected_diagnostic),
+                std::string::npos)
+          << "unexpected donor lookup rejection: " << error.what();
+    }
   }
 }
 
@@ -319,72 +422,120 @@ TEST(RiskCheckpointConformance, RejectsEveryInvalidStrictCapturedCheckpointField
   struct Mutation {
     std::string name;
     std::function<void(Json&)> apply;
-    std::string expected_diagnostic;
+    std::string diagnostic_suffix;
   };
   const std::vector<Mutation> mutations{
       {"account identity", [](Json& checkpoint) { checkpoint["account_id"] = "2"; },
-       ".transitions[5].checkpoint: must carry the fixture account identity"},
+       ".checkpoint: must carry the fixture account identity"},
       {"strategy identity", [](Json& checkpoint) { checkpoint["strategy_id"] = "2"; },
-       ".transitions[5].checkpoint: must carry the fixture account identity"},
+       ".checkpoint: must carry the fixture account identity"},
       {"trader identity", [](Json& checkpoint) { checkpoint["trader_id"] = "2"; },
-       ".transitions[5].checkpoint: must carry the fixture account identity"},
+       ".checkpoint: must carry the fixture account identity"},
       {"contract identity", [](Json& checkpoint) { checkpoint["contract_id"] = "2"; },
-       ".transitions[5].checkpoint: must carry the fixture account identity"},
+       ".checkpoint: must carry the fixture account identity"},
       {"maximum order quantity limit",
        [](Json& checkpoint) { checkpoint["limits"]["maximum_order_quantity_contracts"] = "6"; },
-       ".transitions[5].checkpoint.limits: must equal the fixture limits"},
+       ".checkpoint.limits: must equal the fixture limits"},
       {"maximum absolute position limit",
        [](Json& checkpoint) { checkpoint["limits"]["maximum_absolute_position_contracts"] = "6"; },
-       ".transitions[5].checkpoint.limits: must equal the fixture limits"},
+       ".checkpoint.limits: must equal the fixture limits"},
       {"maximum buy exposure limit",
        [](Json& checkpoint) { checkpoint["limits"]["maximum_buy_exposure_contracts"] = "6"; },
-       ".transitions[5].checkpoint.limits: must equal the fixture limits"},
+       ".checkpoint.limits: must equal the fixture limits"},
       {"maximum sell exposure limit",
        [](Json& checkpoint) { checkpoint["limits"]["maximum_sell_exposure_contracts"] = "6"; },
-       ".transitions[5].checkpoint.limits: must equal the fixture limits"},
+       ".checkpoint.limits: must equal the fixture limits"},
       {"maximum pending exposure limit",
        [](Json& checkpoint) { checkpoint["limits"]["maximum_pending_exposure_contracts"] = "6"; },
-       ".transitions[5].checkpoint.limits: must equal the fixture limits"},
+       ".checkpoint.limits: must equal the fixture limits"},
       {"maximum active orders limit",
        [](Json& checkpoint) { checkpoint["limits"]["maximum_active_orders"] = 5; },
-       ".transitions[5].checkpoint.limits: must equal the fixture limits"},
+       ".checkpoint.limits: must equal the fixture limits"},
       {"strict live order sorting",
        [](Json& checkpoint) { checkpoint["live_orders"].push_back(checkpoint["live_orders"][0]); },
-       ".transitions[5].checkpoint.live_orders[1].order_id: must be canonically "
+       ".checkpoint.live_orders[1].order_id: must be canonically "
        "identifier-sorted"},
       {"strict pending order sorting",
        [](Json& checkpoint) {
          checkpoint["pending_orders"].push_back(checkpoint["pending_orders"][0]);
        },
-       ".transitions[5].checkpoint.pending_orders[1].client_intent_id: must be canonically "
+       ".checkpoint.pending_orders[1].client_intent_id: must be canonically "
        "identifier-sorted"},
       {"positive live quantity",
        [](Json& checkpoint) { checkpoint["live_orders"][0]["remaining_quantity_contracts"] = "0"; },
-       ".transitions[5].checkpoint.live_orders[0].remaining_quantity_contracts: must be positive "
+       ".checkpoint.live_orders[0].remaining_quantity_contracts: must be positive "
        "in a captured checkpoint"},
       {"positive pending quantity",
        [](Json& checkpoint) { checkpoint["pending_orders"][0]["quantity_contracts"] = "0"; },
-       ".transitions[5].checkpoint.pending_orders[0].quantity_contracts: must be positive in a "
+       ".checkpoint.pending_orders[0].quantity_contracts: must be positive in a "
        "captured checkpoint"},
       {"post-only pending intent",
        [](Json& checkpoint) { checkpoint["pending_orders"][0]["post_only"] = false; },
-       ".transitions[5].checkpoint.pending_orders[0].post_only: must be true in a captured "
+       ".checkpoint.pending_orders[0].post_only: must be true in a captured "
        "checkpoint"},
       {"positive bound ingress",
        [](Json& checkpoint) { checkpoint["pending_orders"][0]["ingress_sequence"] = "0"; },
-       ".transitions[5].checkpoint.pending_orders[0].ingress_sequence: must be positive in a "
+       ".checkpoint.pending_orders[0].ingress_sequence: must be positive in a "
        "captured checkpoint"},
   };
 
   for (const Mutation& mutation : mutations) {
     SCOPED_TRACE(mutation.name);
     TemporaryCorpus corpus;
+    const std::string fixture_name = "roundtrip_live_and_pending.json";
+    const std::string trace_name = "roundtrip_live_and_pending.expected.json";
+    const Json fixture = corpus.Load(fixture_name);
     Json trace = corpus.Load("roundtrip_live_and_pending.expected.json");
-    mutation.apply(trace["transitions"][5]["checkpoint"]);
-    corpus.Write("roundtrip_live_and_pending.expected.json", trace);
+    const CheckpointCaptureLocation location =
+        LocateUniqueCheckpointCapture(fixture, trace, fixture_name, trace_name);
+    mutation.apply(trace["transitions"][location.transition_index]["checkpoint"]);
+    corpus.Write(trace_name, trace);
     corpus.RehashManifest();
-    corpus.ExpectRejectedAt(mutation.expected_diagnostic);
+    corpus.ExpectRejectedAt(location.diagnostic_prefix + mutation.diagnostic_suffix);
   }
+}
+
+TEST(RiskCheckpointConformance, StrictCheckpointDonorLookupIsPositionIndependent) {
+  TemporaryCorpus corpus;
+  const std::string fixture_name = "roundtrip_live_and_pending.json";
+  const std::string trace_name = "roundtrip_live_and_pending.expected.json";
+  Json fixture = corpus.Load(fixture_name);
+  Json trace = corpus.Load(trace_name);
+  const CheckpointCaptureLocation original =
+      LocateUniqueCheckpointCapture(fixture, trace, fixture_name, trace_name);
+  ASSERT_GT(original.transition_index, 0U);
+
+  fixture["operations"].insert(
+      fixture["operations"].begin() + static_cast<std::ptrdiff_t>(original.transition_index),
+      Json{{"active", false}, {"operation", "kill_switch"}});
+  Json inserted_transition;
+  inserted_transition["result"] = "applied";
+  inserted_transition["state"] = trace["transitions"][original.transition_index - 1U]["state"];
+  trace["transitions"].insert(
+      trace["transitions"].begin() + static_cast<std::ptrdiff_t>(original.transition_index),
+      std::move(inserted_transition));
+  corpus.Write(fixture_name, fixture);
+  corpus.Write(trace_name, trace);
+  corpus.RehashManifest();
+
+  const std::vector<CheckpointFixture> shifted_fixtures = LoadCheckpointCorpus(corpus.root());
+  const auto donor = std::find_if(shifted_fixtures.begin(), shifted_fixtures.end(),
+                                  [](const CheckpointFixture& candidate) {
+                                    return candidate.fixture_id == "roundtrip_live_and_pending";
+                                  });
+  ASSERT_NE(donor, shifted_fixtures.end());
+  static_cast<void>(RunFixture(*donor));
+
+  const CheckpointCaptureLocation shifted =
+      LocateUniqueCheckpointCapture(fixture, trace, fixture_name, trace_name);
+  EXPECT_EQ(shifted.transition_index, original.transition_index + 1U);
+  trace["transitions"][shifted.transition_index]["checkpoint"]["pending_orders"][0]["post_only"] =
+      false;
+  corpus.Write(trace_name, trace);
+  corpus.RehashManifest();
+  corpus.ExpectRejectedAt(shifted.diagnostic_prefix +
+                          ".checkpoint.pending_orders[0].post_only: must be true in a captured "
+                          "checkpoint");
 }
 
 TEST(RiskCheckpointConformance, RejectsUnknownFixtureField) {
