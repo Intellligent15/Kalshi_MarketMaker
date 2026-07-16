@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.product_terms_review.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "payload", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "pmm.product_terms_review.v1"},
+    "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "payload": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "reviewed_at_utc", "product_terms_sha256", "source_manifest_sha256", "effective_from_utc", "effective_until_utc", "effective_time_basis", "limitations"],
+      "properties": {
+        "status": {"enum": ["draft", "reviewed", "superseded", "revoked"]},
+        "reviewed_at_utc": {"type": "string", "format": "date-time"},
+        "product_terms_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "source_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "effective_from_utc": {"type": "string", "format": "date-time"},
+        "effective_until_utc": {"type": ["string", "null"], "format": "date-time"},
+        "effective_time_basis": {"type": "string"},
+        "limitations": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

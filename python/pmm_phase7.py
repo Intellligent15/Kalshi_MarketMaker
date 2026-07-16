@@ -19,6 +19,28 @@ import subprocess
 import sys
 from typing import Any, Iterable
 
+try:
+    from .pmm_product_terms import (
+        ConversionPolicy,
+        ProductCatalog,
+        ProductPackage,
+        ProductTermsError,
+        copy_package,
+        sha256_file as product_sha256_file,
+    )
+except ImportError:
+    python_root = str(Path(__file__).resolve().parent)
+    if python_root not in sys.path:
+        sys.path.insert(0, python_root)
+    from pmm_product_terms import (  # type: ignore[no-redef]
+        ConversionPolicy,
+        ProductCatalog,
+        ProductPackage,
+        ProductTermsError,
+        copy_package,
+        sha256_file as product_sha256_file,
+    )
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 NORMALIZED_SCHEMA = "pmm.historical.normalized_event.v1"
@@ -27,6 +49,7 @@ FEATURE_SCHEMA = "pmm.historical.feature_row.v1"
 FEATURE_VERSION = "observed-l2-top-of-book.v1"
 BACKTEST_SCHEMA = "pmm.backtest.v1"
 BACKTEST_V2_SCHEMA = "pmm.backtest.v2"
+BACKTEST_V3_SCHEMA = "pmm.backtest.v3"
 RISK_TRACE_SCHEMA = "pmm.risk_conformance_trace.v2"
 
 
@@ -188,7 +211,35 @@ def normalized_payload(message_type: str, message: dict[str, Any]) -> tuple[str,
     }
 
 
-def normalize_capture(input_dir: Path, output_dir: Path, *, allow_sequence_gaps: bool = False) -> dict[str, Any]:
+def validate_product_payload(package: ProductPackage, payload: dict[str, Any], event_type: str) -> None:
+    terms = package.terms
+    if event_type == "orderbook_snapshot":
+        for side in ("yes_bids", "yes_asks"):
+            for index, level in enumerate(payload[side]):
+                terms.validate_price(level["price_dollars"], f"{side}[{index}].price_dollars")
+                terms.validate_quantity(level["quantity_contracts"], f"{side}[{index}].quantity_contracts")
+    elif event_type == "orderbook_delta":
+        terms.validate_price(payload["price_dollars"], "book_delta.price_dollars")
+        terms.validate_quantity(payload["quantity_delta_contracts"], "book_delta.quantity_delta_contracts", allow_negative=True)
+    else:
+        yes_price = terms.validate_price(payload["yes_price_dollars"], "trade.yes_price_dollars")
+        no_price = terms.validate_price(payload["no_price_dollars"], "trade.no_price_dollars")
+        if yes_price + no_price != Decimal("1"):
+            raise ProductTermsError(
+                "ComplementaryPriceMismatch",
+                "trade yes and no prices must sum exactly to one dollar",
+            )
+        terms.validate_quantity(payload["quantity_contracts"], "trade.quantity_contracts")
+
+
+def normalize_capture(
+    input_dir: Path,
+    output_dir: Path,
+    *,
+    allow_sequence_gaps: bool = False,
+    product_catalog: ProductCatalog | None = None,
+    conversion_policy: ConversionPolicy | None = None,
+) -> dict[str, Any]:
     input_dir = input_dir.resolve()
     frames = input_dir / "frames.jsonl"
     capture_metadata = input_dir / "metadata.json"
@@ -198,6 +249,12 @@ def normalize_capture(input_dir: Path, output_dir: Path, *, allow_sequence_gaps:
     ticker_from_metadata = metadata.get("ticker")
     if not isinstance(ticker_from_metadata, str) or not ticker_from_metadata:
         raise ValueError("capture metadata does not identify a ticker")
+    package: ProductPackage | None = None
+    if (product_catalog is None) != (conversion_policy is None):
+        raise ValueError("product catalog and conversion policy must be provided together")
+    if product_catalog is not None:
+        package = product_catalog.resolve(metadata)
+        package.verify_capture(metadata)
     output_dir = ensure_new_output(output_dir)
     temporary = output_dir.with_name(f"{output_dir.name}.partial")
     if temporary.exists():
@@ -229,6 +286,8 @@ def normalize_capture(input_dir: Path, output_dir: Path, *, allow_sequence_gaps:
                 if parsed_type != message_type:
                     raise ValueError(f"raw record {line_number} message-type mismatch")
                 ticker, parsed_market_id, payload = normalized_payload(parsed_type, message)
+                if package is not None:
+                    validate_product_payload(package, payload, parsed_type)
                 if ticker != ticker_from_metadata:
                     raise ValueError(f"raw record {line_number} ticker conflicts with capture metadata")
                 if market_id is None and parsed_market_id is None:
@@ -237,17 +296,46 @@ def normalize_capture(input_dir: Path, output_dir: Path, *, allow_sequence_gaps:
                 if market_id is None:
                     assert parsed_market_id is not None
                     market_id = parsed_market_id
-                    product = {
-                        "schema": "pmm.historical.product_map.v1",
-                        "venue": "kalshi",
-                        "venue_market_id": market_id,
-                        "ticker": ticker,
-                        "price_unit": "yes_probability_dollars_fixed_point",
-                        "quantity_unit": "contracts_fixed_point",
-                        "timezone": "UTC",
-                        "contract_metadata_status": "not_present_in_websocket_capture",
-                        "source_fidelity": "level_2",
-                    }
+                    if package is None:
+                        product = {
+                            "schema": "pmm.historical.product_map.v1",
+                            "venue": "kalshi",
+                            "venue_market_id": market_id,
+                            "ticker": ticker,
+                            "price_unit": "yes_probability_dollars_fixed_point",
+                            "quantity_unit": "contracts_fixed_point",
+                            "timezone": "UTC",
+                            "contract_metadata_status": "not_present_in_websocket_capture",
+                            "source_fidelity": "level_2",
+                        }
+                    else:
+                        assert conversion_policy is not None
+                        identity = package.terms.identity
+                        product = {
+                            "schema": "pmm.historical.product_map.v2",
+                            "venue": "kalshi",
+                            "environment": "production",
+                            "capture_identity": {
+                                "ticker": ticker,
+                                "venue_market_id": market_id,
+                                "venue_market_id_authority": "capture_only_not_in_terms_source",
+                            },
+                            "authoritative_identity": {
+                                "series_ticker": identity["series_ticker"],
+                                "event_ticker": identity["event_ticker"],
+                                "market_ticker": identity["market_ticker"],
+                                "contracts": identity["contracts"],
+                            },
+                            "binding": {
+                                "market_ticker_match": True,
+                                "venue_market_id_consistent_within_capture": True,
+                            },
+                            "product_terms_sha256": package.terms.payload_sha256,
+                            "source_manifest_sha256": package.evidence.payload_sha256,
+                            "review_sha256": package.review.payload_sha256,
+                            "conversion_policy_sha256": conversion_policy.payload_sha256,
+                            "source_fidelity": "level_2",
+                        }
                 elif parsed_market_id is not None and market_id != parsed_market_id:
                     raise ValueError(f"raw record {line_number} market_id changes within a capture")
                 connection_id = int_value(record.get("connection_id"), "connection_id")
@@ -307,8 +395,12 @@ def normalize_capture(input_dir: Path, output_dir: Path, *, allow_sequence_gaps:
         if ingress_order == 0 or product is None:
             raise ValueError("capture contains no supported market-data events")
         write_json(temporary / "product.json", product)
+        if package is not None:
+            assert product_catalog is not None and conversion_policy is not None
+            copy_package(package, temporary / "product_terms")
+            shutil.copy2(conversion_policy.path, temporary / "conversion_policy.json")
         manifest = {
-            "schema": "pmm.historical.normalization_manifest.v1",
+            "schema": "pmm.historical.normalization_manifest.v2" if package is not None else "pmm.historical.normalization_manifest.v1",
             "normalizer_version": NORMALIZER_VERSION,
             "input_capture_directory": str(input_dir.relative_to(REPOSITORY_ROOT)),
             "input_frames_sha256": sha256_file(frames),
@@ -330,6 +422,20 @@ def normalize_capture(input_dir: Path, output_dir: Path, *, allow_sequence_gaps:
                 "Contract metadata was not present in the captured WebSocket messages.",
             ],
         }
+        if package is not None:
+            assert product_catalog is not None and conversion_policy is not None
+            manifest.update({
+                "output_product_sha256": sha256_file(temporary / "product.json"),
+                "product_terms_file_sha256": sha256_file(temporary / "product_terms" / "product_terms.json"),
+                "product_terms_sha256": package.terms.payload_sha256,
+                "source_manifest_sha256": package.evidence.payload_sha256,
+                "review_sha256": package.review.payload_sha256,
+                "conversion_policy_file_sha256": sha256_file(temporary / "conversion_policy.json"),
+                "conversion_policy_sha256": conversion_policy.payload_sha256,
+                "product_catalog_sha256": product_catalog.payload_sha256,
+                "product_terms_effective_time_basis": package.review.payload["effective_time_basis"],
+                "product_terms_review_limitations": package.review.payload["limitations"],
+            })
         write_json(temporary / "manifest.json", manifest)
         temporary.rename(output_dir)
         return manifest
@@ -501,6 +607,26 @@ def materialize_features(input_dir: Path, output_dir: Path) -> dict[str, Any]:
     normalized = read_json(normalization_manifest)
     if normalized.get("sequence_gaps"):
         raise ValueError("cannot materialize complete features from normalized data with sequence gaps")
+    product_lineage: dict[str, Any] | None = None
+    if normalized.get("schema") == "pmm.historical.normalization_manifest.v2":
+        package = ProductPackage.load(input_dir / "product_terms")
+        policy = ConversionPolicy.load(input_dir / "conversion_policy.json")
+        expected_lineage = {
+            "product_terms_sha256": package.terms.payload_sha256,
+            "source_manifest_sha256": package.evidence.payload_sha256,
+            "review_sha256": package.review.payload_sha256,
+            "conversion_policy_sha256": policy.payload_sha256,
+        }
+        for name, value in expected_lineage.items():
+            if normalized.get(name) != value:
+                raise ProductTermsError("UpstreamManifestMismatch", f"normalization manifest {name} is stale")
+        if normalized.get("output_events_sha256") != sha256_file(events_path):
+            raise ProductTermsError("UpstreamManifestMismatch", "normalized events hash is stale")
+        if normalized.get("output_product_sha256") != sha256_file(input_dir / "product.json"):
+            raise ProductTermsError("UpstreamManifestMismatch", "product identity hash is stale")
+        product_lineage = expected_lineage
+    elif normalized.get("schema") != "pmm.historical.normalization_manifest.v1":
+        raise ValueError("unsupported normalization manifest schema")
     output_dir = ensure_new_output(output_dir)
     temporary = output_dir.with_name(f"{output_dir.name}.partial")
     if temporary.exists():
@@ -530,7 +656,7 @@ def materialize_features(input_dir: Path, output_dir: Path) -> dict[str, Any]:
                 }
                 destination.write(canonical_json(row) + "\n")
         manifest = {
-            "schema": "pmm.historical.feature_manifest.v1",
+            "schema": "pmm.historical.feature_manifest.v2" if product_lineage is not None else "pmm.historical.feature_manifest.v1",
             "feature_version": FEATURE_VERSION,
             "input_events_sha256": sha256_file(events_path),
             "output_features_sha256": sha256_file(features_path),
@@ -540,6 +666,10 @@ def materialize_features(input_dir: Path, output_dir: Path) -> dict[str, Any]:
             "truth_category": "DerivedFromObserved",
             "source_fidelity": "level_2",
         }
+        if product_lineage is not None:
+            manifest.update(product_lineage)
+            manifest["input_normalization_manifest_sha256"] = sha256_file(normalization_manifest)
+            manifest["input_product_sha256"] = sha256_file(input_dir / "product.json")
         write_json(temporary / "manifest.json", manifest)
         temporary.rename(output_dir)
         return manifest
@@ -851,16 +981,145 @@ def feature_by_watermark(features_path: Path) -> dict[int, dict[str, Any]]:
     return result
 
 
+def verify_v3_lineage(
+    config: dict[str, Any], normalized_path: Path, features_path: Path
+) -> tuple[ProductPackage, ConversionPolicy, dict[str, Any]]:
+    normalization_manifest_path = (
+        REPOSITORY_ROOT / str(config.get("normalization_manifest", ""))
+    ).resolve()
+    feature_manifest_path = (
+        REPOSITORY_ROOT / str(config.get("feature_manifest", ""))
+    ).resolve()
+    if not normalization_manifest_path.is_file() or not feature_manifest_path.is_file():
+        raise ProductTermsError(
+            "UpstreamManifestMismatch", "pmm.backtest.v3 requires normalization and feature manifests"
+        )
+    if normalization_manifest_path.parent / "events.jsonl" != normalized_path:
+        raise ProductTermsError(
+            "UpstreamManifestMismatch", "normalization manifest does not own normalized_events"
+        )
+    if feature_manifest_path.parent / "features.jsonl" != features_path:
+        raise ProductTermsError(
+            "UpstreamManifestMismatch", "feature manifest does not own features"
+        )
+    normalization = read_json(normalization_manifest_path)
+    features = read_json(feature_manifest_path)
+    if normalization.get("schema") != "pmm.historical.normalization_manifest.v2":
+        raise ProductTermsError(
+            "UnsupportedTermsSchema", "pmm.backtest.v3 requires normalization manifest V2"
+        )
+    if features.get("schema") != "pmm.historical.feature_manifest.v2":
+        raise ProductTermsError(
+            "UnsupportedTermsSchema", "pmm.backtest.v3 requires feature manifest V2"
+        )
+    package = ProductPackage.load(normalization_manifest_path.parent / "product_terms")
+    policy = ConversionPolicy.load(normalization_manifest_path.parent / "conversion_policy.json")
+    policy.require_core_compatible(package.terms)
+    expected = {
+        "product_terms_sha256": package.terms.payload_sha256,
+        "source_manifest_sha256": package.evidence.payload_sha256,
+        "review_sha256": package.review.payload_sha256,
+        "conversion_policy_sha256": policy.payload_sha256,
+    }
+    declared = config.get("product_terms")
+    if not isinstance(declared, dict) or set(declared) != set(expected):
+        raise ProductTermsError(
+            "TermsHashMismatch", "pmm.backtest.v3 must declare the complete product_terms identity"
+        )
+    mismatch_codes = {
+        "product_terms_sha256": "TermsHashMismatch",
+        "source_manifest_sha256": "SourceHashMismatch",
+        "review_sha256": "ReviewHashMismatch",
+        "conversion_policy_sha256": "ConversionPolicyMismatch",
+    }
+    for name, value in expected.items():
+        if declared.get(name) != value:
+            raise ProductTermsError(
+                mismatch_codes[name], f"config {name} differs from the reviewed package"
+            )
+        if normalization.get(name) != value or features.get(name) != value:
+            raise ProductTermsError(
+                "UpstreamManifestMismatch", f"upstream manifest {name} differs from the reviewed package"
+            )
+    if normalization.get("output_events_sha256") != sha256_file(normalized_path):
+        raise ProductTermsError("UpstreamManifestMismatch", "normalized events hash is stale")
+    if features.get("input_events_sha256") != sha256_file(normalized_path):
+        raise ProductTermsError("UpstreamManifestMismatch", "feature input events hash is stale")
+    if features.get("output_features_sha256") != sha256_file(features_path):
+        raise ProductTermsError("UpstreamManifestMismatch", "features hash is stale")
+    normalization_manifest_sha256 = sha256_file(normalization_manifest_path)
+    if features.get("input_normalization_manifest_sha256") != normalization_manifest_sha256:
+        raise ProductTermsError(
+            "UpstreamManifestMismatch", "feature manifest does not bind the normalization manifest"
+        )
+    return package, policy, {
+        **expected,
+        "normalization_manifest_sha256": normalization_manifest_sha256,
+        "feature_manifest_sha256": sha256_file(feature_manifest_path),
+    }
+
+
+def verify_lineage(config_path: Path, result_dir: Path | None = None) -> dict[str, Any]:
+    config_path = config_path.resolve()
+    config = read_json(config_path)
+    if config.get("schema") != BACKTEST_V3_SCHEMA:
+        raise ProductTermsError(
+            "UnsupportedTermsSchema", "lineage verification requires pmm.backtest.v3"
+        )
+    normalized_path = (REPOSITORY_ROOT / str(config.get("normalized_events", ""))).resolve()
+    features_path = (REPOSITORY_ROOT / str(config.get("features", ""))).resolve()
+    package, policy, lineage = verify_v3_lineage(config, normalized_path, features_path)
+    result: dict[str, Any] = {
+        "status": "valid",
+        "market_ticker": package.terms.market_ticker,
+        **lineage,
+        "fee_application": policy.payload["fee_application"],
+        "settlement_application": policy.payload["settlement_application"],
+    }
+    if result_dir is None:
+        return result
+    resolved_result = result_dir.resolve()
+    manifest_path = resolved_result / "manifest.json"
+    manifest = read_json(manifest_path)
+    if manifest.get("schema") != "pmm.backtest_result_manifest.v3":
+        raise ProductTermsError(
+            "UnsupportedTermsSchema", "result directory does not contain a V3 result manifest"
+        )
+    if manifest.get("config_sha256") != sha256_file(config_path):
+        raise ProductTermsError("UpstreamManifestMismatch", "result config hash is stale")
+    for name, value in lineage.items():
+        if manifest.get(name) != value:
+            raise ProductTermsError(
+                "UpstreamManifestMismatch", f"result manifest {name} differs from verified lineage"
+            )
+    output_names = {
+        "orders_sha256": "orders.jsonl",
+        "fills_sha256": "fills.jsonl",
+        "ledger_sha256": "ledger.jsonl",
+        "risk_trace_sha256": "risk-trace.jsonl",
+    }
+    for field_name, filename in output_names.items():
+        path = resolved_result / filename
+        if not path.is_file() or manifest.get(field_name) != sha256_file(path):
+            raise ProductTermsError(
+                "UpstreamManifestMismatch", f"result artifact {filename} has a stale hash"
+            )
+    result["result_manifest_sha256"] = sha256_file(manifest_path)
+    return result
+
+
 def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
     config_path = config_path.resolve()
     config = read_json(config_path)
     config_schema = config.get("schema")
-    if config_schema not in {BACKTEST_SCHEMA, BACKTEST_V2_SCHEMA}:
-        raise ValueError(f"backtest config schema must be {BACKTEST_SCHEMA} or {BACKTEST_V2_SCHEMA}")
-    if config_schema == BACKTEST_V2_SCHEMA:
+    if config_schema not in {BACKTEST_SCHEMA, BACKTEST_V2_SCHEMA, BACKTEST_V3_SCHEMA}:
+        raise ValueError(
+            f"backtest config schema must be {BACKTEST_SCHEMA}, {BACKTEST_V2_SCHEMA}, or {BACKTEST_V3_SCHEMA}"
+        )
+    if config_schema in {BACKTEST_V2_SCHEMA, BACKTEST_V3_SCHEMA}:
         declared_risk = config.get("risk")
         if not isinstance(declared_risk, dict) or declared_risk.get("engine") != "cxx_oracle_v2":
-            raise ValueError("pmm.backtest.v2 requires risk.engine cxx_oracle_v2")
+            raise ValueError(f"{config_schema} requires risk.engine cxx_oracle_v2")
     fill_model = config.get("fill_model")
     if fill_model not in {"no_fill_v1", "trade_touch_v1"}:
         raise ValueError("fill_model must be no_fill_v1 or trade_touch_v1")
@@ -868,11 +1127,21 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
     features_path = (REPOSITORY_ROOT / str(config.get("features", ""))).resolve()
     if not normalized_path.is_file() or not features_path.is_file():
         raise ValueError("backtest config must reference existing normalized_events and features files")
+    product_package: ProductPackage | None = None
+    conversion_policy: ConversionPolicy | None = None
+    product_lineage: dict[str, Any] | None = None
+    if config_schema == BACKTEST_V3_SCHEMA:
+        if config.get("accounting") is not None:
+            raise ProductTermsError(
+                "FeePolicyUnsupported", "pmm.backtest.v3 does not apply fees or accounting"
+            )
+        product_package, conversion_policy, product_lineage = verify_v3_lineage(
+            config, normalized_path, features_path
+        )
     output_dir = ensure_new_output(output_dir)
     temporary = output_dir.with_name(f"{output_dir.name}.partial")
     if temporary.exists():
         raise ValueError(f"temporary backtest output already exists: {temporary}")
-    temporary.mkdir(parents=True)
     features = feature_by_watermark(features_path)
     market_data_latency = int_config(config, "latency.market_data_ns")
     decision_latency = int_config(config, "latency.decision_ns")
@@ -883,13 +1152,16 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
     quantity = decimal_config(config, "strategy.quote_quantity_contracts")
     if quantity <= 0 or lifetime <= 0 or decision_interval <= 0:
         raise ValueError("quote quantity, order lifetime, and decision interval must be positive")
+    if conversion_policy is not None:
+        conversion_policy.convert_quantity_to_contracts(quantity, "strategy.quote_quantity_contracts")
+        conversion_policy.convert_price_to_cents(minimum_spread, "strategy.minimum_spread_dollars")
     risk_config = config.get("risk")
     if not isinstance(risk_config, dict):
         raise ValueError("backtest config requires risk")
     risk_kind = risk_config.get("engine", "python_reference_v1")
     if risk_kind == "python_reference_v1":
         if config_schema != BACKTEST_SCHEMA:
-            raise ValueError("pmm.backtest.v2 requires risk.engine cxx_oracle_v2")
+            raise ValueError(f"{config_schema} requires risk.engine cxx_oracle_v2")
         risk: BacktestRisk | CxxRiskOracle = BacktestRisk(
             maximum_absolute_position=decimal_config(config, "risk.maximum_absolute_position_contracts"),
             maximum_active_orders=int_config(config, "risk.maximum_active_orders"),
@@ -901,8 +1173,8 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
             raise ValueError("cxx_oracle_v1 is supported only by pmm.backtest.v1")
         risk = CxxRiskOracle(risk_config)
     elif risk_kind == "cxx_oracle_v2":
-        if config_schema != BACKTEST_V2_SCHEMA:
-            raise ValueError("cxx_oracle_v2 requires schema pmm.backtest.v2")
+        if config_schema not in {BACKTEST_V2_SCHEMA, BACKTEST_V3_SCHEMA}:
+            raise ValueError("cxx_oracle_v2 requires schema pmm.backtest.v2 or pmm.backtest.v3")
         risk_contract = risk_config.get("risk_contract")
         if not isinstance(risk_contract, dict) or risk_contract.get("schema") != "pmm.research_risk_contract.v1":
             raise ValueError("cxx_oracle_v2 requires risk.risk_contract schema pmm.research_risk_contract.v1")
@@ -1018,6 +1290,7 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
             if order.remaining == 0:
                 del active[order.order_id]
 
+    temporary.mkdir(parents=True)
     try:
         for event in iter_jsonl(normalized_path):
             watermark = int_value(event.get("ingress_order"), "ingress_order")
@@ -1056,7 +1329,13 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
             else "no_fill_v1 never creates simulated fills; it is the execution-free control."
         )
         manifest = {
-            "schema": "pmm.backtest_result_manifest.v2" if config_schema == BACKTEST_V2_SCHEMA else "pmm.backtest_result_manifest.v1",
+            "schema": (
+                "pmm.backtest_result_manifest.v3"
+                if config_schema == BACKTEST_V3_SCHEMA
+                else "pmm.backtest_result_manifest.v2"
+                if config_schema == BACKTEST_V2_SCHEMA
+                else "pmm.backtest_result_manifest.v1"
+            ),
             "config_sha256": sha256_file(config_path),
             "normalized_events_sha256": sha256_file(normalized_path),
             "features_sha256": sha256_file(features_path),
@@ -1095,6 +1374,14 @@ def run_backtest(config_path: Path, output_dir: Path) -> dict[str, Any]:
             "ledger_sha256": sha256_file(ledger_path),
             "risk_trace_sha256": sha256_file(risk_trace_path),
         }
+        if product_lineage is not None:
+            assert product_package is not None and conversion_policy is not None
+            manifest.update(product_lineage)
+            manifest["product_identity"] = product_package.terms.identity
+            manifest["product_terms_effective"] = product_package.terms.payload["effective"]
+            manifest["product_terms_review_limitations"] = product_package.review.payload["limitations"]
+            manifest["fee_application"] = conversion_policy.payload["fee_application"]
+            manifest["settlement_application"] = conversion_policy.payload["settlement_application"]
         write_json(temporary / "manifest.json", manifest)
         temporary.rename(output_dir)
         risk.close()
@@ -1112,12 +1399,25 @@ def build_parser() -> argparse.ArgumentParser:
     normalize.add_argument("--input", required=True, type=Path)
     normalize.add_argument("--output", required=True, type=Path)
     normalize.add_argument("--allow-sequence-gaps", action="store_true")
+    normalize_v2 = commands.add_parser(
+        "normalize-v2", help="Normalize with a reviewed authoritative product-term revision."
+    )
+    normalize_v2.add_argument("--input", required=True, type=Path)
+    normalize_v2.add_argument("--output", required=True, type=Path)
+    normalize_v2.add_argument("--catalog", required=True, type=Path)
+    normalize_v2.add_argument("--conversion-policy", required=True, type=Path)
+    normalize_v2.add_argument("--allow-sequence-gaps", action="store_true")
     features = commands.add_parser("features", help="Materialize causal observed-L2 feature rows.")
     features.add_argument("--input", required=True, type=Path)
     features.add_argument("--output", required=True, type=Path)
-    backtest = commands.add_parser("backtest", help="Run the explicit deterministic V1 synthetic-fill backtest.")
+    backtest = commands.add_parser("backtest", help="Run an explicit deterministic research backtest.")
     backtest.add_argument("--config", required=True, type=Path)
     backtest.add_argument("--output", required=True, type=Path)
+    verify = commands.add_parser(
+        "verify-lineage", help="Verify a V3 configuration and optional result bundle offline."
+    )
+    verify.add_argument("--config", required=True, type=Path)
+    verify.add_argument("--result", type=Path)
     return parser
 
 
@@ -1126,13 +1426,23 @@ def main(argv: list[str] | None = None) -> int:
         args = build_parser().parse_args(argv)
         if args.command == "normalize":
             result = normalize_capture(args.input, args.output, allow_sequence_gaps=args.allow_sequence_gaps)
+        elif args.command == "normalize-v2":
+            result = normalize_capture(
+                args.input,
+                args.output,
+                allow_sequence_gaps=args.allow_sequence_gaps,
+                product_catalog=ProductCatalog.load(args.catalog),
+                conversion_policy=ConversionPolicy.load(args.conversion_policy),
+            )
         elif args.command == "features":
             result = materialize_features(args.input, args.output)
+        elif args.command == "verify-lineage":
+            result = verify_lineage(args.config, args.result)
         else:
             result = run_backtest(args.config, args.output)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
-    except (OSError, ValueError, InvalidOperation) as error:
+    except (OSError, ValueError, InvalidOperation, ProductTermsError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 

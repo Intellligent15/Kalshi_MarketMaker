@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.product_conversion_policy.v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "payload", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "pmm.product_conversion_policy.v1"},
+    "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "payload": {
+      "type": "object", "additionalProperties": false,
+      "required": ["observed_price_policy", "observed_quantity_policy", "core_price_policy", "core_quantity_policy", "fee_application", "settlement_application"],
+      "properties": {
+        "observed_price_policy": {"const": "preserve_exact_validate_grid"},
+        "observed_quantity_policy": {"const": "preserve_exact_validate_increment"},
+        "core_price_policy": {"const": "integer_cents_exact_only"},
+        "core_quantity_policy": {"const": "whole_contracts_exact_only"},
+        "fee_application": {"const": "not_applied"},
+        "settlement_application": {"const": "not_applied"}
+      }
+    }
+  }
+}

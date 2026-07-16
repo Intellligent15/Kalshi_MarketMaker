@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.venue_product_terms.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "payload", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "pmm.venue_product_terms.v1"},
+    "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["venue", "environment", "revision_label", "effective", "identity", "price", "quantity", "payout", "rules", "lifecycle", "settlement", "fees", "source_refs"],
+      "properties": {
+        "venue": {"const": "kalshi"},
+        "environment": {"const": "production"},
+        "revision_label": {"type": "string", "minLength": 1},
+        "effective": {"$ref": "#/$defs/effective"},
+        "identity": {"$ref": "#/$defs/identity"},
+        "price": {"$ref": "#/$defs/price"},
+        "quantity": {"$ref": "#/$defs/quantity"},
+        "payout": {"type": "object"},
+        "rules": {"type": "object"},
+        "lifecycle": {"type": "object"},
+        "settlement": {"type": "object"},
+        "fees": {"type": "object"},
+        "source_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      }
+    }
+  },
+  "$defs": {
+    "decimal": {"type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"},
+    "effective": {
+      "type": "object", "additionalProperties": false,
+      "required": ["from_utc", "until_utc", "basis"],
+      "properties": {
+        "from_utc": {"type": "string", "format": "date-time"},
+        "until_utc": {"type": ["string", "null"], "format": "date-time"},
+        "basis": {"enum": ["venue_explicit", "source_revision_timestamp", "contemporaneous_snapshot", "reviewed_retrospective"]}
+      }
+    },
+    "identity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["series_ticker", "event_ticker", "market_ticker", "market_type", "title", "yes_sub_title", "no_sub_title", "contracts"],
+      "properties": {
+        "series_ticker": {"type": "string"}, "event_ticker": {"type": "string"},
+        "market_ticker": {"type": "string"}, "market_type": {"const": "binary"},
+        "title": {"type": "string"}, "yes_sub_title": {"type": "string"},
+        "no_sub_title": {"type": "string"},
+        "contracts": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "object"}}
+      }
+    },
+    "price": {
+      "type": "object", "additionalProperties": false,
+      "required": ["representation", "maximum_decimal_places", "level_structure", "ranges"],
+      "properties": {
+        "representation": {"const": "fixed_point_dollars"},
+        "maximum_decimal_places": {"type": "integer", "minimum": 1},
+        "level_structure": {"type": "string"},
+        "ranges": {"type": "array", "minItems": 1, "items": {"type": "object"}}
+      }
+    },
+    "quantity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["unit", "representation", "maximum_decimal_places", "increment_contracts"],
+      "properties": {
+        "unit": {"const": "contract"}, "representation": {"const": "fixed_point_contracts"},
+        "maximum_decimal_places": {"type": "integer", "minimum": 1},
+        "increment_contracts": {"$ref": "#/$defs/decimal"}
+      }
+    }
+  }
+}

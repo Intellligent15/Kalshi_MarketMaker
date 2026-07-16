@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.product_compatibility_report.v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "compatible", "reasons"],
+  "properties": {
+    "schema": {"const": "pmm.product_compatibility_report.v1"},
+    "compatible": {"type": "boolean"},
+    "reasons": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "left", "right"],
+      "properties": {"code": {"type": "string"}, "left": {"type": "string"}, "right": {"type": "string"}}
+    }}
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "schema": "pmm.backtest.v3",
+  "run_id": "kalshi-wsh-tor-wsh2-no-fill-product-terms-v3",
+  "seed": 7,
+  "normalized_events": "data/processed/kalshi/wsh-tor-wsh2-normalized-v2/events.jsonl",
+  "normalization_manifest": "data/processed/kalshi/wsh-tor-wsh2-normalized-v2/manifest.json",
+  "features": "data/processed/kalshi/wsh-tor-wsh2-features-v2/features.jsonl",
+  "feature_manifest": "data/processed/kalshi/wsh-tor-wsh2-features-v2/manifest.json",
+  "product_terms": {
+    "product_terms_sha256": "11407deb56f2da191ad76059fd771ef246c92102b6d4a2289568dda0c4dcf31c",
+    "source_manifest_sha256": "9861e9806999dcafef864809edfd12e1e9f96aad80debb4ae81af54cdd39c9d4",
+    "review_sha256": "9dbecd8b1e189502a564f2fedef0fb7a10abe3756902107a7675fd9dc1c8b836",
+    "conversion_policy_sha256": "b52e4ef2cb0e1c28a5e6f5395d77b8e73f7addb3d49697a3d663cfe68734545d"
+  },
+  "latency": {
+    "market_data_ns": 100000000,
+    "decision_ns": 100000000,
+    "order_ns": 100000000
+  },
+  "strategy": {
+    "decision_interval_ns": 1000000000,
+    "order_lifetime_ns": 30000000000,
+    "minimum_spread_dollars": "0.01",
+    "quote_quantity_contracts": "1"
+  },
+  "risk": {
+    "engine": "cxx_oracle_v2",
+    "oracle": {
+      "schema": "pmm.risk_oracle_launcher.v1",
+      "build_dir": "build",
+      "cmake_target": "pmm_risk_oracle"
+    },
+    "risk_contract": {
+      "schema": "pmm.research_risk_contract.v1",
+      "quantity_unit": "whole_contract",
+      "price_unit": "cent",
+      "post_only": true
+    },
+    "limits": {
+      "maximum_order_quantity_contracts": "1",
+      "maximum_absolute_position_contracts": "10",
+      "maximum_buy_exposure_contracts": "10",
+      "maximum_sell_exposure_contracts": "10",
+      "maximum_pending_exposure_contracts": "10",
+      "maximum_active_orders": 2
+    }
+  },
+  "fill_model": "no_fill_v1"
+}
