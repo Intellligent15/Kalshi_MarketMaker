@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import hashlib
 import json
 import os
@@ -200,6 +201,163 @@ class RiskFixtureIntegrityTests(unittest.TestCase):
                     member.write_bytes(bytes_value)
                     with self.assertRaises(integrity.CorpusError):
                         integrity.build_plan(root, schema)
+                finally:
+                    scratch.cleanup()
+
+    def test_every_documented_parser_refusal_is_specific_and_read_only(self) -> None:
+        schema = integrity.CORPORA["checkpoint_v1"][1]
+
+        def write_manifest(root: Path, manifest: dict[str, object]) -> None:
+            manifest["payload_sha256"] = hashlib.sha256(
+                integrity.canonical_bytes(manifest["payload"])
+            ).hexdigest()
+            (root / "manifest.json").write_bytes(integrity.canonical_bytes(manifest))
+
+        def mutate_manifest(
+            root: Path, mutation: Callable[[dict[str, object]], None]
+        ) -> Path:
+            manifest = self._load(root / "manifest.json")
+            mutation(manifest)
+            write_manifest(root, manifest)
+            return root
+
+        def add_utf8_bom(root: Path) -> Path:
+            manifest = root / "manifest.json"
+            manifest.write_bytes(b"\xef\xbb\xbf" + manifest.read_bytes())
+            return root
+
+        def add_invalid_utf8(root: Path) -> Path:
+            manifest = root / "manifest.json"
+            manifest.write_bytes(manifest.read_bytes() + b"\xff")
+            return root
+
+        def set_integer(root: Path, value: int) -> Path:
+            member = root / "checkpoint_active_order_limit.json"
+            document = self._load(member)
+            document["checkpoint"]["limits"]["maximum_active_orders"] = value
+            member_bytes = integrity.canonical_bytes(document)
+            member.write_bytes(member_bytes)
+
+            manifest = self._load(root / "manifest.json")
+            entry = next(
+                item
+                for item in manifest["payload"]["entries"]
+                if item["fixture"] == member.name
+            )
+            entry["fixture_sha256"] = hashlib.sha256(member_bytes).hexdigest()
+            write_manifest(root, manifest)
+            return root
+
+        def use_root_symlink(root: Path) -> Path:
+            real_root = root.with_name(f"{root.name}-real")
+            root.rename(real_root)
+            root.symlink_to(real_root, target_is_directory=True)
+            return root
+
+        def use_absolute_member(root: Path) -> Path:
+            def mutate(manifest: dict[str, object]) -> None:
+                entry = manifest["payload"]["entries"][0]
+                entry["fixture"] = str((root / entry["fixture"]).resolve())
+
+            return mutate_manifest(root, mutate)
+
+        def use_backslash_member(root: Path) -> Path:
+            def mutate(manifest: dict[str, object]) -> None:
+                entry = manifest["payload"]["entries"][0]
+                original = root / entry["expected_trace"]
+                unsafe_name = original.name.replace(".", "\\.", 1)
+                original.rename(root / unsafe_name)
+                entry["expected_trace"] = unsafe_name
+
+            return mutate_manifest(root, mutate)
+
+        def unsort_entries(root: Path) -> Path:
+            def mutate(manifest: dict[str, object]) -> None:
+                entries = manifest["payload"]["entries"]
+                entries[0], entries[1] = entries[1], entries[0]
+
+            return mutate_manifest(root, mutate)
+
+        def change_top_level_schema(root: Path) -> Path:
+            return mutate_manifest(
+                root,
+                lambda manifest: manifest.__setitem__(
+                    "schema", "pmm.wrong_fixture_manifest.v1"
+                ),
+            )
+
+        def change_payload_schema(root: Path) -> Path:
+            return mutate_manifest(
+                root,
+                lambda manifest: manifest["payload"].__setitem__(
+                    "schema", "pmm.wrong_fixture_manifest.v1"
+                ),
+            )
+
+        mutations = (
+            (
+                "UTF-8 BOM",
+                add_utf8_bom,
+                "must not contain a UTF-8 byte-order mark",
+            ),
+            ("invalid UTF-8", add_invalid_utf8, "is not valid UTF-8"),
+            (
+                "signed 64-bit underflow",
+                lambda root: set_integer(root, -(2**63) - 1),
+                "JSON integer: '-9223372036854775809' is outside the C++ reader's "
+                "64-bit range",
+            ),
+            (
+                "unsigned 64-bit overflow",
+                lambda root: set_integer(root, 2**64),
+                "JSON integer: '18446744073709551616' is outside the C++ reader's "
+                "64-bit range",
+            ),
+            (
+                "fixture-root symlink",
+                use_root_symlink,
+                "fixture root must not be a symlink",
+            ),
+            (
+                "absolute manifest member name",
+                use_absolute_member,
+                ".payload.entries[0].fixture: must be a bare filename inside the fixture root",
+            ),
+            (
+                "backslash-containing manifest member name",
+                use_backslash_member,
+                ".payload.entries[0].expected_trace: must be a bare filename inside the "
+                "fixture root",
+            ),
+            (
+                "unsorted manifest entries",
+                unsort_entries,
+                ".payload.entries[1].fixture: entries must be strictly fixture-name sorted",
+            ),
+            (
+                "mismatched top-level manifest schema",
+                change_top_level_schema,
+                ".schema: must be 'pmm.risk_checkpoint_conformance_fixture_manifest.v1'",
+            ),
+            (
+                "mismatched manifest-payload schema",
+                change_payload_schema,
+                ".payload.schema: must be "
+                "'pmm.risk_checkpoint_conformance_fixture_manifest.v1'",
+            ),
+        )
+        self.assertEqual(len(mutations), 10)
+
+        for name, mutate, expected_diagnostic in mutations:
+            with self.subTest(name=name):
+                scratch, root = self._copy_corpus()
+                try:
+                    validation_root = mutate(root)
+                    before = self._snapshot(validation_root)
+                    with self.assertRaises(integrity.CorpusError) as caught:
+                        integrity.build_plan(validation_root, schema)
+                    self.assertIn(expected_diagnostic, str(caught.exception))
+                    self.assertEqual(self._snapshot(validation_root), before)
                 finally:
                     scratch.cleanup()
 
