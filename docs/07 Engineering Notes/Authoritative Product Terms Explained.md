@@ -319,20 +319,57 @@ used to create its labels. A comparison tool can detect different economic input
 The system still has hard work ahead, but that work can build on explicit evidence rather than
 hidden assumptions.
 
+## How B1b-1 hardens the boundary
+
+B1a established the artifact chain. B1b-1 removes ambiguity at the two places where outside facts
+enter it: time selection and network acquisition.
+
+Terms, review, and catalog used to carry three interval copies that could disagree. The catalog
+also selected packages by asking whether the review covered a capture, rather than by applying its
+own advertised interval. They now form one exact half-open contract. Think of the three documents
+as three signed copies of the same date range: any endpoint difference refuses before selection.
+Adjacent revisions may touch at one boundary, gaps honestly mean there is no approved evidence,
+and overlaps never ask ordering to choose a winner.
+
+Network fetch is now treated as untrusted input. The tool follows redirects itself, validates every
+hop and final destination against the first-party HTTPS allowlist, and records the chain. It never
+loads an unlimited response into memory. Each source streams through a bounded temporary file in
+64 KiB chunks while byte count and SHA-256 are updated. Role-specific media checks prevent an HTML
+error page from being retained as JSON, Markdown, or a PDF. Timeouts, interruptions, wrong media,
+oversized responses, and invalid content remove the partial package before it receives its final
+name.
+
+Source-manifest V2 separates what the operator requested from what the tool observed. The operator
+chooses the role, requested URL, and path. The tool owns retrieval start/end, elapsed time,
+redirects, final URL, status, selected headers, media type, byte count, hash, and tool version.
+The retrospective package remains source-manifest V1 because rewriting it would invent historical
+observations that were not retained at acquisition time.
+
+The formal schemas are no longer illustrative subsets. A positive/negative parity matrix requires
+every schema-addressable rule to agree with runtime validation. Cross-file hashes, canonical file
+bytes, source-to-terms projection, interval equality, filesystem membership, and decimal arithmetic
+remain clearly named runtime-only checks rather than being falsely attributed to JSON Schema.
+
+Offline V3 verification now follows more of the chain: copied product terms and conversion policy,
+the normalized product map, feature/product binding, upstream event and feature hashes, embedded
+result product metadata, and all four result artifacts. Public commands expose stable refusal codes
+so automation can depend on a category without depending on mutable diagnostic prose.
+
 ## What remains incomplete
 
-The accompanying critique records the detailed debt. The most important items are:
+The accompanying critique records the detailed current debt. The most important items are:
 
-- make terms, review, and catalog effective intervals one enforced contract;
-- validate redirect destinations and bound acquisition size;
-- make formal JSON Schemas as strict as runtime validation;
-- retain linked contract/certification bytes and acquire before capture;
-- add reviewer identity, revocation, and supersession policy;
-- add a second market/product family and multi-revision tests;
-- deepen negative end-to-end lineage and public CLI coverage; and
-- plan content-addressed evidence storage before document duplication becomes large.
+- acquire a contemporaneous package before capture and retain every required linked contract and
+  certification document;
+- review a second product family and prove additive catalog revisions on real differing terms;
+- add reviewer identity, responsibility, revocation, and supersession policy;
+- attach field-level page/section evidence to legal and document-derived projections;
+- define crash-recovery/scavenging for partial acquisitions if acquisition becomes operational;
+- separate exact-reproduction compatibility from later economic-comparison compatibility; and
+- measure document duplication before considering content-addressed storage.
 
-Those are reasons for a bounded B1b package, not reasons to weaken B1a's exact refusal behavior.
+Those are B1b-2 and later governance/scale questions. They are not reasons to weaken exact
+reproduction, offline verification, or refusal of nonrepresentable values.
 
 ## Non-claims
 

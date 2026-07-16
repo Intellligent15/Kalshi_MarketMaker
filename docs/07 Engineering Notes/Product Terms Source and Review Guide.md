@@ -69,6 +69,39 @@ The `build` and `review` commands create new files only. `verify-package` and `v
 read-only. `compare` reports exact compatibility identities; `diff` shows field-level changes;
 `assess-legacy` identifies missing lineage without rewriting the artifact.
 
+## Hardened acquisition workflow
+
+Copy `configs/product_catalog/acquisition_spec.example.json` to an untracked operator path, replace
+the ticker placeholders, add every required linked document, and fetch into a new revision path:
+
+```sh
+uv run python python/pmm_product_terms.py fetch \
+  --spec path/to/acquisition-spec.json \
+  --output path/to/new-product-revision
+```
+
+The specification is operator intent, not observed provenance. It declares source IDs, roles,
+requested URLs, retained paths, and optional limits that may only narrow repository policy. Do not
+put retrieval timestamps, response status, final URLs, or hashes in the specification. The tool
+observes and writes those fields into source-manifest V2.
+
+Every URL and redirect must remain approved first-party HTTPS. The redirect limit is five. JSON
+sources are limited to 2 MiB, Markdown/text to 4 MiB, PDFs to 32 MiB, and the complete retained
+package to 64 MiB. Acquisition uses 64 KiB chunks, a five-second connect timeout, a fifteen-second
+read-inactivity timeout, a sixty-second per-source deadline, and a 180-second package deadline.
+HTML, unexpected content encoding, wrong role/media combinations, invalid JSON/UTF-8/PDF content,
+size disagreement, timeout, and interruption refuse before final publication.
+
+New acquisition emits `pmm.product_terms_source_manifest.v2`. Existing reviewed V1 manifests stay
+valid and must not be rewritten. Tests use fake sessions and clocks; normalization, backtesting,
+verification, and tests never depend on a live network response.
+
+Terms, review, and catalog endpoints must be byte-for-byte equal after canonical parsing and use
+the same terms/review basis. Their interval is half-open. Adjacent revisions are allowed, gaps have
+no selected package, and overlap refuses. See
+[[07 Engineering Notes/Product Terms Refusal Codes]] for the stable public error categories and
+CLI compatibility policy.
+
 ## Known limitations and next evidence package
 
 The first market record was retrieved after settlement, so its effective coverage is a reviewed
@@ -76,7 +109,7 @@ retrospective conclusion rather than a contemporaneous pre-capture snapshot. The
 record names official contract-terms and certification PDFs, but their bytes are not in this first
 package. Only one market/product family is reviewed.
 
-B1b should acquire before capture, retain linked document bytes, and add a different market or
-price-grid family. It must keep acquisition outside runtime and must not use metadata work as a
-shortcut into accounting, settlement, calibrated execution, multi-market reconnect behavior, or
-live trading.
+B1b-2 should acquire before capture, retain linked document bytes, and add a different market or
+price-grid family through the hardened V2 acquisition boundary. It must keep acquisition outside
+runtime and must not use metadata work as a shortcut into accounting, settlement, calibrated
+execution, multi-market reconnect behavior, or live trading.

@@ -102,3 +102,33 @@ uv run python python/pmm_phase7.py verify-lineage \
 `diff`, and `assess-legacy` operator commands. Only `fetch` uses the network. Deterministic runtime
 and tests consume reviewed local bytes. Final artifact directories are immutable and are not
 overwritten; choose a new revision path for a source or policy refresh.
+
+For a new acquisition, copy `configs/product_catalog/acquisition_spec.example.json`, replace its
+ticker placeholders, add every linked document required for review, and fetch to a new directory.
+The fetcher validates every redirect and final host, streams in 64 KiB chunks, applies 2 MiB JSON,
+4 MiB text, 32 MiB PDF, and 64 MiB package limits, hashes incrementally, records observed V2 HTTP
+provenance, and removes partial output on expected failure or interruption. The existing reviewed
+source-manifest V1 remains valid and is not rewritten.
+
+Focused B1b-1 validation commands are:
+
+```sh
+UV_CACHE_DIR=/tmp/pmm-uv-cache \
+  uv run python -m unittest python.tests.test_product_terms
+
+UV_CACHE_DIR=/tmp/pmm-uv-cache \
+  uv run python -m unittest \
+  python.tests.test_product_terms.ProductTermsTests.test_reviewed_schema_runtime_parity_matrix
+
+UV_CACHE_DIR=/tmp/pmm-uv-cache \
+  uv run python -m unittest \
+  python.tests.test_product_terms.ProductTermsTests.test_acquisition_streams_observed_v2_metadata_through_allowed_redirect \
+  python.tests.test_product_terms.ProductTermsTests.test_acquisition_refuses_redirect_size_media_and_interruption_without_partial_output
+
+UV_CACHE_DIR=/tmp/pmm-uv-cache \
+  uv run python -m unittest \
+  python.tests.test_product_terms.ProductTermsTests.test_public_cli_has_stable_status_and_stream_contract
+```
+
+See `docs/07 Engineering Notes/Product Terms Refusal Codes.md` for stable codes, exit statuses,
+and stdout/stderr ownership.

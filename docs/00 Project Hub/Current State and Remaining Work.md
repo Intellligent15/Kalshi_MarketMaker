@@ -24,18 +24,19 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-16 |
-| Baseline commit | `ba01e9f` (`docs(phase7): explain authoritative product terms`) |
-| Branch state after this tracking update | `main` one commit ahead of `origin/main` |
+| Baseline commit | `6d489e3` (`test(phase7): cover product integrity refusal paths`) |
+| Branch state after this tracking update | `main` four commits ahead of `origin/main` |
+| Recent B1b-1 commits | `6d489e3` and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
 | C++/CTest validation | 78 tests passing |
-| Python validation | 69 tests passing |
-| Focused product-term validation | 10 tests passing |
+| Python validation | 77 tests passing |
+| Focused product-term validation | 18 tests passing |
 | Focused checkpoint-reader validation | 17 tests passing |
 | Focused fixture-integrity validation | 17 tests passing |
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | B1b-1 product-term integrity and acquisition hardening |
+| Next bounded package | B1b-2 contemporaneous linked-document and second-product evidence |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -70,6 +71,7 @@ Use these documents to verify or deepen a claim in this roadmap:
 - [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage|Authoritative product terms and lineage]]
 - [[07 Engineering Notes/Phase 7 Critique|Original Phase 7 critique]]
 - [[07 Engineering Notes/Product Terms Source and Review Guide|Product-term source and review guide]]
+- [[07 Engineering Notes/Product Terms Refusal Codes|Product-term refusal-code compatibility reference]]
 - [[07 Engineering Notes/Authoritative Product Terms Explained|Product-term implementation walkthrough]]
 - [[07 Engineering Notes/Authoritative Product Terms Critique|Product-term severity-ranked critique]]
 - [[07 Engineering Notes/Research Execution Foundation Critique|Research execution critique]]
@@ -93,6 +95,9 @@ The repository has a strong deterministic systems foundation:
 - New V2 backtests use canonical C++ account risk and emit hashed risk traces.
 - New normalization V2, feature V2, and backtest V3 artifacts carry reviewed authoritative
   product-term lineage and exact conversion policy.
+- Product-term acquisition now has exact three-way time consistency, bounded first-party redirect
+  validation, observed source-manifest V2 provenance, schema/runtime parity, stable refusal codes,
+  and deeper offline lineage mutation evidence.
 - Lifecycle and checkpoint conformance evidence is broad and reviewed.
 
 The repository is not yet a credible profitability, paper-trading, or live-trading system. Its
@@ -470,33 +475,40 @@ Close the remaining high-value provenance and generality gaps before treating B1
 post-B1a critique makes the dependency order explicit: harden the integrity/acquisition contract
 before using it to approve a second product.
 
-##### B1b-1. Product-term integrity and acquisition hardening — next bounded package
+##### B1b-1. Product-term integrity and acquisition hardening — complete
 
-Required outcome:
+Completion evidence:
 
-- define and enforce one consistency rule across terms, review, and catalog effective intervals;
-- validate every acquisition redirect hop and final hostname, or refuse redirects;
-- stream acquisition through bounded temporary files with maximum sizes, incremental hashing,
-  media/role validation, observed retrieval metadata, and atomic cleanup;
-- make formal JSON Schemas match runtime validation for every schema-addressable rule;
-- add schema/runtime parity fixtures, public CLI subprocess coverage, and focused mutation tests for
-  intervals, redirects, source/terms drift, V3 lineage, result artifacts, and partial cleanup;
-- document stable refusal codes and the acquisition/review operator contract; and
-- preserve exact-reproduction compatibility as the default fail-closed gate.
+- commit `dbd6fd8` enforces exact half-open terms/review/catalog interval equality and makes
+  catalog lookup select by its verified interval;
+- the same commit adds acquisition-spec V1 and source-manifest V2, validates every requested,
+  redirect, and final first-party HTTPS URL, and records observed timing, redirects, status,
+  selected headers, media, byte count, incremental hash, and tool version;
+- acquisition streams in 64 KiB chunks with 2 MiB JSON, 4 MiB text, 32 MiB PDF, 64 MiB package,
+  five-hop redirect, connect/read, per-source, and package limits;
+- role/media/content validation and temporary-file/directory cleanup precede atomic final
+  publication; deterministic runtime and tests remain offline;
+- V1 reviewed source manifests remain valid and unchanged, while new acquisition requires V2;
+- handwritten schemas now specify all schema-addressable nested V1/V2 rules, with runtime-only
+  cross-file/hash/arithmetic rules documented explicitly;
+- product and Phase 7 CLIs expose a documented stable refusal-code and stream/exit policy;
+- V3 verification additionally checks normalized product identity, copied terms/policy files,
+  feature/product binding, embedded result metadata, and result artifacts;
+- commit `6d489e3` adds interval, catalog adjacency/gap/overlap, redirect, size, media, timeout,
+  interruption, cleanup, recomputed-source-hash, schema parity, public CLI, V3 mutation, and exact
+  nonrepresentable-output tests; and
+- validation passes 18 focused product-term tests, 77 total Python tests, and all 78 CTest tests.
 
-Design gate: compare strict interval equality with explicitly defined containment, redirect refusal
-with validated redirect chains, handwritten-schema parity with generated schema ownership, and
-fixture organization before implementation. Present the design and receive approval before editing
-runtime behavior.
+Boundary preserved: no second reviewed market, linked-document corpus, content-addressed storage,
+fees, accounting, settlement, execution calibration, reconnect/multi-market replay, ML, or
+paper/live behavior was added. The reviewed B1a bytes, hashes, risk behavior, and conformance
+corpora remain unchanged.
 
-Boundary: do not add the second market in B1b-1 unless it is needed only as a minimal offline test
-fixture. Do not refactor the module or introduce content-addressed storage without measured need.
+##### B1b-2. Contemporaneous linked-document and second-product evidence — next bounded package
 
-##### B1b-2. Contemporaneous linked-document and second-product evidence — planned next within B1b
+Now that B1b-1 closes the known integrity/acquisition gaps:
 
-After B1b-1 closes the known integrity/acquisition gaps:
-
-- define and test an operator acquisition specification that runs before capture and retains the
+- use the hardened operator acquisition specification before capture and retain the
   market, event, series, fixed-point, fee, settlement, contract-terms, and certification bytes;
 - add at least one reviewed package from a different product family or price-grid shape;
 - retain linked legal/document bytes or explicitly refuse approval when required documents cannot
@@ -899,46 +911,59 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | B1b-1 product integrity and acquisition hardening | Closes known temporal, network-provenance, schema, and negative-test gaps before adding evidence. |
-| 2 | B1b-2 contemporaneous product evidence and second reviewed market | Closes B1 source completeness and generality on the hardened boundary. |
-| 3 | Multi-market/reconnect/gap-recovery fixtures | Establishes broader observed-data validity. |
-| 4 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
-| 5 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
-| 6 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
-| 7 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
-| 8 | Durable full-run continuation | Required for long and operationally reliable experiments. |
-| 9 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
-| 10 | Predictive models and model registry | Follows held-out baseline evidence. |
-| 11 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
-| 12 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
-| 13 | Demo exchange integration | Follows stable paper operations and reconciliation. |
-| 14 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
+| 1 | B1b-2 contemporaneous product evidence and second reviewed market | Closes B1 source completeness and generality on the hardened boundary. |
+| 2 | Multi-market/reconnect/gap-recovery fixtures | Establishes broader observed-data validity. |
+| 3 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
+| 4 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
+| 5 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
+| 6 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
+| 7 | Durable full-run continuation | Required for long and operationally reliable experiments. |
+| 8 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
+| 9 | Predictive models and model registry | Follows held-out baseline evidence. |
+| 10 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
+| 11 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
+| 12 | Demo exchange integration | Follows stable paper operations and reconciliation. |
+| 13 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
 
 This order is a default, not a prohibition on discovery work. A prototype may explore a later idea,
 but it must remain labelled experimental and must not bypass its promotion gates.
 
 ## Current next package
 
-The next agent should design **B1b-1 product-term integrity and acquisition hardening** and wait for
-approval before implementation.
+The next agent should design **B1b-2 contemporaneous linked-document and second-product evidence**
+and wait for approval before performing network acquisition or creating a reviewed package.
 
 Required design and implementation boundary:
 
-- enforce terms/review/catalog effective-interval consistency;
-- harden redirect, final-host, streaming-size, media-role, retrieval-metadata, and atomic-cleanup
-  behavior in explicit acquisition only;
-- make formal schemas and runtime validation agree through reviewed positive/negative fixtures;
-- expand public CLI and end-to-end lineage mutation tests with stable refusal codes;
-- preserve existing reviewed package/artifact bytes or use an explicitly versioned migration when
-  stronger semantics cannot remain compatible;
-- leave contemporaneous linked-document acquisition and the second reviewed product for B1b-2; and
-- do not mix accounting, calibrated execution, ML, gateway, paper-trading, or live behavior into
-  the hardening package.
+- identify one currently available product from a genuinely different family or price-grid shape
+  and explain what new generality it tests before acquiring it;
+- enumerate the complete first-party market, event, series, fixed-point, fee, settlement,
+  contract-terms, certification, and other linked evidence required for approval;
+- use acquisition-spec V1 before capture and require source-manifest V2 observed provenance for
+  every source; do not manually manufacture a V2 manifest;
+- refuse review if a required linked document cannot be retained, has wrong media/content, leaves
+  the approved redirect boundary, or cannot support its projected field;
+- define the contemporaneous half-open interval from retained evidence and keep terms, review, and
+  catalog endpoints exactly equal;
+- add the new package and catalog entry additively without editing the retrospective package;
+- record field-level document page/section anchors where structured API comparison is impossible;
+- prove two-product catalog verification, selection, exact compatibility reporting, source/terms
+  mutation refusal, and offline normalization/feature/V3 lineage with minimal deterministic
+  fixtures or a retained capture appropriate to the approved scope;
+- preserve exact-reproduction compatibility as the default fail-closed gate; and
+- do not add fees, accounting, settlement processing, calibrated execution, reconnect/multi-market
+  replay, experiment grids, ML, gateways, paper trading, or live order behavior.
 
-The handoff begins from B1a implementation `6dc3000`, correction `8a867d7`, critique `113a4bd`, and
-explanation `ba01e9f`. The validated baseline is 78 CTest tests, 69 Python tests, 10 focused
-product-term tests, 17 focused checkpoint-reader tests, and canonical/current lifecycle and
-checkpoint corpora. B1a did not change production risk behavior or either reviewed risk corpus.
+Before acquisition, present the proposed product, source inventory and URLs, expected media/size,
+linked-document completeness rule, effective-time evidence, field projection/evidence anchors,
+test fixtures, and immutable package/catalog paths. Network acquisition is explicit operator work;
+normalization, backtesting, verification, and tests must remain offline afterward.
+
+The handoff begins from B1b-1 implementation `dbd6fd8` and tests `6d489e3`, plus ADR-010, the source
+and review guide, the refusal-code reference, explanation, and current critique. The validated
+baseline is 78 CTest tests, 77 Python tests, 18 focused product-term tests, 17 focused
+checkpoint-reader tests, and canonical/current lifecycle and checkpoint corpora. B1b-1 did not
+change the reviewed B1a bytes, production risk behavior, or either reviewed risk corpus.
 
 Track A is closed by `4e6336b` for A1 and `ecca209` for A2, with their documentation packages.
 Deferred A3 hardening remains available only when evidence raises its impact or its containing

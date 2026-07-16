@@ -31,6 +31,13 @@ captured Washington–Toronto market retrospectively. Its review limitations are
 identity. Never edit a reviewed revision in place; add a new package and non-overlapping catalog
 entry.
 
+`product_catalog/acquisition_spec.example.json` is the source-manifest V2 operator template. Copy
+it outside the reviewed catalog, replace placeholders, add required linked documents, and fetch to
+a new revision directory. It declares requested source roles/URLs/paths only; the tool records
+observed timestamps, redirects, final URL, response metadata, byte count, hash, and tool version.
+Acquisition is explicit and networked; normalization, backtesting, verification, and tests remain
+offline.
+
 `phase7/kalshi_wsh_tor_no_fill_product_terms_v3.json` is the authoritative-terms no-fill control.
 It requires normalization/feature V2 artifacts and names the exact product terms, retained source,
 review, and conversion-policy hashes. It applies neither fees nor settlement. The older V1/V2

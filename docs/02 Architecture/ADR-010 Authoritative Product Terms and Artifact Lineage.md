@@ -147,6 +147,50 @@ stale review, extra package members, wrong ticker, uncovered effective time, off
 fractional/nonrepresentable core values, complete V3 lineage, and result hashing. No test or
 deterministic runtime command calls the network.
 
+## B1b-1 integrity and acquisition amendment
+
+B1b-1 keeps the B1a ownership model and makes four previously implicit boundaries explicit.
+
+First, terms, review, and catalog use one half-open effective interval `[from_utc, until_utc)`.
+Their endpoints must be exactly equal, and the review basis must equal the terms basis. Catalog
+selection uses the verified catalog interval. Adjacent revisions are allowed, gaps produce an
+explicit refusal, overlaps are forbidden, and an open-ended revision cannot have a successor.
+The first reviewed package already satisfied this rule, so its bytes and hashes remain unchanged.
+
+Second, new network acquisition uses `pmm.product_acquisition_spec.v1` and emits
+`pmm.product_terms_source_manifest.v2`. The specification contains operator intent: source ID,
+role, requested first-party URL, retained path, and optional stricter limits. The source manifest
+contains tool-observed retrieval start/end, elapsed time, every redirect, final URL, HTTP status,
+selected response headers, media type, byte count, SHA-256, and tool version. V1 source manifests
+remain valid compatibility evidence; they are not rewritten to claim observations they never
+recorded.
+
+Acquisition manually follows at most five redirects and validates every requested, intermediate,
+and final URL as approved HTTPS with no credentials, fragments, non-default port other than 443,
+or hostname escape. Responses stream in 64 KiB chunks through temporary files. JSON sources are
+limited to 2 MiB, Markdown/text sources to 4 MiB, PDFs to 32 MiB, and a complete package to 64 MiB.
+Connect, read-inactivity, per-source, and package deadlines are explicit. Role/media validation,
+incremental hashing, exact byte counting, and cleanup occur before atomic final publication.
+
+Third, handwritten Draft 2020-12 schemas remain reviewable artifacts. A shared positive/negative
+acceptance matrix requires schema and runtime agreement for every schema-addressable rule.
+Canonical bytes, content hashes, filesystem safety, cross-document interval equality, retained
+source agreement, and arithmetic relationships remain explicitly runtime-only because an
+individual JSON Schema cannot establish them.
+
+Fourth, `ProductTermsError.code` is a public compatibility surface. Existing codes retain their
+meaning; new codes may be added but existing codes may not be removed, renamed, or repurposed
+without a versioned successor. Successful CLIs return zero with JSON on stdout and empty stderr.
+Expected refusals return two with empty stdout and a coded diagnostic on stderr. Diagnostic prose
+may gain context and is not byte-stable.
+
+Normalization V2, feature V2, backtest V3, and result V3 need no successor for this amendment.
+Their hash-based lineage accepts either verified source-manifest version, and offline V3
+verification now rechecks the normalized product map, copied terms and conversion-policy files,
+feature/product binding, result upstream hashes, embedded product metadata, and every result
+artifact. Existing reviewed packages, generated artifacts, configurations, and results retain
+their prior identity and interpretation.
+
 ## Consequences and non-goals
 
 The separate bundle adds deliberate artifact bytes and review work, but allows source refreshes,

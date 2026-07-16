@@ -46,6 +46,12 @@ policy are hashed through normalization V2, feature V2, backtest V3, and result 
 venue values that cannot be represented as integer cents or whole contracts refuse without
 rounding. Fees and settlement are identified but not applied.
 
+B1b-1 hardens that boundary before a second product is admitted. Terms, review, and catalog use
+one exact interval; acquisition validates every first-party redirect, streams bounded sources with
+incremental hashes and observed HTTP metadata, and cleans partial output; formal schemas share a
+runtime parity matrix; and public product/lineage refusals use stable documented codes. The first
+reviewed package and existing V1/V2/V3 artifacts keep their original bytes and meaning.
+
 ## Quick start
 
 Prerequisites: CMake 3.24+, a C++20 compiler, Git (to fetch GoogleTest for test builds),

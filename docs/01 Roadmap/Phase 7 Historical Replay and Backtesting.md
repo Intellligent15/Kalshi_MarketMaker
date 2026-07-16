@@ -46,6 +46,23 @@ still separate work.
 
 See [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage]].
 
+## Product-term integrity and acquisition hardening implemented
+
+- Terms, review, and catalog revisions now share one exact half-open effective interval; catalog
+  gaps, adjacency, overlap, ambiguity, and capture selection have focused tests.
+- Explicit acquisition streams approved first-party sources through bounded temporary files,
+  validates every redirect and final URL, records observed HTTP provenance, hashes incrementally,
+  validates role/media content, and removes partial output on expected failure or interruption.
+- Source-manifest V2 records observed acquisition facts while source-manifest V1 remains valid for
+  the existing retrospective reviewed package.
+- Formal schemas and runtime validation share a positive/negative parity matrix, and public CLIs
+  expose stable coded refusals with tested exit/stdout/stderr behavior.
+- V3 offline verification covers upstream manifests, normalized and feature artifacts, embedded
+  product metadata, result manifests, and every result artifact.
+
+The next bounded product-metadata package is contemporaneous linked-document acquisition and a
+second reviewed product. It must exercise this hardened boundary rather than weaken it.
+
 ## Explicitly deferred
 
 - PnL, fees, collateral, settlement, margin, and paper-trading claims.

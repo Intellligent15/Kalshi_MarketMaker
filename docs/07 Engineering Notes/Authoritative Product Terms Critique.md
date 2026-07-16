@@ -141,3 +141,39 @@ recovery, paper trading, gateways, live orders, ML, or broader Phase 3 matching.
 justify changing `AccountRiskProjection`, checkpoint rejection categories or ordinals, risk first-
 failure ordering, post-only behavior, watermarks, kill switches, or the closed lifecycle/checkpoint
 corpora. Those remain separate packages with separate evidence gates.
+
+## B1b-1 post-implementation reassessment
+
+Commits `dbd6fd8` and `6d489e3` close the critique's interval-consistency, redirect validation,
+bounded streaming, observed retrieval metadata, schema/runtime parity, stable refusal-code,
+public-CLI, result-artifact, and exact-conversion cleanup findings. The old tables above remain the
+chronological B1a review; they must not be read as the current open-debt list.
+
+### Closed findings
+
+| Finding | Evidence |
+|---|---|
+| Terms/review/catalog intervals could disagree | Exact three-way half-open equality is enforced; adjacent, gap, overlap, and mutation cases are tested. |
+| Redirects could leave the first-party boundary | Redirects are manual, bounded, validated at every hop and final URL, and retained in source-manifest V2. |
+| Fetch buffered unbounded responses | Role/source/package limits, 64 KiB streaming, incremental SHA-256, deadlines, media validation, and partial cleanup are tested offline. |
+| Retrieval time and response provenance were operator-declared | V2 separates operator acquisition intent from tool-observed timing, redirect, status, header, media, byte, hash, and version facts. |
+| Formal schemas were materially weaker | Nested V1 structures were completed, acquisition/source V2 schemas were added, and a schema/runtime parity matrix is executable. |
+| Error codes and public CLI behavior were undocumented | The refusal registry and compatibility policy now define codes, exit statuses, and stream ownership. |
+| Happy-path V3 lineage evidence was too narrow | Single-defect normalization, feature, configuration, result-manifest, and result-artifact mutations refuse; nonrepresentable inputs leave no output. |
+
+### Remaining debt, ranked
+
+| Priority | Finding | Impact | Ease | Why it remains |
+|---:|---|---:|---:|---|
+| P0 | The only reviewed package is retrospective, covers one product, and still lacks retained linked contract/certification bytes. | 5 | 1 | B1b-2 must exercise the hardened acquisition and review boundary with contemporaneous evidence and a second product family. |
+| P1 | Review approval still has no reviewer identity, responsibility model, revocation record, or supersession incident workflow. | 4 | 2 | Hashes prove what was approved, not who approved it or how a later defect is communicated to dependent results. |
+| P2 | Markdown/PDF evidence remains byte-bound but not field-level semantically anchored. | 4 | 2 | Linked documents need reviewed page/section evidence for projected legal, fee, and settlement fields before economic behavior is implemented. |
+| P3 | A killed process or host crash can leave a uniquely named partial acquisition directory. | 3 | 4 | Expected exceptions and interrupts clean up atomically, but SIGKILL/power-loss scavenging and fsync durability are separate operational work. |
+| P4 | Acquisition roles and Kalshi source projection remain embedded in one module. | 3 | 2 | The second real product should establish the stable adapter boundary before the module is split. |
+| P5 | Exact compatibility still conflates changed evidence/review hashes with changed economic terms. | 3 | 2 | The conservative exact gate remains correct; economic and execution-policy compatibility should be added only with comparison/reporting work. |
+| P6 | Catalog loading repeatedly verifies packages and acquisition is synchronous. | 2 | 3 | Current scale is one package. Cache/index/concurrency work requires measurement and must preserve deterministic manifests. |
+| P7 | Source/package storage duplicates future large linked documents. | 3 | 2 | Content-addressed storage remains unjustified until B1b-2 supplies real document sizes and duplication measurements. |
+
+The next package is therefore evidence expansion, not another generic hardening pass. None of the
+remaining findings permits fee charging, settlement processing, accounting, calibrated fills,
+multi-market replay, paper/live behavior, ML, or readiness/profitability claims.

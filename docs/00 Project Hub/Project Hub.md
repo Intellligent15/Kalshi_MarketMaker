@@ -44,6 +44,7 @@ fees, collateral, settlement, durable persistence, and gateways remain intention
 - [[07 Engineering Notes/Product Terms Source and Review Guide|Product-term evidence and review workflow]]
 - [[07 Engineering Notes/Authoritative Product Terms Explained|Authoritative product-term plain-language walkthrough]]
 - [[07 Engineering Notes/Authoritative Product Terms Critique|Authoritative product-term critique and ranked debt]]
+- [[07 Engineering Notes/Product Terms Refusal Codes|Product-term refusal-code compatibility reference]]
 - [[07 Engineering Notes/Phase 1 Foundation|Phase 1 implementation record]]
 - [[07 Engineering Notes/Phase 2 Core Domain Types|Phase 2 implementation record]]
 - [[07 Engineering Notes/Phase 2 Explained|Phase 2 plain-language walkthrough]]

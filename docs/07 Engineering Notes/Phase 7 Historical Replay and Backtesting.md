@@ -69,3 +69,28 @@ Product-term ownership and lineage are specified by
 See [[07 Engineering Notes/Authoritative Product Terms Explained]] for the deeper what/how/why
 walkthrough and [[07 Engineering Notes/Authoritative Product Terms Critique]] for the current
 severity-ranked limitations and follow-up order.
+
+## B1b-1 integrity hardening
+
+Commits `dbd6fd8` and `6d489e3` close the pre-second-product integrity package. Product terms,
+review, and catalog intervals must now match exactly. Catalog lookup uses its own verified interval
+rather than silently selecting by the review interval. The checked-in retrospective package
+already met this contract, so its source, terms, review, and catalog hashes did not change.
+
+New acquisition specifications emit source-manifest V2 with observed timestamps, redirect history,
+final URL, response status and selected headers, media type, byte count, incremental SHA-256, and
+tool version. Every redirect remains within an approved first-party HTTPS allowlist. JSON, text,
+PDF, per-source, package, redirect, and timeout policies are bounded, and failures remove temporary
+files and directories before any final package is published. Tests use fake sessions and never
+contact a live venue.
+
+The formal schemas now define the complete nested structures that runtime can validate locally.
+A reviewed parity matrix checks positive artifacts and one-defect negatives through both schema
+and runtime validation. Cross-file hashes, source projection, interval equality, arithmetic, and
+filesystem membership remain named runtime-only rules. Public product and lineage CLIs have tested
+success/refusal exit codes and stdout/stderr separation.
+
+Focused product-term validation now passes 18 tests, the complete Python suite passes 77 tests,
+and all 78 CTest tests remain passing. The next package is B1b-2: acquire a contemporaneous source
+bundle including required linked documents, approve a second product family, and prove additive
+catalog refresh entirely offline after acquisition.
