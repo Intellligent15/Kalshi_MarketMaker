@@ -532,6 +532,73 @@ field. That makes it more expensive than testing only the returned integer, but 
 checkpoint suite remains below one second and the Python module remains well below one second.
 There is no measured reason to cache the donor, expose a parser hook, or extract a shared framework.
 
+### Overall judgment
+
+The implementation is correct for the approved boundary and is proportionate to the risk it
+addresses. It removed every literal capture-index dependency from selection, mutation targeting,
+and diagnostic construction; it did so without changing shared readers, schemas, fixtures, or
+production behavior. The strongest part of the evidence is that the shifted regression first
+loads and executes a valid moved capture and only then introduces a strict defect. That separates
+"the move itself was valid" from "the intended strict rule rejected the later mutation."
+
+The implementation is not minimal by raw line count: two local helpers, two four-case failure
+tables, and two end-to-end shifted tests added substantially more code than replacing `[5]` with a
+search expression. Most of that size is justified because it pins the four required failure modes
+and proves the real temporary-corpus path. The remaining complexity is low-impact test debt rather
+than a reason to centralize the implementations or weaken the evidence.
+
+### Category ratings
+
+Impact uses 1 for minor review friction and 5 for a gap that blocks trustworthy conformance
+evidence. Ease uses 1 for broad or risky work and 5 for a small local correction.
+
+| Category | Impact | Ease | Assessment |
+| --- | ---: | ---: | --- |
+| Unnecessary complexity | 2 | 4 | The local helpers return both an index and formatted diagnostic prefix, and the failure tables add machinery around a small lookup. Most duplication is intentional independence, but the mechanics are still more elaborate than the underlying search. |
+| Future technical debt | 2 | 4 | C++ and Python must evolve together, diagnostic suffixes still include prose, and Python's ordinary matrix derives its expected prefix separately from the temporary copy it mutates. These are contained drift surfaces, not semantic gaps. |
+| Missing tests | 2 | 5 | The four required locator failures and shifted happy path are covered. The 16-row cardinality is not asserted, helper container-type branches are not focused directly, and only one representative strict rule runs on the shifted donor. |
+| Missing documentation | 1 | 4 | The fixture guide, explanation, and critique now cover the boundary well. The main issue is navigation: the two engineering notes have grown into a long chronological record without a compact current-state index. |
+| Possible optimizations | 1 | 3 | Each row copies, parses, and rehashes the complete corpus, but measured focused runtime is below one second. Caching would currently reduce isolation for negligible benefit. |
+| Future scalability concerns | 2 | 2 | Work grows with strict rows times corpus size in two languages, while canonical one-line traces and one manifest remain review and merge hot spots. This matters only if the corpus or author count grows materially. |
+
+### Detailed findings from this increment
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | Neither strict matrix asserts that it still contains all 16 named rows. | Missing tests | 2 | 5 | Removing a row accidentally would reduce coverage while the table-driven test still passed. The guide would continue to claim 16 rows. | Add `size == 16` assertions the next time either matrix changes; keep the rows visible rather than generating them. |
+| P1 | Python computes the ordinary matrix's expected diagnostic prefix once from the checked-in donor, while mutation targeting locates the capture again inside each temporary copy. | Future technical debt / test robustness | 2 | 4 | The current copies are identical, so the test is correct. If that helper later starts shifting or otherwise transforming the temporary donor, targeting and the expected prefix could be derived from different document instances. | If the ordinary mutation helper becomes more dynamic, have its mutation setup return the prefix used for that exact temporary copy. Do not add indirection before that need exists. |
+| P2 | The locator and all 16 rows are duplicated between C++ and Python. | Unnecessary complexity / drift risk | 2 | 3 | A new strict field or lookup rule requires two edits, but sharing code would destroy the independence that makes the two readers useful evidence. | Preserve the duplication; use the reviewed donor, fixture guide, row count, and full suite as the coordination contract. |
+| P2 | Each locator returns diagnostic formatting together with the semantic transition index. | Unnecessary complexity | 1 | 4 | Lookup and presentation are slightly coupled, especially because C++ and unittest paths use different syntax. The coupling is what guarantees dynamic diagnostics today. | Keep the small return shape. Split formatting only if another caller needs the index without diagnostics. |
+| P2 | C++ strict rows still assert a stable field path plus human-readable prose, while several Python identity/limit rows assert only the transition context. | Future technical debt / diagnostic precision | 2 | 4 | A wording-only C++ change can break tests, and Python cannot always name which identity or limit comparison failed from the exception alone. | Preserve field-path precision. Introduce structured locations only if diagnostic churn or debugging cost becomes real; do not weaken assertions to any exception. |
+| P2 | The shifted regression applies only the `post_only` strict mutation after moving the capture. | Missing tests | 1 | 3 | It proves that the shared lookup, targeting, rehash, and diagnostic machinery moves correctly. Running all 16 again would add repetition but little independent evidence because every row uses the same discovered location. | Keep one representative nested-field mutation unless row-specific targeting logic is introduced later. |
+| P3 | The helpers validate non-array containers but focused tests cover only the four required semantic failure paths. Malformed operation objects are ignored by the search and later appear as zero captures. | Missing tests / diagnostic precision | 1 | 5 | Normal corpus verification already rejects malformed operation objects before execution. The local helper is not intended to become a second schema reader. | Do not expand the helper into schema validation. Add container-type cases only if the helper is reused independently of verified donor documents. |
+| P3 | Python uses JSON serialize/parse as an in-memory deep copy and small nested mutation functions discard unused parameters explicitly. | Unnecessary complexity / readability | 1 | 5 | The code is correct but slightly noisy for readers unfamiliar with the table pattern. | Prefer `copy.deepcopy` if this test is edited substantially; do not create a general mutation framework for cosmetic cleanup. |
+| P3 | Every strict row creates and rehashes a full 26-fixture corpus independently in both languages. | Possible optimization / future scalability | 1 | 3 | Runtime grows linearly, but isolation prevents one mutation from contaminating another and current cost is negligible. | Retain isolation. Consider a verified immutable base copy only after profiling shows material test time. |
+| P3 | The critique and explanation are now long chronological documents rather than concise current-state references. | Missing documentation / documentation scalability | 2 | 4 | Depth is valuable, but a new contributor must scan historical sections to distinguish closed debt from current debt. | Add a compact current-state contents or summary section when the next major risk-conformance package lands; do not rewrite history during this bounded review. |
+
+### What should not be "simplified"
+
+- Do not merge the C++ and Python matrices into generated shared data. Their repetition is
+  independent evidence, not accidental production duplication.
+- Do not move the donor rule into the shared fixture reader. Exactly one checkpoint is required of
+  this mutation donor, not newly required of every versioned roundtrip fixture.
+- Do not replace field-specific diagnostics with `EXPECT_THROW` or `assertRaises(Exception)`.
+  That would allow stale hashes, malformed JSON, or unrelated schema failures to satisfy the test.
+- Do not skip canonical rewriting or rehashing because the documents are temporary. The hashes
+  must be valid so the loader reaches the strict rule under test.
+- Do not cache or shard the corpus until measurement shows a real cost. Current isolation is more
+  valuable than sub-second optimization.
+
+### Recommended disposition
+
+No corrective code change is required before the next package. The missing 16-row cardinality
+assertion is the best cheap hardening when these matrices are next touched, but it does not justify
+reopening an already passing documentation-only review. The next bounded implementation should
+remain the named fixture-integrity parser-refusal matrix because it covers claimed safety behavior
+with higher impact than the contained donor-test cleanup above.
+
+### Remaining adjacent repository work
+
 | Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
 | ---: | --- | --- | ---: | ---: | --- | --- |
 | P1 | The integrity tool's named parser-refusal matrix still omits individually claimed cases such as BOM, invalid UTF-8, out-of-range integers, root symlinks, absolute/backslash paths, unsorted entries, and schema mismatch. | Missing tests | 3 | 4 | Broad invalid-input coverage can keep passing through the wrong earlier failure after a refactor. | Add one local table of single-defect temporary corpora with exact diagnostic fragments. |
