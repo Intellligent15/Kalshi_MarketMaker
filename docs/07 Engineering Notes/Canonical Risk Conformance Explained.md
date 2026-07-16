@@ -464,7 +464,9 @@ Consider the `post_only` rule:
 ```text
 copy the valid 26-fixture corpus
         |
-select reviewed capture transition 5 in roundtrip_live_and_pending
+find roundtrip_live_and_pending's unique checkpoint operation
+        |
+select the expected transition at that same discovered index
         |
 change only pending_orders[0].post_only from true to false
         |
@@ -707,3 +709,50 @@ small, manually reviewed corpora do not have.
 The chosen design is deliberately boring: two known roots, one manifest envelope, one canonical
 encoding, standard SHA-256, explicit writing, and existing semantic executors. That makes every
 boundary visible during code and fixture review.
+
+## Position-independent strict checkpoint mutations
+
+### What changed
+
+The C++ and Python strict-capture matrices no longer assume where the donor checkpoint appears.
+Each test finds the unique `checkpoint` operation in `roundtrip_live_and_pending`, uses the expected
+transition at the same index, and builds its required diagnostic path from that discovered index.
+All 16 named mutation rows remain separate in both languages.
+
+### How it works
+
+```text
+fixture operations -- find exactly one checkpoint --> capture index
+        |                                           |
+        | require equal lengths                     v
+        +--------------------------------> expected transition[index]
+                                                    |
+                                      require checkpoint document
+                                                    |
+                              mutate + canonical rewrite + rehash
+                                                    |
+                                 require dynamic field diagnostic
+```
+
+The lookup fails explicitly if the donor has no checkpoint operation, more than one checkpoint
+operation, a different number of operations and transitions, or no checkpoint document in the
+aligned transition. These are donor-test requirements, so the helpers stay local to the two test
+files rather than becoming new checkpoint-schema rules in the shared fixture readers.
+
+A second test inserts `kill_switch: false` and a matching unchanged-state transition immediately
+before the temporary donor's capture. The rewritten and rehashed corpus must still load, and both
+the direct C++ projection and test-only Python reference must execute the shifted donor before a
+representative strict mutation is applied at the rediscovered index. This proves that selection,
+mutation targeting, integrity metadata, and diagnostic construction all move together.
+
+### Why the fixture operation leads
+
+The fixture operation list is the program being executed; the expected trace is the reviewed
+answer. Searching the trace for a `checkpoint` field would reverse that relationship and let a
+misaligned answer identify itself as valid evidence. Operation-first lookup instead says: this is
+where capture was requested, so the transition at this same position must carry the capture.
+
+The change is test maintainability only. It changes no reviewed fixture bytes, checkpoint schema,
+restore rule, rejection ordering, production risk behavior, or V1 oracle capability. Checkpoint
+serialization and the Python checkpoint model remain test-only, and rehashing still proves byte
+integrity rather than semantic truth.

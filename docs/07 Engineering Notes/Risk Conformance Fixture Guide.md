@@ -87,6 +87,12 @@ the corpus to a temporary directory and mutate only the checkpoint embedded in t
 for `roundtrip_live_and_pending`. They do not mutate a `document_restore` input: those documents
 remain intentionally lax so semantic defects reach `AccountRiskProjection::restore`.
 
+The donor capture has no fixed transition number. Each test locates the fixture's unique
+`checkpoint` operation, requires the operation and transition counts to align, and then requires
+the expected transition at that same index to contain the reviewed checkpoint document. The
+fixture operation list is the source of truth: searching the expected trace for a checkpoint-shaped
+value would let the reviewed answer choose its own alignment.
+
 The mirrored C++ and Python matrix has one named row for each account, strategy, trader, and
 contract identity field; one row for each of the six limits; separate live- and pending-record
 ordering rows; separate live and pending positive-quantity rows; a post-only row; and a nonzero
@@ -99,6 +105,14 @@ manifest-payload hash are recomputed. The test requires the rule-specific field 
 identity/limits diagnostic. A stale digest, generic corpus rejection, or later restore failure
 therefore cannot satisfy the assertion. The mutations are temporary test inputs; the 26 reviewed
 fixture pairs and checkpoint schema remain unchanged.
+
+Position independence is tested end to end. A temporary donor inserts a valid no-op kill-switch
+operation and matching unchanged-state transition before the capture, rewrites both documents
+canonically, and rehashes the member and payload metadata. Both implementations load and execute
+that shifted donor, rediscover the capture at its new index, and require a representative strict
+mutation to reach the dynamically constructed field path. Separate focused cases require clear
+failure for zero captures, multiple captures, unequal operation/transition counts, and a matching
+transition without a checkpoint document.
 
 The shared test-only C++ `Sha256Hex` helper is also checked directly against the standard empty,
 `abc`, and multi-block NIST known-answer vectors. Corpus hashes remain the integration evidence;

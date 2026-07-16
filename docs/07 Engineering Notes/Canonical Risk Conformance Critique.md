@@ -503,3 +503,58 @@ self-authenticating, change production risk semantics, create a production seria
 or establish durable storage, WAL integration, process restart, portfolio recovery, multi-account
 recovery, calibrated fills, queue priority, execution realism, PnL, collateral, settlement, paper
 trading, or live readiness.
+
+## Dynamic strict-donor lookup implementation critique
+
+This review covers the removal of the fixed strict-mutation donor index. Impact rates the
+consequence of leaving a finding open from 1 (minor) to 5 (blocks trustworthy evidence). Ease rates
+how contained its correction should be from 1 (broad or externally constrained) to 5 (small and
+local).
+
+The former donor-index debt is closed. C++ and Python now independently locate the unique fixture
+`checkpoint` operation, require operation/transition alignment, require a checkpoint document in
+the matching transition, and construct the strict diagnostic prefix from the discovered index.
+Focused tests pin all four lookup failures, while shifted temporary corpora prove that canonical
+rewriting, rehashing, execution, mutation targeting, and field-specific diagnostics remain aligned
+after an earlier operation is inserted. The 16-row matrices remain visible and independent.
+
+### Assessment of the design
+
+Keeping the locator local avoids turning a donor-specific exactly-one rule into a new corpus-wide
+schema rule. The cost is a small duplicated lookup in C++ and Python, but that duplication has the
+same evidentiary value as the duplicated strict matrix: either reader can fail without sharing the
+other's implementation. Direct failure tests add a little code beyond the shifted regression, but
+they prevent a happy-path-only helper from silently weakening zero-capture, multiple-capture,
+alignment, or missing-document diagnostics.
+
+The shifted test deliberately validates and executes the temporary corpus before breaking a strict
+field. That makes it more expensive than testing only the returned integer, but the complete C++
+checkpoint suite remains below one second and the Python module remains well below one second.
+There is no measured reason to cache the donor, expose a parser hook, or extract a shared framework.
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | The integrity tool's named parser-refusal matrix still omits individually claimed cases such as BOM, invalid UTF-8, out-of-range integers, root symlinks, absolute/backslash paths, unsorted entries, and schema mismatch. | Missing tests | 3 | 4 | Broad invalid-input coverage can keep passing through the wrong earlier failure after a refactor. | Add one local table of single-defect temporary corpora with exact diagnostic fragments. |
+| P2 | The public integrity CLI still lacks subprocess coverage for exit codes, output streams, and `--write` dispatch. | Missing tests | 2 | 5 | Core-function tests do not fully protect the documented command used by reviewers and CI. | Add a narrow CLI seam or patched subprocess test without exposing arbitrary corpus write roots. |
+| P2 | Lifecycle V1 has checked-in no-op verification but no mutation-and-repair cycle matching checkpoint V1. | Missing tests | 2 | 5 | The shared envelope is strongly suggestive, but the second allowlisted corpus has not exercised an actual write repair. | Parameterize one repair case across both allowlisted corpora. |
+| P2 | Python still lacks several unrelated checkpoint reader mutations covered in C++. | Missing tests / future drift | 2 | 4 | Strict-capture parity is complete, but secondary reader rejection categories can still drift. | Close this in its own reader-parity package without changing semantics. |
+| P3 | Default limits and result vocabularies remain duplicated between the independent test implementations. | Future technical debt | 2 | 3 | Independence is useful evidence, but coordinated semantic additions require careful mirrored updates. | Continue using reviewed fixtures as the contract; do not merge the Python model into production. |
+| P4 | Full-corpus copying, parsing, and hashing remain linear for every mutation row. | Possible optimization / scalability | 1 | 3 | Isolation currently costs milliseconds and prevents cross-test state. | Defer caching, streaming, sharding, or parallel hashing until profiling shows material cost. |
+
+### Reranked next work
+
+1. Add the named fixture-integrity parser-refusal matrix.
+2. Pin the public CLI exit and output contract.
+3. Exercise lifecycle V1 through one mutation-and-repair cycle.
+4. Close remaining Python checkpoint-reader mutation parity separately.
+5. Keep duplicated semantic vocabularies under review, but preserve implementation independence.
+6. Defer corpus caching, locking, streaming, sharding, and serialization optimization.
+
+### Retained limitations
+
+This increment proves position-independent test targeting, not new checkpoint behavior. It changes
+no checkpoint rejection category, enum ordinal, first-failure order, schema, reviewed fixture, or
+production risk rule. It does not create production serialization, durable storage, WAL recovery,
+process restart, portfolio or multi-account recovery, calibrated fills, queue priority, execution
+realism, PnL, collateral, settlement, paper trading, or live readiness. The frozen lifecycle V1
+oracle remains unchanged and ineligible for checkpoint fixtures.
