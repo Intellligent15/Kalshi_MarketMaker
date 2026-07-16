@@ -24,9 +24,9 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-16 |
-| Baseline commit | `6dc3000` (`feat(phase7): add authoritative product term artifacts`) |
-| Branch state at review | `main` twelve commits ahead of `origin/main` before B1a documentation |
-| Recent implementation commits | `6dc3000`, `ecca209`, `47fde6d`, `7a4e72d`, and `5a21e83` |
+| Baseline commit | `ba01e9f` (`docs(phase7): explain authoritative product terms`) |
+| Branch state after this tracking update | `main` one commit ahead of `origin/main` |
+| Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
 | C++/CTest validation | 78 tests passing |
 | Python validation | 69 tests passing |
 | Focused product-term validation | 10 tests passing |
@@ -35,7 +35,7 @@ complete, this current-state document wins; the older note remains useful histor
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | B1b contemporaneous source acquisition and second-market evidence |
+| Next bounded package | B1b-1 product-term integrity and acquisition hardening |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -464,9 +464,37 @@ Boundary: the first reviewed package is explicitly retrospective. It retains the
 contract-document identities but not the linked PDF bytes, and it covers one market. Fee and
 settlement identities are retained but neither behavior is applied.
 
-#### B1b. Contemporaneous source acquisition and second-market evidence — next bounded package
+#### B1b. Contemporaneous source acquisition and second-market evidence — current umbrella
 
-Close the remaining high-value provenance and generality gaps before treating B1 as complete:
+Close the remaining high-value provenance and generality gaps before treating B1 as complete. The
+post-B1a critique makes the dependency order explicit: harden the integrity/acquisition contract
+before using it to approve a second product.
+
+##### B1b-1. Product-term integrity and acquisition hardening — next bounded package
+
+Required outcome:
+
+- define and enforce one consistency rule across terms, review, and catalog effective intervals;
+- validate every acquisition redirect hop and final hostname, or refuse redirects;
+- stream acquisition through bounded temporary files with maximum sizes, incremental hashing,
+  media/role validation, observed retrieval metadata, and atomic cleanup;
+- make formal JSON Schemas match runtime validation for every schema-addressable rule;
+- add schema/runtime parity fixtures, public CLI subprocess coverage, and focused mutation tests for
+  intervals, redirects, source/terms drift, V3 lineage, result artifacts, and partial cleanup;
+- document stable refusal codes and the acquisition/review operator contract; and
+- preserve exact-reproduction compatibility as the default fail-closed gate.
+
+Design gate: compare strict interval equality with explicitly defined containment, redirect refusal
+with validated redirect chains, handwritten-schema parity with generated schema ownership, and
+fixture organization before implementation. Present the design and receive approval before editing
+runtime behavior.
+
+Boundary: do not add the second market in B1b-1 unless it is needed only as a minimal offline test
+fixture. Do not refactor the module or introduce content-addressed storage without measured need.
+
+##### B1b-2. Contemporaneous linked-document and second-product evidence — planned next within B1b
+
+After B1b-1 closes the known integrity/acquisition gaps:
 
 - define and test an operator acquisition specification that runs before capture and retains the
   market, event, series, fixed-point, fee, settlement, contract-terms, and certification bytes;
@@ -477,9 +505,9 @@ Close the remaining high-value provenance and generality gaps before treating B1
   reporting across two markets entirely offline; and
 - keep network acquisition explicit and outside deterministic normalization/backtesting.
 
-B1b remains metadata/evidence work. It must not add fees, accounting, settlement processing,
-multi-market replay/reconnect policy, calibrated execution, paper/live behavior, or new core numeric
-types.
+B1b remains metadata/evidence work. Neither subpackage may add fees, accounting, settlement
+processing, multi-market replay/reconnect policy, calibrated execution, paper/live behavior, or new
+core numeric types.
 
 ### B2. Broader observed-market coverage and recovery — planned
 
@@ -871,41 +899,46 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | Contemporaneous product evidence and second reviewed market | Closes B1 provenance and generality before accounting or broader replay. |
-| 2 | Multi-market/reconnect/gap-recovery fixtures | Establishes broader observed-data validity. |
-| 3 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
-| 4 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
-| 5 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
-| 6 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
-| 7 | Durable full-run continuation | Required for long and operationally reliable experiments. |
-| 8 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
-| 9 | Predictive models and model registry | Follows held-out baseline evidence. |
-| 10 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
-| 11 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
-| 12 | Demo exchange integration | Follows stable paper operations and reconciliation. |
-| 13 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
+| 1 | B1b-1 product integrity and acquisition hardening | Closes known temporal, network-provenance, schema, and negative-test gaps before adding evidence. |
+| 2 | B1b-2 contemporaneous product evidence and second reviewed market | Closes B1 source completeness and generality on the hardened boundary. |
+| 3 | Multi-market/reconnect/gap-recovery fixtures | Establishes broader observed-data validity. |
+| 4 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
+| 5 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
+| 6 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
+| 7 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
+| 8 | Durable full-run continuation | Required for long and operationally reliable experiments. |
+| 9 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
+| 10 | Predictive models and model registry | Follows held-out baseline evidence. |
+| 11 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
+| 12 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
+| 13 | Demo exchange integration | Follows stable paper operations and reconciliation. |
+| 14 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
 
 This order is a default, not a prohibition on discovery work. A prototype may explore a later idea,
 but it must remain labelled experimental and must not bypass its promotion gates.
 
 ## Current next package
 
-The next agent should implement **B1b contemporaneous source acquisition and second-market
-evidence**, beginning with an inspect-and-design gate.
+The next agent should design **B1b-1 product-term integrity and acquisition hardening** and wait for
+approval before implementation.
 
-Required bounded outcome:
+Required design and implementation boundary:
 
-- acquire and retain contemporaneous source and linked contract-document bytes before capture;
-- add a reviewed second market/product family and exercise catalog revision selection;
-- prove offline source/terms/review/compatibility behavior across both packages;
-- preserve the B1a schemas and hash contract unless evidence requires a versioned successor; and
+- enforce terms/review/catalog effective-interval consistency;
+- harden redirect, final-host, streaming-size, media-role, retrieval-metadata, and atomic-cleanup
+  behavior in explicit acquisition only;
+- make formal schemas and runtime validation agree through reviewed positive/negative fixtures;
+- expand public CLI and end-to-end lineage mutation tests with stable refusal codes;
+- preserve existing reviewed package/artifact bytes or use an explicitly versioned migration when
+  stronger semantics cannot remain compatible;
+- leave contemporaneous linked-document acquisition and the second reviewed product for B1b-2; and
 - do not mix accounting, calibrated execution, ML, gateway, paper-trading, or live behavior into
-  the evidence package.
+  the hardening package.
 
-The handoff begins from B1a implementation `6dc3000` and its documentation package. The validated
-baseline is 78 CTest tests, 69 Python tests, 10 focused product-term tests, 17 focused checkpoint-
-reader tests, and canonical/current lifecycle and checkpoint corpora. B1a did not change production
-risk behavior or either reviewed risk corpus.
+The handoff begins from B1a implementation `6dc3000`, correction `8a867d7`, critique `113a4bd`, and
+explanation `ba01e9f`. The validated baseline is 78 CTest tests, 69 Python tests, 10 focused
+product-term tests, 17 focused checkpoint-reader tests, and canonical/current lifecycle and
+checkpoint corpora. B1a did not change production risk behavior or either reviewed risk corpus.
 
 Track A is closed by `4e6336b` for A1 and `ecca209` for A2, with their documentation packages.
 Deferred A3 hardening remains available only when evidence raises its impact or its containing
