@@ -192,63 +192,101 @@ class RiskFixtureIntegrityTests(unittest.TestCase):
         self.assertIn("must not contain a UTF-8 byte-order mark", completed.stderr)
         self.assertEqual(self._snapshot_cli_corpora(repository), before)
 
-    def test_cli_write_repairs_then_verifies_and_repeats_as_no_op(self) -> None:
-        scratch, repository = self._copy_cli_repository("checkpoint_v1")
-        self.addCleanup(scratch.cleanup)
-        member_name = "roundtrip_empty_state.json"
-        document = self._make_cli_member_stale(repository, "checkpoint_v1", member_name)
-        before = self._snapshot_cli_corpora(repository)
+    def test_cli_write_repairs_each_corpus_then_verifies_and_repeats_as_no_op(
+        self,
+    ) -> None:
+        cases = (
+            (
+                "checkpoint_v1",
+                "roundtrip_empty_state.json",
+                "roundtrip_empty_state_cli_edited",
+            ),
+            ("v1", "lifecycle.json", "lifecycle_cli_edited"),
+        )
+        for corpus, member_name, authored_fixture_id in cases:
+            with self.subTest(corpus=corpus):
+                scratch, repository = self._copy_cli_repository(corpus)
+                try:
+                    document = self._make_cli_member_stale(
+                        repository, corpus, member_name
+                    )
+                    self.assertEqual(document["fixture_id"], authored_fixture_id)
+                    before = self._snapshot_cli_corpora(repository)
 
-        written = self._run_cli(repository, "--corpus", "checkpoint_v1", "--write")
+                    written = self._run_cli(
+                        repository, "--corpus", corpus, "--write"
+                    )
 
-        member_relative = f"checkpoint_v1/{member_name}"
-        manifest_relative = "checkpoint_v1/manifest.json"
-        after = self._snapshot_cli_corpora(repository)
-        changed = {
-            path for path in before | after if before.get(path) != after.get(path)
-        }
-        self.assertEqual(written.returncode, 0)
-        self.assertEqual(
-            written.stdout,
-            "updated python/tests/fixtures/risk_conformance/checkpoint_v1/"
-            f"{member_name}\n"
-            "updated python/tests/fixtures/risk_conformance/checkpoint_v1/manifest.json\n",
-        )
-        self.assertEqual(written.stderr, "")
-        self.assertEqual(changed, {member_relative, manifest_relative})
-        self.assertEqual(after[member_relative], integrity.canonical_bytes(document))
+                    member_relative = f"{corpus}/{member_name}"
+                    manifest_relative = f"{corpus}/manifest.json"
+                    after = self._snapshot_cli_corpora(repository)
+                    changed = {
+                        path
+                        for path in before | after
+                        if before.get(path) != after.get(path)
+                    }
+                    prefix = f"python/tests/fixtures/risk_conformance/{corpus}"
+                    self.assertEqual(written.returncode, 0)
+                    self.assertEqual(
+                        written.stdout,
+                        f"updated {prefix}/{member_name}\n"
+                        f"updated {prefix}/manifest.json\n",
+                    )
+                    self.assertEqual(written.stderr, "")
+                    self.assertEqual(changed, {member_relative, manifest_relative})
+                    self.assertEqual(
+                        after[member_relative], integrity.canonical_bytes(document)
+                    )
+                    self.assertEqual(
+                        self._load(
+                            repository
+                            / "python"
+                            / "tests"
+                            / "fixtures"
+                            / "risk_conformance"
+                            / member_relative
+                        )["fixture_id"],
+                        authored_fixture_id,
+                    )
 
-        manifest = json.loads(after[manifest_relative])
-        entry = next(
-            item
-            for item in manifest["payload"]["entries"]
-            if item["fixture"] == member_name
-        )
-        self.assertEqual(
-            entry["fixture_sha256"], hashlib.sha256(after[member_relative]).hexdigest()
-        )
-        self.assertEqual(
-            manifest["payload_sha256"],
-            hashlib.sha256(integrity.canonical_bytes(manifest["payload"])).hexdigest(),
-        )
+                    manifest = json.loads(after[manifest_relative])
+                    entry = next(
+                        item
+                        for item in manifest["payload"]["entries"]
+                        if item["fixture"] == member_name
+                    )
+                    self.assertEqual(
+                        entry["fixture_sha256"],
+                        hashlib.sha256(after[member_relative]).hexdigest(),
+                    )
+                    self.assertEqual(
+                        manifest["payload_sha256"],
+                        hashlib.sha256(
+                            integrity.canonical_bytes(manifest["payload"])
+                        ).hexdigest(),
+                    )
 
-        verified = self._run_cli(repository, "--corpus", "checkpoint_v1")
-        self.assertEqual(verified.returncode, 0)
-        self.assertEqual(
-            verified.stdout,
-            "fixture integrity metadata is canonical and current\n",
-        )
-        self.assertEqual(verified.stderr, "")
-        self.assertEqual(self._snapshot_cli_corpora(repository), after)
+                    verified = self._run_cli(repository, "--corpus", corpus)
+                    self.assertEqual(verified.returncode, 0)
+                    self.assertEqual(
+                        verified.stdout,
+                        "fixture integrity metadata is canonical and current\n",
+                    )
+                    self.assertEqual(verified.stderr, "")
+                    self.assertEqual(self._snapshot_cli_corpora(repository), after)
 
-        repeated = self._run_cli(repository, "--corpus", "checkpoint_v1", "--write")
-        self.assertEqual(repeated.returncode, 0)
-        self.assertEqual(
-            repeated.stdout,
-            "fixture integrity metadata is already canonical and current\n",
-        )
-        self.assertEqual(repeated.stderr, "")
-        self.assertEqual(self._snapshot_cli_corpora(repository), after)
+                    repeated = self._run_cli(
+                        repository, "--corpus", corpus, "--write"
+                    )
+                    self.assertEqual(repeated.returncode, 0)
+                    self.assertEqual(
+                        repeated.stdout,
+                        "fixture integrity metadata is already canonical and current\n",
+                    )
+                    self.assertEqual(repeated.stderr, "")
+                    self.assertEqual(self._snapshot_cli_corpora(repository), after)
+                finally:
+                    scratch.cleanup()
 
     def test_cli_argparse_refusals_are_distinct_from_corpus_errors(self) -> None:
         scratch, repository = self._copy_cli_repository()
