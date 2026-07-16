@@ -1291,3 +1291,146 @@ weakens UTF-8 handling, widens integers beyond the C++ boundary, follows a linke
 unsafe member name, stops enforcing deterministic order, or ignores either schema comparison, the
 corresponding row should fail for a clear reason. That is a modest change in code and a meaningful
 improvement in how confidently the repository can evolve.
+
+## The integrity command is now tested as authors actually run it
+
+### What was still missing
+
+The parser-refusal matrix called `build_plan` directly. That was the right boundary for proving a
+specific `CorpusError`, but it stopped below the command-line layer:
+
+```text
+python process
+    -> argparse
+        -> fixed corpus selection
+            -> build_plan
+                -> optional write_plans
+        -> exit status and stdout/stderr
+```
+
+A future edit could leave `build_plan` correct while breaking the documented command. Examples
+include making `--corpus` optional accidentally, swapping a registry selection, returning the
+wrong status, printing errors to stdout, or forgetting to dispatch `write_plans` when `--write` is
+present. Direct function tests would remain green because none of those defects is inside
+`build_plan`.
+
+### How the subprocess proof works
+
+Each case creates a repository-shaped temporary directory, copies the real integrity script into
+`tools/`, and copies only the reviewed corpus roots needed by that case:
+
+```text
+temporary repository
+├── tools/risk_fixture_integrity.py
+└── python/tests/fixtures/risk_conformance/
+    ├── checkpoint_v1/
+    └── v1/
+```
+
+The test runs that copied file with the current Python interpreter. No module constant is patched.
+No environment variable redirects a root. The script executes its normal top-level entry point and
+derives `REPOSITORY_ROOT` from its own copied location exactly as the checked-in command does.
+
+This preserves the public fixed-root rule while making writes harmless. The process can see only
+the temporary fixture copies under the repository layout it expects.
+
+### The byte snapshots
+
+Before each command, the test records every regular corpus file by relative path and raw bytes.
+The snapshot is taken after the test creates a stale or refused input:
+
+```text
+temporary valid copy
+        |
+        | deliberate test mutation
+        v
+input snapshot A
+        |
+        | real CLI subprocess
+        v
+output snapshot B
+```
+
+Verification success, stale verification, structural refusal, and argparse refusal must not alter
+the corpus. For corpus-bearing cases the required result is `A == B`. This proves read-only
+behavior at the public process boundary, not merely inside the planner.
+
+### How the three non-parser statuses are separated
+
+The command now has focused subprocess evidence for all three tool outcomes:
+
+- status 0 means the selected corpus was current or an explicit write completed;
+- status 1 means safe replacement candidates exist but verification did not write them; and
+- status 2 means `CorpusError` refused the corpus.
+
+Every case asserts both streams. Success uses stdout and leaves stderr empty. Stale verification
+uses stderr and leaves stdout empty. Structural refusal also uses stderr, begins with `error:`, and
+requires the intended parser diagnostic.
+
+Argparse also exits 2, but it is a different failure contract. Missing and invalid `--corpus`
+cases must begin with `usage:` and include argparse's `risk_fixture_integrity.py: error:` line.
+The corpus-refusal case must begin directly with `error:` and must not include a usage block. The
+test therefore cannot confuse malformed command syntax with a malformed corpus merely because the
+numeric statuses match.
+
+### How selection is proved without copying the whole matrix
+
+Checkpoint V1 remains the main mutation donor. It supplies canonical success, safe stale input,
+structural refusal, and the complete repair lifecycle. Repeating those cases against lifecycle V1
+would test the same implementation twice.
+
+Selection instead uses three small stale-input cases:
+
+```text
+--corpus checkpoint_v1  -> reports only the checkpoint member and manifest
+--corpus v1             -> reports only the lifecycle member and manifest
+--corpus all            -> reports both pairs in fixed registry order
+```
+
+The single-corpus temporary repositories contain only the selected root. The `all` repository
+contains both. Exact repository-relative output paths show which allowlisted corpus was planned;
+the `all` case cannot pass by silently visiting only one root because both temporary mutations must
+be reported.
+
+### What the write lifecycle proves
+
+The temporary checkpoint donor receives a deliberately changed `fixture_id` and noncanonical
+indentation while the copied manifest is left stale. This is safe integrity-tool input: the tool
+preserves the authored JSON value rather than deciding whether it is a correct risk scenario.
+
+The first `--write` must:
+
+1. report the member and manifest in their stable replacement order;
+2. change exactly those two files;
+3. emit canonical member bytes;
+4. update the member SHA-256 value;
+5. update `payload_sha256`; and
+6. leave stderr empty.
+
+A normal verification then succeeds. A repeated `--write` reports that the metadata is already
+current and produces an identical complete-corpus snapshot. Together these steps prove dispatch,
+canonical repair, manifest integrity updates, post-repair validity, and idempotence through the
+real command.
+
+### Why there is still no root override
+
+A public `--root` or output-directory flag would turn an allowlisted repository maintenance tool
+into an arbitrary-path JSON rewriter. A test-only environment variable would add a hidden mode that
+could be inherited accidentally. A `python -c` wrapper that patches `CORPORA` would skip the real
+registry initialization. Direct `main(argv)` calls would skip process startup and argparse's exit
+behavior.
+
+Copying the real script avoids all four problems. Its cost is temporary filesystem copying and a
+few short Python process launches. At 16 lifecycle and 26 checkpoint fixture pairs, that cost is
+small and buys complete isolation.
+
+### What this closes and what remains separate
+
+The documented author command now has regression coverage for argument parsing, corpus selection,
+statuses 0, 1, and tool-level 2, argparse-level 2, both output streams, read-only verification,
+write repair, manifest updates, successful re-verification, and repeated-write byte identity.
+
+This does not add lifecycle V1 mutation-and-repair parity beyond selection proof. It does not close
+the remaining Python checkpoint-reader mutations, add the strict matrices' cardinality assertions,
+or test accepted integer endpoints. It does not change fixture semantics, generate expected
+answers, expand the frozen V1 oracle, or turn checkpoint serialization into production storage.

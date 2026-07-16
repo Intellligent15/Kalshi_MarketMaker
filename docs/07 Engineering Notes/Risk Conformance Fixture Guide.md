@@ -201,5 +201,40 @@ satisfying a row before the named parser rule is reached.
 `checkpoint_v1` is sufficient because both allowlisted corpora use the same integrity parser,
 canonical-byte rules, manifest envelope, path checks, and planning boundary; only their schema
 strings and semantic documents differ. The normal no-op test and the three verification commands
-continue to cover both checked-in roots. Public CLI exit codes, output streams, and `--write`
-dispatch remain a separate test boundary.
+continue to cover both checked-in roots.
+
+## Pinned public CLI contract
+
+The test suite also executes a copied `tools/risk_fixture_integrity.py` with `sys.executable` in a
+minimal temporary repository. The copied script derives its repository root from its own temporary
+location, so this covers the real argument parser, fixed corpus registry, exit-code translation,
+output streams, and `--write` dispatch without adding a public arbitrary-root option. Every fixture
+mutation and every write remains inside the temporary repository.
+
+The subprocess coverage pins these outcomes:
+
+| Command state | Exit | Standard output | Standard error | Byte effect |
+| --- | ---: | --- | --- | --- |
+| Selected corpus is current | 0 | Exact canonical/current message | Empty | None |
+| Safe candidate bytes differ | 1 | Empty | Exact changed paths plus the `--write` instruction | None |
+| Structurally refused corpus | 2 | Empty | Starts with `error:` and includes the rule-specific diagnostic | None |
+| Explicit repair | 0 | Exact updated paths | Empty | Only the planned member and manifest |
+| No-op `--write` | 0 | Exact already-current message | Empty | None |
+| Missing or invalid `--corpus` | 2 | Empty | Argparse usage followed by its parser error | None |
+
+Argparse and corpus refusals intentionally share exit status 2 but have different shapes. An
+argparse failure begins with `usage:` and includes `risk_fixture_integrity.py: error:`. A
+tool-level `CorpusError` begins directly with `error:`. Tests require both the stream routing and
+this distinction.
+
+`checkpoint_v1` supplies the full success, stale, refusal, and repair cases. Proportional registry
+coverage makes one lifecycle member stale for `--corpus v1`, one checkpoint member stale for
+`--corpus checkpoint_v1`, and one member in each corpus stale for `--corpus all`. The exact
+reported paths prove that each selection reaches the intended allowlisted roots without repeating
+the complete mutation matrix against lifecycle V1.
+
+The repair case deliberately changes an authored value and writes noncanonical JSON in a temporary
+checkpoint member while leaving its manifest stale. The first `--write` must canonicalize that
+member, update its member digest and the manifest payload digest, and change no other file. A
+following verification must succeed. A second `--write` must emit the already-current message and
+leave the entire temporary corpus byte-for-byte identical.

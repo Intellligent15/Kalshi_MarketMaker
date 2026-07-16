@@ -768,3 +768,60 @@ This is a strong, appropriately bounded test increment. Its highest remaining im
 public command still lacks subprocess proof, but the parser safety claims requested by the package
 are now durable. No finding warrants changing production code, fixture schemas, reviewed corpus
 bytes, checkpoint semantics, or the frozen V1 adapter.
+
+## Public integrity-CLI subprocess coverage critique
+
+The former top remaining test debt is closed. The integrity suite now runs the actual copied
+`risk_fixture_integrity.py` in repository-shaped temporary directories. It independently pins
+canonical status 0, stale status 1, tool-level status 2, argparse-level status 2, stdout/stderr
+routing, fixed registry selection, verification read-only behavior, explicit repair, manifest
+updates, successful re-verification, and repeated-write byte identity.
+
+### Assessment of the design
+
+Copying the real script is the smallest safe seam. It preserves the fixed public corpus registry
+and exercises `REPOSITORY_ROOT` derivation, argparse, `main`, and `SystemExit` without adding a
+public root override or a hidden environment mode. The temporary directory contains the same
+relative layout as the repository, so output paths remain stable while absolute paths stay safely
+isolated.
+
+The selection table is proportionate. Checkpoint V1 carries the complete behavior matrix; lifecycle
+V1 adds only the mutation needed to prove its registry entry, and `all` requires both mutations to
+be reported. This avoids pretending that repeating the same parser and writer implementation over
+both schemas is independent semantic evidence.
+
+The implementation is intentionally more explicit than a generic command-case table. Canonical
+verification, structural refusal, and argparse refusal each have one invocation and one snapshot
+obligation. Repair has three sequential invocations and checks exact file deltas plus digest
+content. Combining them would replace visible assertions with callbacks and conditional setup.
+
+| Priority | Finding | Category | Impact | Ease | Why it matters | Recommended handling |
+| ---: | --- | --- | ---: | ---: | --- | --- |
+| P1 | Lifecycle V1 still lacks a complete mutation-and-repair cycle. | Missing tests | 2 | 5 | CLI selection proves the registry reaches V1, but only checkpoint V1 proves member canonicalization and manifest repair. | Add one lifecycle member/manifest repair cycle as the next bounded package; do not duplicate the full CLI matrix. |
+| P1 | Python checkpoint-reader mutations remain less complete than the C++ reader's schema-specific coverage. | Missing tests / drift risk | 2 | 4 | CLI integrity coverage does not close semantic reader parity. | Close the remaining Python reader categories after lifecycle repair, without changing checkpoint semantics. |
+| P2 | The two strict captured-checkpoint matrices still lack explicit 16-row cardinality assertions. | Missing test precision | 1 | 5 | Named rows exist in both implementations, but accidental row removal would be less obvious than an explicit count failure. | Add the count when those matrices next change; keep it outside this CLI package. |
+| P2 | Argparse assertions depend on stable parser fragments and the copied filename. | Future maintenance | 1 | 4 | Python may change whitespace or wrapping, but the important usage/error shape is stable. | Continue asserting prefixes and diagnostic fragments, not the complete argparse message. |
+| P2 | The subprocess helper copies complete corpora repeatedly. | Possible optimization | 1 | 3 | Runtime grows with corpus size, but fresh roots prevent state leakage across write cases. | Retain full isolation until profiling shows meaningful cost; do not introduce shared mutable copies. |
+| P3 | Exact tool-owned output strings are now a compatibility surface. | Maintenance tradeoff | 1 | 4 | Cosmetic wording changes will require test and documentation updates. This is appropriate for a documented author command. | Keep exact assertions for success and repository-relative path lines; use fragments only where paths or argparse formatting vary. |
+
+### Reranked next work
+
+1. Add one lifecycle-V1 mutation-and-repair cycle.
+2. Close the remaining Python checkpoint-reader mutation parity.
+3. Add the strict matrices' explicit 16-row cardinality assertions when those tests next change.
+4. Keep accepted integer endpoints, Windows-specific path setup, README discoverability, duplicated
+   defaults and vocabularies, corpus locking, and transaction support separate.
+5. Defer SHA padding-boundary expansion, fuzz/property testing, caching, streaming, manifest
+   sharding, and compact-note navigation until their evidence or maintenance value rises.
+
+### Retained limitations
+
+This package tests the integrity command, not risk semantics. It changes no production risk rule,
+checkpoint rejection category, enum ordinal, first-failure order, fixture schema, reviewed fixture,
+or semantic expected trace. The integrity tool still does not execute `AccountRiskProjection`, the
+test-only Python reference, or the frozen V1 oracle, and it does not derive expected answers.
+
+Checkpoint serialization and the Python checkpoint model remain test-only. The lifecycle V1
+adapter remains frozen and checkpoint-ineligible. Nothing here establishes durable storage, WAL
+integration, restart recovery, portfolio or multi-account recovery, calibrated fills, queue
+priority, execution realism, PnL, collateral, settlement, paper trading, or live readiness.
