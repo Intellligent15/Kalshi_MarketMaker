@@ -2026,3 +2026,576 @@ schema, reviewed answer, frozen-oracle capability, matching rule, integer type, 
 post-only rule, external admission ownership, or kill-switch boundary. It adds no durable storage,
 restart recovery, portfolio recovery, calibrated execution, PnL, collateral, settlement, paper
 trading, live readiness, or profitability evidence.
+
+## A deeper what, how, and why walkthrough of lifecycle repair
+
+### The result in one sentence
+
+The public fixture-integrity command is now proven to repair both allowlisted corpus roots, while
+preserving the exact JSON values a human authored and changing only the member and manifest bytes
+that the repair requires.
+
+That sentence contains three different promises:
+
+1. **Public command:** the test starts the copied real script as a separate process; it does not
+   stop at an internal function call.
+2. **Both roots:** checkpoint V1 and lifecycle V1 each execute a complete write cycle.
+3. **Integrity only:** the command repairs representation and hashes; it does not invent a risk
+   result or decide whether the scenario is semantically correct.
+
+### What problem remained before this increment
+
+The earlier CLI package already proved that `--corpus v1` reached the lifecycle registry entry.
+It made a temporary lifecycle member stale, ran verification without `--write`, and required the
+command to report the lifecycle member and manifest without changing any bytes.
+
+That established this path:
+
+```text
+command line
+    -> parse --corpus v1
+    -> select lifecycle root
+    -> detect lifecycle changes
+    -> report them read-only
+```
+
+Checkpoint V1 went further:
+
+```text
+command line
+    -> select checkpoint root
+    -> detect changed member and manifest
+    -> write canonical member bytes
+    -> write repaired manifest bytes
+    -> verify successfully
+    -> repeat --write as a byte no-op
+```
+
+Because both roots use the same planner and writer, checkpoint success strongly suggested that
+lifecycle writing worked. It did not prove the lifecycle-specific registry root, manifest schema,
+relative output paths, and write dispatch in one complete process. A future wiring error could
+leave lifecycle verification working while lifecycle `--write` addressed the wrong schema or
+failed after planning.
+
+A1 closed exactly that composition gap. It did not reopen parser safety, checkpoint semantics, or
+the already-complete selection matrix.
+
+### What changed in the test
+
+The existing checkpoint method changed from one hard-coded case to a two-row table:
+
+```text
+corpus          member                        deliberately authored fixture_id
+--------------  ----------------------------  ------------------------------------
+checkpoint_v1   roundtrip_empty_state.json    roundtrip_empty_state_cli_edited
+v1              lifecycle.json                lifecycle_cli_edited
+```
+
+Everything below the table is the same protocol for each row:
+
+```text
+fresh temporary repository
+        |
+        v
+copy real script and selected corpus
+        |
+        v
+author one changed, noncanonical member
+        |
+        v
+snapshot complete input bytes
+        |
+        v
+run --write and inspect exact effects
+        |
+        v
+verify repaired bytes without changes
+        |
+        v
+run --write again and require byte identity
+```
+
+The lifecycle row is not a mock and does not patch `CORPORA`. The subprocess reads the fixed
+registry embedded in the copied script, just as the checked-in command does.
+
+### The temporary repository is the safety boundary
+
+The test constructs this disposable shape:
+
+```text
+temporary-directory/
+└── repository/
+    ├── tools/
+    │   └── risk_fixture_integrity.py
+    └── python/tests/fixtures/risk_conformance/
+        └── v1/
+            ├── manifest.json
+            ├── lifecycle.json
+            ├── lifecycle.expected.json
+            └── every other reviewed lifecycle member copy
+```
+
+Only the selected corpus is copied for each row. The lifecycle case therefore cannot accidentally
+fall back to checkpoint data and still pass.
+
+The script determines its root from its own path:
+
+```python
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+```
+
+For the copied script, `REPOSITORY_ROOT` is the disposable `repository/`. The production root
+derivation and fixed `CORPORA` registry remain intact, but all possible writes land in temporary
+files. This avoids three weaker test seams:
+
+- a public `--root` option that would widen the tool into an arbitrary JSON rewriter;
+- a hidden environment override that could be inherited accidentally; or
+- patching imported globals, which would skip real script initialization and fixed-root behavior.
+
+### The authored mutation
+
+The lifecycle fixture begins with:
+
+```json
+{"fixture_id":"lifecycle", ...}
+```
+
+The setup changes only the in-memory value of `fixture_id`:
+
+```json
+{"fixture_id":"lifecycle_cli_edited", ...}
+```
+
+It then deliberately writes that document with `indent=2`. The resulting file has the intended
+JSON value but the wrong byte representation for this corpus:
+
+```json
+{
+  "fixture_id": "lifecycle_cli_edited",
+  ...
+}
+```
+
+The temporary manifest is not edited. It still contains the digest of the old canonical
+`lifecycle.json`, and its `payload_sha256` still describes the old payload containing that digest.
+
+The input therefore has two independently stale layers:
+
+```text
+member layer
+    value changed and whitespace is noncanonical
+
+manifest layer
+    fixture_sha256 still names old member bytes
+    payload_sha256 still names old payload bytes
+```
+
+This mutation is safe for an integrity test because it stays in the temporary repository. It is
+not claimed to be a valid reviewed semantic fixture. The expected trace still names the original
+fixture identity and is intentionally left untouched.
+
+### Why `fixture_id` is useful here
+
+The test needs an authored value whose preservation is easy to see. A whitespace-only mutation
+would prove canonicalization but not clearly prove that a changed JSON value survived. Mutating an
+expected risk result would create unnecessary confusion about whether the test was blessing a
+semantic answer.
+
+`fixture_id` makes the ownership boundary visible:
+
+```text
+human/test setup owns:  "lifecycle_cli_edited"
+integrity tool owns:    canonical representation and hashes
+risk executors own:     semantic comparison with reviewed transitions
+```
+
+The integrity tool is allowed to turn indented bytes into compact bytes. It is not allowed to turn
+`lifecycle_cli_edited` back into `lifecycle`, copy the identifier from the expected trace, or run a
+risk engine to produce a replacement document.
+
+### What happens during the first `--write`
+
+The subprocess receives:
+
+```text
+--corpus v1 --write
+```
+
+The command performs these stages:
+
+#### 1. Parse the public arguments
+
+Argparse requires one of the fixed selections `v1`, `checkpoint_v1`, or `all`. The row therefore
+uses the same public syntax as a maintainer.
+
+#### 2. Select the registered lifecycle root and schema
+
+The fixed registry maps `v1` to the lifecycle directory and
+`pmm.risk_conformance_fixture_manifest.v1`. The test does not supply either path or schema.
+
+#### 3. Read and validate the integrity envelope
+
+`build_plan` reads the manifest, validates its exact shape and schema, walks its strictly sorted
+entries, resolves each bare local member, rejects unsafe files, and parses JSON with the documented
+UTF-8, duplicate-key, number, and object rules.
+
+#### 4. Construct candidate member bytes
+
+For every member, the planner serializes the parsed value as:
+
+```text
+UTF-8 JSON
+sorted object keys
+compact separators
+no ASCII escaping requirement for Unicode
+exactly one final LF
+```
+
+Only `lifecycle.json` differs from its original candidate. Every other lifecycle fixture and
+expected trace already has canonical bytes.
+
+#### 5. Recompute member digests
+
+The planner computes SHA-256 over each candidate member. The manifest entry for
+`lifecycle.json` receives the digest of the edited canonical bytes. The expected trace digest and
+all unrelated entry digests remain unchanged.
+
+#### 6. Recompute the manifest payload digest
+
+Changing `fixture_sha256` changes the manifest payload. The planner canonicalizes that payload,
+including its final LF, and computes the new `payload_sha256`.
+
+#### 7. Identify the exact write plan
+
+The only candidates differing from input bytes are:
+
+```text
+python/tests/fixtures/risk_conformance/v1/lifecycle.json
+python/tests/fixtures/risk_conformance/v1/manifest.json
+```
+
+The planner orders the member before `manifest.json`.
+
+#### 8. Stage and replace safely
+
+The writer prepares temporary sibling files, flushes them, preserves file modes, verifies that the
+original targets did not change after planning, and atomically replaces the member before the
+manifest. Writing the manifest last means an interruption cannot make stale member bytes look
+blessed by a new manifest.
+
+This is fail-closed authoring behavior, not a transactional storage or recovery protocol.
+
+#### 9. Translate the plan into public output
+
+The command returns 0, writes exactly these lines to stdout, and writes nothing to stderr:
+
+```text
+updated python/tests/fixtures/risk_conformance/v1/lifecycle.json
+updated python/tests/fixtures/risk_conformance/v1/manifest.json
+```
+
+The order matters. It reflects the member-first, manifest-last repair boundary and gives authors a
+stable list of what changed.
+
+### How the test proves only two files changed
+
+Before the process starts, the test records a dictionary:
+
+```text
+relative corpus path -> complete file bytes
+```
+
+It builds the same dictionary afterward and compares the union of all paths. The changed set must
+equal exactly:
+
+```text
+v1/lifecycle.json
+v1/manifest.json
+```
+
+This is stronger than checking that those two files changed. It also proves that every other copied
+fixture, every expected trace, and every unrelated manifest member remained byte-identical. A
+writer that rewrote the complete corpus would fail even if it produced valid canonical JSON.
+
+The snapshot is taken after the deliberate mutation. That timing is important:
+
+```text
+pristine copy
+    -> test authors intended stale input
+    -> baseline snapshot
+    -> command runs
+    -> output snapshot
+```
+
+Comparing against the pristine copy would confuse the intended test input with an unauthorized
+command write.
+
+### How canonical member bytes are proved
+
+The test retains the authored Python document and requires:
+
+```text
+repaired lifecycle file bytes == canonical_bytes(authored document)
+```
+
+This proves that the command did not merely update the manifest to accept indented bytes. It
+actually installed the required compact sorted-key form with one final newline.
+
+The expected bytes are computed by the imported integrity module, which is the same source file as
+the copied script but a separate runtime instance. This assertion is therefore strong composition
+evidence, not an independent canonical-JSON implementation. Independent byte-contract evidence
+already exists in the phase7 canonicalizer comparison and the checked-in C++ and Python readers.
+
+### How authored-value preservation is proved
+
+The test first requires setup to have authored exactly:
+
+```text
+lifecycle_cli_edited
+```
+
+After repair, it parses the installed lifecycle member and requires the same field value. Complete
+canonical-byte equality already implies preservation, but the field assertion makes the semantic
+ownership rule obvious when a failure occurs.
+
+The tool has repaired this:
+
+```text
+how the JSON is written
+how the bytes are identified
+```
+
+It has not repaired or judged this:
+
+```text
+what the JSON means
+whether the fixture matches the expected trace
+whether a risk engine would accept the scenario
+```
+
+### Why there are two hash assertions
+
+The manifest contains a hierarchy rather than one checksum:
+
+```text
+canonical lifecycle member bytes
+              |
+              v
+       fixture_sha256
+              |
+              v
+canonical manifest payload bytes
+              |
+              v
+       payload_sha256
+```
+
+The test reconstructs each arrow separately.
+
+First:
+
+```text
+hashlib.sha256(repaired lifecycle bytes).hexdigest()
+    == lifecycle entry fixture_sha256
+```
+
+This proves that the entry identifies the installed member bytes.
+
+Second:
+
+```text
+hashlib.sha256(canonical_bytes(manifest payload)).hexdigest()
+    == manifest payload_sha256
+```
+
+This proves that the top-level digest identifies the payload containing the new member digest.
+
+Checking only `payload_sha256` could miss a test mistake that inspected the wrong member entry.
+Checking only `fixture_sha256` could miss a stale top-level envelope. Status 0 alone proves neither
+relationship independently because it is the tool's own conclusion.
+
+### Why verification runs as a new process
+
+The repaired corpus is then passed to a fresh command:
+
+```text
+--corpus v1
+```
+
+The required result is:
+
+```text
+exit:    0
+stdout:  fixture integrity metadata is canonical and current
+stderr:  empty
+bytes:   identical to the repaired snapshot
+```
+
+This shows that the bytes written by one process are accepted by a new process performing ordinary
+read-only verification. It prevents the test from trusting in-memory plan state retained from the
+writer.
+
+### Why `--write` runs a second time
+
+Finally, another fresh process receives:
+
+```text
+--corpus v1 --write
+```
+
+It must distinguish a no-op write request from the previous repair:
+
+```text
+exit:    0
+stdout:  fixture integrity metadata is already canonical and current
+stderr:  empty
+bytes:   identical to the repaired snapshot
+```
+
+Idempotence matters because a command can produce a valid corpus once while still introducing
+unstable ordering, formatting, timestamps, random temporary content, or oscillating metadata on
+later runs. Complete snapshot identity rules out those behaviors for the selected root.
+
+### How each assertion catches a different regression
+
+| Assertion | Example regression it catches |
+| --- | --- |
+| Exact exit 0 | Writer repairs bytes but returns stale status 1. |
+| Exact stdout | Writer omits a path, reverses the public order, or changes the author contract silently. |
+| Empty stderr | Successful repair emits warnings or routes success paths to the error stream. |
+| Exact changed set | Writer rewrites unrelated fixtures or expected traces. |
+| Canonical member equality | Writer updates hashes but leaves noncanonical member bytes. |
+| Explicit `fixture_id` | Writer derives or replaces an authored value. |
+| `fixture_sha256` | Manifest entry identifies old or wrong member bytes. |
+| `payload_sha256` | Top-level digest does not identify the repaired payload. |
+| Fresh verification | Written bytes are not accepted by the normal read-only command. |
+| Repeated snapshot identity | Writer is valid once but non-idempotent. |
+
+This division is why the method is longer than a simple "return code is zero" subprocess test.
+The extra assertions prevent multiple unrelated defects from satisfying one broad success check.
+
+### Why parameterization was the selected structure
+
+There were three reasonable structures.
+
+#### Separate lifecycle test
+
+This would produce a prominent lifecycle-named method and leave the checkpoint test untouched. It
+would also duplicate the complete write, inspect, verify, and repeat sequence. Future additions
+could strengthen one corpus but leave the other behind.
+
+#### Shared assertion helper
+
+This would retain separate test names while centralizing mechanics. With only two cases, it would
+move the evidence sequence behind another interface and require a parameter object or several
+arguments for donor, member, edited value, expected paths, and manifest lookup.
+
+#### Two-row parameterized method
+
+This keeps one visible contract and two explicit donors. `subTest(corpus=...)` identifies the
+failing root, while the body shows every process and assertion in order.
+
+The tradeoff is a long nested method and an unchanged unittest method count. That is preferable to
+duplicated evidence or premature abstraction. If a third corpus follows the exact same envelope,
+one more row remains reasonable. If it requires different behavior, it should receive a separate
+focused test rather than turning the table into a callback framework.
+
+### Why the integrity tool did not change
+
+The copied-script harness successfully exercised the missing lifecycle path. No defect or missing
+test seam was found in `tools/risk_fixture_integrity.py`, so changing it would have expanded risk
+without adding evidence.
+
+In particular, this increment did not add:
+
+- a public arbitrary root;
+- a public output directory;
+- a hidden environment-variable root;
+- a test-only command mode;
+- corpus-specific lifecycle branches; or
+- semantic fixture validation.
+
+The test adapts to the fixed tool boundary, not the other way around.
+
+### Why no semantic executor runs
+
+The temporary lifecycle fixture has an edited identity while its expected trace remains unchanged.
+Running semantic conformance at this point would correctly reject or mismatch the pair, but that
+would answer a different question.
+
+The integrity command is analogous to a careful archivist:
+
+- it preserves the document the author handed it;
+- puts the document in the required physical format;
+- records fingerprints for that exact document; and
+- verifies that the catalog matches the stored bytes.
+
+The archivist does not decide whether the document's conclusions are true. That belongs to the
+independent reviewers—in this repository, direct C++, the test-only Python reference, and the
+frozen V1 adapter where eligible.
+
+If the integrity tool ran one of those implementations and copied its output into the expected
+trace, the corpus could become self-approving. Hashes would prove internal consistency while no
+longer proving independent review.
+
+### What the completed package proves
+
+- The copied real CLI selects the lifecycle root and its manifest schema for writing.
+- A lifecycle member with authored changed content and noncanonical bytes is repaired.
+- Exact successful process status and stream routing are stable.
+- Only the lifecycle member and lifecycle manifest change.
+- The repaired member is canonical JSON with one final LF.
+- The authored lifecycle identifier survives unchanged.
+- The member digest identifies the installed lifecycle bytes.
+- The payload digest identifies the repaired canonical manifest payload.
+- A fresh verification process accepts the repaired root without writing.
+- A repeated write process is byte-identical.
+- Checkpoint V1 continues to satisfy the same complete protocol.
+- Both checked-in reviewed corpora remain byte-for-byte unchanged.
+
+### What the package still does not prove
+
+It does not prove that `lifecycle_cli_edited` is a valid reviewed fixture identity or that the
+unchanged expected trace matches it. It does not generate, repair, or semantically verify expected
+transitions.
+
+It does not add successful `all --write`, `--help`, process-level atomic-write failure injection,
+accepted integer endpoints, Windows path behavior, strict-matrix cardinality, fuzzing, property
+testing, caching, streaming, sharding, locking, or transactions.
+
+It does not close remaining Python checkpoint-reader parity. It changes no checkpoint category,
+enum ordinal, first-failure ordering, schema, production risk semantic, reviewed fixture, frozen
+oracle operation, matching behavior, integer type, watermark, post-only rule, admission ownership,
+or kill-switch boundary.
+
+It establishes no durable full-run recovery, calibrated fill, queue position, execution realism,
+PnL, collateral, settlement, paper-trading, live-readiness, or profitability claim.
+
+### A maintainer's review checklist
+
+When this write-cycle test or the integrity CLI changes, verify:
+
+1. Does every case still create a fresh repository-shaped temporary root?
+2. Is the copied real script executed through `sys.executable`?
+3. Are donor corpus, member name, and expected authored value explicit?
+4. Is the baseline snapshot taken after the intended mutation?
+5. Does the first command assert exit, stdout, stderr, and exact changed paths?
+6. Does the repaired member equal canonical bytes of the authored document?
+7. Is at least one authored value asserted directly after repair?
+8. Are member and manifest-payload hashes recomputed independently in the test?
+9. Does a fresh verification process preserve all repaired bytes?
+10. Does a fresh repeated-write process preserve the same complete snapshot?
+11. Did any checked-in fixture or expected trace change unintentionally?
+12. Did the change widen the tool, semantic scope, or readiness claims?
+
+### Why this was the right stopping point
+
+A1 began with one narrow uncertainty: lifecycle V1 could be selected and reported as stale, but it
+had not completed its own public write path. That uncertainty is now closed with exact process and
+byte evidence.
+
+Adding more CLI combinations would mostly recombine already-covered behaviors. Changing the tool
+would introduce new surface without a demonstrated defect. Running semantic executors would cross
+the integrity boundary. The highest-value next work is therefore not another lifecycle writer
+case; it is A2, the known remaining Python checkpoint-reader mutation parity, followed by a return
+to Phase 7 product metadata and research validity.
