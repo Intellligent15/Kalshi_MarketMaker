@@ -70,3 +70,35 @@ uv run python python/pmm_phase7.py backtest \
 The normalizer fails closed on corrupt records, conflicting duplicate source events, and sequence gaps by default. It preserves source file hashes, fixed-point decimal strings, local receive timestamps, source sequences, and source-versus-receive-time ordering basis. The Level-2 observed projection is authoritative historical input; it is never replayed through `ExchangeSimulator`.
 
 `trade_touch_v1` allocates qualifying public-trade quantity to simulated quotes in deterministic order-ID order. It deliberately has no queue position, hidden liquidity, venue acknowledgement, fees, PnL, collateral, or settlement model. Its fills are `ModelDerived`, not observed fills or execution-realism claims. `no_fill_v1` is the execution-free control.
+
+### Reviewed product-term pipeline
+
+New product-bound research uses the offline catalog and exact conversion policy:
+
+```sh
+uv run python python/pmm_product_terms.py verify-catalog \
+  --catalog configs/product_catalog
+
+uv run python python/pmm_phase7.py normalize-v2 \
+  --input data/raw/wsh-tor-wsh2-3h \
+  --output data/processed/kalshi/wsh-tor-wsh2-normalized-v2-product-terms \
+  --catalog configs/product_catalog \
+  --conversion-policy configs/product_catalog/conversion_policies/integer_cents_whole_contracts_v1.json
+
+uv run python python/pmm_phase7.py features \
+  --input data/processed/kalshi/wsh-tor-wsh2-normalized-v2-product-terms \
+  --output data/processed/kalshi/wsh-tor-wsh2-features-v2-product-terms
+
+uv run python python/pmm_phase7.py backtest \
+  --config configs/phase7/kalshi_wsh_tor_no_fill_product_terms_v3.json \
+  --output results/kalshi/wsh-tor-wsh2-no-fill-product-terms-v3
+
+uv run python python/pmm_phase7.py verify-lineage \
+  --config configs/phase7/kalshi_wsh_tor_no_fill_product_terms_v3.json \
+  --result results/kalshi/wsh-tor-wsh2-no-fill-product-terms-v3
+```
+
+`pmm_product_terms.py` also provides explicit `fetch`, `build`, `review`, `inspect`, `compare`,
+`diff`, and `assess-legacy` operator commands. Only `fetch` uses the network. Deterministic runtime
+and tests consume reviewed local bytes. Final artifact directories are immutable and are not
+overwritten; choose a new revision path for a source or policy refresh.

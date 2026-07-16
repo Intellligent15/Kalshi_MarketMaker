@@ -12,7 +12,7 @@ puts correctness and claim discipline ahead of convenience or throughput.
 | --- | --- | ---: | ---: | --- | --- |
 | Existing checked-in V1 experiments still default to `python_reference_v1`; that implementation does not have C++ pending-reservation, ingress, or kill-switch semantics. | Correctness debt | 5 | 3 | The new canonical path is opt-in, so a future experiment can accidentally retain the weaker admission model. | Add a versioned C++-oracle experiment config and parity fixtures; deprecate the Python path for new research runs once migration is proven. |
 | The oracle uses an ad-hoc whitespace protocol and hard-coded account/trader/contract IDs. | Interface debt | 4 | 3 | It is intentionally local, but has no formal schema, escaping rules, protocol version, or multi-account/product support. | Define a versioned research account-event schema before adding portfolio or process-boundary work; retain the narrow oracle only as a development adapter. |
-| C++ oracle input requires whole-contract quantities and cent-aligned prices. | Product-metadata debt | 4 | 3 | Observed L2 quantity is fixed-point and product metadata is incomplete, so conversion is safe only for the current integer quote baseline. | Ingest and hash venue product terms, then make price/lot conversion an explicit configuration contract. |
+| C++ oracle input requires whole-contract quantities and cent-aligned prices. | Representation debt | 3 | 2 | ADR-010 now validates exact venue grids/increments and refuses lossy conversion, but the core still cannot research valid sub-cent or fractional-quantity strategies. | Add richer core types only in a separately designed package; never weaken exact-conversion refusal. |
 | The new ledger records unresolved model cash flows and fees only. | Accounting boundary | 5 | 2 | It does not model collateral, settlement, realized/unrealized PnL, fee rounding, or venue sell/short semantics. | Keep the non-claim prominent; add a double-entry ledger and sourced contract terms before exposing PnL metrics. |
 | `AccountEventTruth` preserves provenance but is not yet materialized as a complete risk-event artifact. | Auditability | 3 | 3 | A result manifest names the risk engine, but cannot independently replay or inspect every risk transition. | Emit a hashed canonical risk trace before using the oracle for larger experiments. |
 | The Python and C++ risk paths were retained without a full trace-by-trace conformance suite. | Unnecessary transitional complexity | 4 | 3 | The compatibility path is useful, but two implementations can drift if only broad outcome tests exist. | Addressed by ADR-009 for the V2 shared no-fill subset: C++ emits a hashed transition trace and V2 rejects Python risk. Broader lifecycle fixtures remain follow-up coverage. |
@@ -28,7 +28,7 @@ puts correctness and claim discipline ahead of convenience or throughput.
 | C++ oracle partial-fill/cancel/expiry integration | 4 | 4 | Remaining quantity, active-order count, and position stay aligned through partial fills and replacement cancellations. |
 | Ledger fee rounding and buy/sell cash-flow cases | 4 | 4 | Fixed-point rounding is deterministic and a ledger invariant holds for both sides. |
 | Oracle-run determinism regression | 4 | 3 | Two runs of the same C++-oracle config produce byte-identical orders, fills, ledger, and manifests. |
-| Accounting-policy and product-term compatibility gate | 4 | 3 | Results refuse comparison or execution when terms/fee schema hashes differ or are absent. |
+| Accounting-policy and product-term compatibility gate | 4 | 3 | Product/source/review/conversion hashes now fail closed in V3; accounting remains deliberately unimplemented. |
 | Kill-switch and rejected-order lifecycle through the oracle | 4 | 4 | A rejected reservation is released and a kill switch blocks new admissions but permits cancellation. |
 
 ## Missing documentation
@@ -52,7 +52,7 @@ puts correctness and claim discipline ahead of convenience or throughput.
 | ---: | --- | ---: | ---: | --- |
 | P0 | Preserve `ModelDerived` and unresolved-accounting labels. | 5 | 5 | Prevents unsupported execution and PnL claims now. |
 | P1 | Add C++-oracle parity and lifecycle conformance fixtures. | 5 | 3 | Closes the main Python/C++ risk-drift path. |
-| P2 | Add product terms and explicit integer conversion policy. | 4 | 3 | Required before broader market or accounting work. |
+| P2 | Retain linked contract documents and add contemporaneous, multi-market product revisions. | 4 | 3 | Extends the implemented ADR-010 boundary before broader accounting work. |
 | P3 | Add canonical risk trace plus manifest comparison gate. | 4 | 3 | Makes decisions and results auditable across runs. |
 | P4 | Add calibrated/sensitivity execution experiments only after own-execution data arrives. | 5 | 1 | High research value, but blocked by required evidence. |
 | P5 | Stream artifacts and batch oracle calls after benchmarks. | 3 | 3 | Important for scale, not current correctness. |

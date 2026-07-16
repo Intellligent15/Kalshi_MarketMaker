@@ -33,6 +33,19 @@ still separate work.
 - Checkpointable in-memory observed-market cursor with stable applied-event watermarks and verified continuation.
 - Versioned touch-fill and no-fill configs, logical latency, external synthetic risk limits, append-only result artifacts, hashes, assumptions, and model-truth labels.
 
+## Product-term lineage implemented
+
+- Reviewed, immutable product packages retain exact first-party source bytes, source hashes,
+  effective-time review, canonical venue terms, and review limitations.
+- Normalization V2 binds capture-derived UUID/ticker identity to source-backed series, event,
+  market, contract, price-grid, quantity, payout, lifecycle, settlement, and fee identities.
+- Feature V2 and backtest V3 propagate exact terms, source, review, catalog, conversion-policy,
+  and upstream-manifest hashes; offline verification rejects tampered lineage.
+- Venue fixed-point values are preserved exactly. The current integer core accepts only exact cents
+  and whole contracts; it never rounds a nonrepresentable value.
+
+See [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage]].
+
 ## Explicitly deferred
 
 - PnL, fees, collateral, settlement, margin, and paper-trading claims.

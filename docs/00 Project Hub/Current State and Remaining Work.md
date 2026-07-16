@@ -24,17 +24,18 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-16 |
-| Baseline commit | `5a21e83` (`docs(risk): deepen Python reader parity explanation`) |
-| Branch state at review | `main` ten commits ahead of `origin/main` |
-| Recent risk commits | `5a21e83`, `7a4e72d`, `47fde6d`, `ecca209`, and `cc980d4` |
+| Baseline commit | `6dc3000` (`feat(phase7): add authoritative product term artifacts`) |
+| Branch state at review | `main` twelve commits ahead of `origin/main` before B1a documentation |
+| Recent implementation commits | `6dc3000`, `ecca209`, `47fde6d`, `7a4e72d`, and `5a21e83` |
 | C++/CTest validation | 78 tests passing |
-| Python validation | 59 tests passing |
+| Python validation | 69 tests passing |
+| Focused product-term validation | 10 tests passing |
 | Focused checkpoint-reader validation | 17 tests passing |
 | Focused fixture-integrity validation | 17 tests passing |
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | B1a authoritative product-term schema and identity integration design |
+| Next bounded package | B1b contemporaneous source acquisition and second-market evidence |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -66,7 +67,9 @@ Use these documents to verify or deepen a claim in this roadmap:
 - [[02 Architecture/ADR-007 Deterministic Historical Replay and Backtesting|Historical replay architecture]]
 - [[02 Architecture/ADR-008 Calibrated Execution Accounting and Research Evaluation|Execution, accounting, and evaluation boundary]]
 - [[02 Architecture/ADR-009 Canonical Risk Conformance and Research Oracle Migration|Canonical C++ risk migration]]
+- [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage|Authoritative product terms and lineage]]
 - [[07 Engineering Notes/Phase 7 Critique|Original Phase 7 critique]]
+- [[07 Engineering Notes/Product Terms Source and Review Guide|Product-term source and review guide]]
 - [[07 Engineering Notes/Research Execution Foundation Critique|Research execution critique]]
 - [[07 Engineering Notes/Canonical Risk Conformance Critique|Current risk-conformance debt and reviews]]
 - [[07 Engineering Notes/Canonical Risk Conformance Explained|Risk-conformance walkthroughs]]
@@ -86,12 +89,14 @@ The repository has a strong deterministic systems foundation:
 - Phases 1 through 6 are complete within their documented boundaries.
 - Phase 7 has a working V1 historical-research foundation.
 - New V2 backtests use canonical C++ account risk and emit hashed risk traces.
+- New normalization V2, feature V2, and backtest V3 artifacts carry reviewed authoritative
+  product-term lineage and exact conversion policy.
 - Lifecycle and checkpoint conformance evidence is broad and reviewed.
 
 The repository is not yet a credible profitability, paper-trading, or live-trading system. Its
 largest remaining gaps are no longer basic matching or simulation mechanics. They are:
 
-1. authoritative venue product terms;
+1. broader contemporaneous authoritative product evidence across markets;
 2. broader and recoverable observed-market data;
 3. calibrated or sensitivity-tested execution assumptions;
 4. real accounting, collateral, fees, and settlement;
@@ -211,7 +216,11 @@ Implemented surfaces include:
 - canonical C++ risk for new `pmm.backtest.v2` configurations;
 - hashed complete risk traces;
 - an opt-in unresolved-settlement cash-flow ledger; and
-- deterministic configuration and artifact hashing.
+- deterministic configuration and artifact hashing;
+- immutable reviewed first-party product-source bundles and formal schemas;
+- source-backed price, quantity, payout, lifecycle, settlement, fee, and identity projections;
+- exact refusal of lossy cent/whole-contract conversion; and
+- offline-verifiable V2/V3 product lineage through result artifacts.
 
 Boundary: Phase 7 is not complete as a credible research platform. The current data, execution,
 accounting, compatibility, and recovery limitations below remain material.
@@ -354,7 +363,7 @@ keep the conformance tail active.
 
 This is the highest-value project track after the conformance tail.
 
-### B1. Authoritative product metadata — next, high priority
+### B1. Authoritative product metadata — current, high priority
 
 The repository needs versioned venue product terms for every researched contract:
 
@@ -377,13 +386,12 @@ Acceptance gate:
 Why it comes first: execution, accounting, and ML labels can all be internally consistent while
 still being wrong for the actual venue contract if product terms are missing.
 
-#### B1a. Product-term schema and identity integration — next bounded package
+#### B1a. Product-term schema and identity integration — complete
 
-The first B1 package is design-first. It should define how authoritative, versioned venue terms
-enter the existing Phase 7 pipeline before adding accounting, multi-market behavior, or a live
-metadata dependency.
+The first B1 package was design-first. The following pre-implementation boundary and questions are
+retained as the acceptance record.
 
-Current implementation boundary:
+Pre-B1a implementation boundary:
 
 - normalization writes `product.json` with schema `pmm.historical.product_map.v1` from capture and
   message identity;
@@ -394,7 +402,7 @@ Current implementation boundary:
 - current integer-cent and whole-contract behavior is a declared research limitation, not proof
   that every venue product has those terms.
 
-Required B1a design questions:
+Resolved B1a design questions:
 
 1. Compare extending `product.json`, adding a separate immutable `product_terms.json`, and making
    product terms a configuration-owned input.
@@ -413,10 +421,10 @@ Required B1a design questions:
    venue state.
 9. Identify whether an ADR-007/ADR-008 amendment or a new ADR is warranted before implementation.
 
-Recommended design direction to evaluate, not assume: keep capture-derived identity separate from
-an immutable source-backed product-term document, reference the latter by canonical content hash,
-and keep network retrieval outside deterministic normalization and backtest execution. The next
-agent must compare alternatives and justify the selected ownership boundary before editing code.
+The approved design keeps capture-derived identity separate from an immutable source-backed
+product-term document, references the latter by canonical content hash, and keeps network retrieval
+outside deterministic normalization and backtest execution. ADR-010 records the alternatives and
+selected ownership boundary.
 
 B1a non-goals:
 
@@ -429,9 +437,40 @@ B1a non-goals:
 - do not mix B2 multi-market/reconnect recovery or B3 experiment reporting into B1a; and
 - do not reopen closed Track A work unless new evidence shows a higher-impact defect.
 
-B1a design gate: the new agent must inspect the current artifacts and present the schema,
-ownership, compatibility, migration, test, documentation, and phased implementation proposal for
-approval before making changes.
+B1a evidence:
+
+- ADR-010 selects a separate reviewed immutable product package after comparing extension and
+  configuration-owned alternatives.
+- `pmm.venue_product_terms.v1` and companion source, review, catalog, conversion, and compatibility
+  schemas retain exact local first-party evidence and canonical hashes.
+- runtime validation mechanically compares market-specific reviewed fields with retained market,
+  series, and event records and refuses stale hashes, unsafe paths, extra bytes, identity/time
+  mismatch, incompatible grids/units/policies, and tampered lineage;
+- normalization/feature V2 and backtest/result V3 propagate the complete exact lineage while V1/V2
+  compatibility artifacts retain their old meaning; and
+- focused validation passes 10 product-term tests, the full Python suite passes 69 tests, and all
+  78 CTest tests pass. The implementation commit is `6dc3000`.
+
+Boundary: the first reviewed package is explicitly retrospective. It retains the official linked
+contract-document identities but not the linked PDF bytes, and it covers one market. Fee and
+settlement identities are retained but neither behavior is applied.
+
+#### B1b. Contemporaneous source acquisition and second-market evidence — next bounded package
+
+Close the remaining high-value provenance and generality gaps before treating B1 as complete:
+
+- define and test an operator acquisition specification that runs before capture and retains the
+  market, event, series, fixed-point, fee, settlement, contract-terms, and certification bytes;
+- add at least one reviewed package from a different product family or price-grid shape;
+- retain linked legal/document bytes or explicitly refuse approval when required documents cannot
+  be archived;
+- prove additive refresh, non-overlapping effective revisions, catalog selection, and compatibility
+  reporting across two markets entirely offline; and
+- keep network acquisition explicit and outside deterministic normalization/backtesting.
+
+B1b remains metadata/evidence work. It must not add fees, accounting, settlement processing,
+multi-market replay/reconnect policy, calibrated execution, paper/live behavior, or new core numeric
+types.
 
 ### B2. Broader observed-market coverage and recovery — planned
 
@@ -823,7 +862,7 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | Product metadata ingest and compatibility hashes | Required for truthful units, accounting, and cross-market work. |
+| 1 | Contemporaneous product evidence and second reviewed market | Closes B1 provenance and generality before accounting or broader replay. |
 | 2 | Multi-market/reconnect/gap-recovery fixtures | Establishes broader observed-data validity. |
 | 3 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
 | 4 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
@@ -842,25 +881,22 @@ but it must remain labelled experimental and must not bypass its promotion gates
 
 ## Current next package
 
-The next agent should design **B1a authoritative product-term schema and identity integration**.
+The next agent should implement **B1b contemporaneous source acquisition and second-market
+evidence**, beginning with an inspect-and-design gate.
 
-Required design boundary:
+Required bounded outcome:
 
-- define a versioned product-term document with venue provenance and content hashes;
-- represent tick/price grid, lot and quantity units, payout, lifecycle/expiration, settlement,
-  fees/rounding, and market/event/contract identity explicitly;
-- make normalization and backtest manifests identify the exact product-term version;
-- reject unsupported price or quantity conversions and incompatible experiment comparisons;
-- keep observed venue facts distinct from reconstructed, assumed, synthetic, and model-derived
-  values; and
+- acquire and retain contemporaneous source and linked contract-document bytes before capture;
+- add a reviewed second market/product family and exercise catalog revision selection;
+- prove offline source/terms/review/compatibility behavior across both packages;
+- preserve the B1a schemas and hash contract unless evidence requires a versioned successor; and
 - do not mix accounting, calibrated execution, ML, gateway, paper-trading, or live behavior into
-  the first metadata package.
+  the evidence package.
 
-The handoff begins from `5a21e83`, after the completed A2 implementation (`ecca209`), completion
-documentation (`47fde6d`), impact-rated critique (`7a4e72d`), and deep explanation (`5a21e83`).
-The last validated implementation baseline remains 78 CTest tests, 59 Python tests, 17 focused
-checkpoint-reader tests, and canonical/current lifecycle and checkpoint corpora. Documentation-only
-follow-ups did not change executable behavior or reviewed corpus bytes.
+The handoff begins from B1a implementation `6dc3000` and its documentation package. The validated
+baseline is 78 CTest tests, 69 Python tests, 10 focused product-term tests, 17 focused checkpoint-
+reader tests, and canonical/current lifecycle and checkpoint corpora. B1a did not change production
+risk behavior or either reviewed risk corpus.
 
 Track A is closed by `4e6336b` for A1 and `ecca209` for A2, with their documentation packages.
 Deferred A3 hardening remains available only when evidence raises its impact or its containing

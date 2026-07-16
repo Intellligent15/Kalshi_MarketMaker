@@ -63,6 +63,10 @@ finishes an interrupted prepared command if one exists.
 - Missing source sequences become explicit gaps. Identical duplicates are idempotent; conflicting
   duplicates, invalid units, unknown products, and corrupt records are rejected.
 
+ADR-010 implements the authoritative product-term portion through a separately reviewed immutable
+source bundle, normalization/feature V2 lineage, and backtest V3. V1 artifacts retain their
+capture-derived meaning and are not silently reinterpreted.
+
 ## Fidelity and truth labels
 
 Every normalized event, projection, feature row, execution, and result identifies both source

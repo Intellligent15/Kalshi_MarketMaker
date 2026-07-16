@@ -58,6 +58,10 @@ Result manifests must hash inputs, product terms, risk contract, execution param
 policy, accounting policy, and outputs. Runs with different source scope, partitions, execution
 fidelity, latency policy, or accounting policy cannot be ranked as equivalent performance tests.
 
+ADR-010 supplies the product/source/review/conversion hashes for `pmm.backtest.v3`. Fee type and
+rounding sources are retained for compatibility, but V3 explicitly records `not_applied`; this does
+not implement the accounting work described by this ADR.
+
 ## Consequences
 
 - C++ is the canonical account-risk implementation; Python is orchestration and a compatibility

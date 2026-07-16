@@ -40,6 +40,12 @@ ADR-009 makes C++ risk mandatory for new `pmm.backtest.v2` research configuratio
 launch the local oracle through a repository-relative CMake target and emit a hashed canonical
 risk trace. Existing V1 configurations retain their Python compatibility path for reproducibility.
 
+ADR-010 adds reviewed authoritative product terms without coupling replay to a live venue API.
+Exact first-party source bytes, canonical terms, effective-time review, and the local conversion
+policy are hashed through normalization V2, feature V2, backtest V3, and result manifests. Valid
+venue values that cannot be represented as integer cents or whole contracts refuse without
+rounding. Fees and settlement are identified but not applied.
+
 ## Quick start
 
 Prerequisites: CMake 3.24+, a C++20 compiler, Git (to fetch GoogleTest for test builds),

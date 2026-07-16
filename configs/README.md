@@ -24,3 +24,14 @@ capture/normalization steps. V2 emits a hashed `risk-trace.jsonl` artifact and r
 risk fallback. `python_reference_v1` remains only for V1 configuration compatibility. An optional
 `pmm.accounting_policy.v1` block currently supports only unresolved model-fill cash flows and
 fees; it must not be interpreted as PnL or settlement.
+
+`product_catalog/` owns immutable reviewed product revisions, retained first-party source bytes,
+formal source/terms/review hashes, and conversion policies. The first catalog entry covers the
+captured Washington–Toronto market retrospectively. Its review limitations are part of its exact
+identity. Never edit a reviewed revision in place; add a new package and non-overlapping catalog
+entry.
+
+`phase7/kalshi_wsh_tor_no_fill_product_terms_v3.json` is the authoritative-terms no-fill control.
+It requires normalization/feature V2 artifacts and names the exact product terms, retained source,
+review, and conversion-policy hashes. It applies neither fees nor settlement. The older V1/V2
+configs remain unchanged compatibility examples and are not silently upgraded.
