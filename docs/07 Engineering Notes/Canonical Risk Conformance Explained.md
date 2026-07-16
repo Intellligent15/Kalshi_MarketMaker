@@ -756,3 +756,203 @@ The change is test maintainability only. It changes no reviewed fixture bytes, c
 restore rule, rejection ordering, production risk behavior, or V1 oracle capability. Checkpoint
 serialization and the Python checkpoint model remain test-only, and rehashing still proves byte
 integrity rather than semantic truth.
+
+## A deeper walkthrough of the donor-index correction
+
+### The problem in one sentence
+
+The strict tests knew *where the checkpoint happened today* instead of knowing *how to find where
+the fixture says checkpointing happens*.
+
+That difference sounds small because the reviewed donor currently has one obvious capture. It
+matters because the fixture and expected trace are parallel arrays. If a valid operation were
+inserted before capture, every later position would move:
+
+```text
+before
+operations:  [admit, bind, acknowledge, admit, bind, checkpoint, restore, ...]
+transitions: [  0,     1,          2,     3,    4,       5,       6, ...]
+
+after inserting one valid earlier operation
+operations:  [admit, bind, acknowledge, admit, bind, kill(false), checkpoint, restore, ...]
+transitions: [  0,     1,          2,     3,    4,           5,       6,       7, ...]
+```
+
+The checkpoint semantics did not change, but a literal reference to transition 5 now points at
+the inserted kill-switch transition. A test could fail with "checkpoint missing," mutate the wrong
+value, or expect a diagnostic path that no longer describes its target. Those would be test-
+maintenance failures, not risk-engine regressions.
+
+### The mental model: program first, reviewed answer second
+
+Treat the fixture operations as a tiny program and the expected transitions as its reviewed
+step-by-step answer:
+
+```text
+fixture operation i  ------------------>  expected transition i
+       instruction                              reviewed outcome
+```
+
+The operation `checkpoint` says that capture must occur at index `i`. The expected transition at
+`i` must then contain the reviewed checkpoint document. The trace is not searched for something
+that merely looks like a checkpoint because that would allow the answer to choose which
+instruction it claims to answer.
+
+This produces four explicit donor requirements:
+
+| Requirement | Failure meaning |
+| --- | --- |
+| Exactly one checkpoint operation | Zero means there is no mutation target; more than one makes the donor ambiguous. |
+| Equal operation and transition counts | Positional alignment cannot be defined if one array has extra or missing steps. |
+| Same-index selection | The capture is chosen from the program, not inferred from answer shape. |
+| Object-valued checkpoint at that transition | The reviewed answer must actually carry the document the strict matrix will mutate. |
+
+### The three layers of proof
+
+The implementation separates three questions that are easy to blur together.
+
+#### Layer 1: can the donor be located unambiguously?
+
+The local C++ and Python helpers scan only `operations[*].operation`, require exactly one
+`checkpoint`, require equal array lengths, and inspect the transition at that returned index. Four
+focused cases remove the capture, duplicate it, misalign the arrays, or remove the matching
+checkpoint document. Each case requires its intended diagnostic rather than any failure.
+
+#### Layer 2: do all strict rules use that location?
+
+The existing 16-row table remains unchanged in meaning. Every row receives the checkpoint selected
+through the helper, and every expected diagnostic is the discovered transition prefix plus a row-
+specific suffix. The table still independently covers:
+
+- four identity fields;
+- six configured limits;
+- live- and pending-record order;
+- live and pending positive quantities;
+- post-only pending intent; and
+- positive bound ingress.
+
+This is why the implementation did not replace the matrix with one generic mutation. Position
+selection is shared mechanics, but each strict comparison remains separate evidence.
+
+#### Layer 3: does the complete workflow survive a real position change?
+
+A helper-only test could pass even if the matrix continued to use a literal index elsewhere. The
+shifted regression therefore changes a temporary corpus exactly as a future fixture edit might:
+
+1. Copy all 26 checkpoint fixture pairs to a temporary directory.
+2. Locate the donor's capture from its operation list.
+3. Insert `kill_switch: false` immediately before it.
+4. Insert an `applied` transition carrying the unchanged preceding state.
+5. Canonically rewrite the temporary fixture and trace.
+6. Recompute both member hashes and the canonical manifest-payload hash.
+7. Load the complete corpus and execute the shifted donor successfully.
+8. Locate the capture again and require that it moved by one position.
+9. Change the captured pending order's `post_only` value to false.
+10. Canonically rewrite and rehash again.
+11. Require the strict `post_only` field path at the newly discovered index.
+
+Step 7 is especially important. Without it, the test might pass because the inserted operation or
+transition was itself invalid. Executing the donor first proves that the position shift is a valid
+scenario; the later failure can then be attributed to the intentional strict mutation.
+
+### One mutation from input to diagnostic
+
+The `post_only` shifted case now follows this evidence chain:
+
+```text
+operation list says capture is at i
+              |
+              v
+expected transition i contains reviewed checkpoint
+              |
+              v
+temporary earlier operation moves capture to i + 1
+              |
+              v
+loader and executor accept the shifted corpus
+              |
+              v
+post_only becomes false at transition i + 1
+              |
+              v
+canonical bytes and hashes are repaired
+              |
+              v
+reader reaches transition[i + 1].checkpoint.pending_orders[0].post_only
+              |
+              v
+the exact strict diagnostic is required
+```
+
+If canonical rewriting were skipped, byte-shape validation could fail first. If rehashing were
+skipped, member integrity would fail first. If the expected diagnostic were generic, either early
+failure could accidentally satisfy the test. Keeping all three requirements ensures the row proves
+the strict rule it names.
+
+### Why the helpers are local and duplicated
+
+There were two tempting abstractions that we deliberately rejected.
+
+Moving the lookup into `risk_checkpoint_fixture.*` would make it reusable, but would also blur two
+different rules. The shared reader currently permits the versioned roundtrip shape it documents;
+the strict mutation test specifically needs one unambiguous donor. A donor-selection condition is
+not automatically a schema condition for every fixture.
+
+Sharing the locator or matrix between C++ and Python would reduce repeated code, but would also let
+one implementation encode the other's answer. The current design shares the reviewed documents
+and required behavior while keeping the code that enforces them independent. That duplication is
+an evidence boundary, much like two independent calculations agreeing on the same reviewed result.
+
+### Tradeoffs we accepted
+
+| Choice | Benefit | Cost |
+| --- | --- | --- |
+| Local helper in each test file | Keeps donor policy out of shared schema code. | Two similar implementations must be maintained. |
+| Four direct failure cases plus shifted regression | Pins both clear failures and real position independence. | More test code than a simple search expression. |
+| Dynamic prefix plus row-specific suffix | Removes fixed-index coupling without weakening diagnostics. | Lookup returns a small amount of presentation data as well as the index. |
+| Full temporary-corpus copy and rehash | Proves the same integrity boundary used by real fixtures and isolates every row. | Work grows with corpus size and number of mutations. |
+| One shifted representative strict mutation | Proves shared targeting machinery with little repetition. | Does not rerun all 16 strict defects on the shifted donor. |
+| Independent C++ and Python tables | Either reader can expose drift in the other. | New strict fields require coordinated updates in two places. |
+
+At the current corpus size these costs are appropriate. The focused C++ checkpoint suite and
+Python module both remain below one second, so caching, parser exposure, or shared mutation
+frameworks would trade away clarity and isolation without solving a measured problem.
+
+### What the completed tests prove
+
+- The strict donor is identified from exactly one fixture checkpoint operation.
+- Operation and transition alignment is required before mutation.
+- The aligned expected transition must contain a checkpoint document.
+- Capture selection, mutation targeting, and diagnostic paths do not depend on a fixed position.
+- All 16 existing strict mutations still reach their intended rule after canonical rewriting and
+  integrity rehashing.
+- C++ and Python provide independent implementations of the same reviewed contract.
+- The checked-in 26-pair checkpoint corpus remains unchanged.
+
+### What they do not prove
+
+The correction does not add a new checkpoint semantic, reconstruct event history, or make the JSON
+a production persistence format. It does not test durable storage, WAL recovery, process restart,
+portfolio recovery, or multi-account recovery. It does not improve fill calibration, queue
+priority, execution realism, PnL, collateral, settlement, paper trading, or live readiness.
+
+It also does not make integrity hashes semantic truth. Rehashing proves that metadata describes
+the temporary bytes; the strict readers and executors prove behavior against reviewed expectations.
+The frozen lifecycle V1 oracle remains unchanged and cannot execute checkpoint fixtures.
+
+### How to review a future change safely
+
+When the donor or strict contract changes, a reviewer should ask:
+
+1. Does the fixture operation list still contain exactly one donor checkpoint?
+2. Does the expected transition at that same index contain the reviewed capture?
+3. Are new strict fields represented by named rows in both independent matrices?
+4. Are mutation documents canonical and rehashed before loading?
+5. Does each case still require its field-specific diagnostic?
+6. Does the shifted donor still load and execute before the representative defect is introduced?
+7. Did any checked-in fixture byte, schema, production risk rule, or V1 capability change
+   unintentionally?
+
+This checklist preserves the central idea: the fixture program chooses the capture, the reviewed
+trace must align with it, and integrity metadata must be valid before a strict rule can count as
+tested.
