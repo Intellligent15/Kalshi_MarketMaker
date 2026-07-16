@@ -24,9 +24,9 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-16 |
-| Baseline commit | `4e6336b` (`test(risk): exercise lifecycle fixture repair`) |
-| Branch state at review | `main` two commits ahead of `origin/main` at the implementation baseline |
-| Recent risk commits | `4e6336b`, `1fcc7ae`, `cc02126`, `9a05f77`, and `d725677` |
+| Baseline commit | `7642969` (`docs(risk): deepen lifecycle repair explanation`) |
+| Branch state at review | `main` five commits ahead of `origin/main` |
+| Recent risk commits | `7642969`, `7f8b2bc`, `54d030b`, `4e6336b`, and `1fcc7ae` |
 | C++/CTest validation | 78 tests passing |
 | Python validation | 58 tests passing |
 | Focused fixture-integrity validation | 17 tests passing |
@@ -270,7 +270,10 @@ Completion evidence:
 - repaired bytes preserve the authored identifier and equal the canonical authored document;
 - member and manifest-payload SHA-256 values are reconstructed independently;
 - ordinary verification preserves the repaired snapshot; and
-- repeated `--write` is byte-identical.
+- repeated `--write` is byte-identical;
+- commit `54d030b` records the completed guide, explanation, critique, and roadmap promotion;
+- commit `7f8b2bc` adds the severity-ranked post-implementation critique; and
+- commit `7642969` adds the deep what/how/why walkthrough and maintainer checklist.
 
 Boundary: this is temporary integrity-repair evidence. It does not change or execute a reviewed
 lifecycle pair, generate a semantic trace, or expand the integrity tool or frozen V1 adapter.
@@ -282,11 +285,36 @@ reader does not yet mirror.
 
 Required approach:
 
-- inventory the exact asymmetric rows first;
+- use the completed C++/Python inventory below rather than repeating a broad rediscovery pass;
 - keep C++ and Python implementations independent;
 - use canonical temporary documents with current hashes;
 - require field-specific diagnostics; and
 - preserve checkpoint rejection semantics and first-failure ordering.
+
+Current asymmetric inventory at `7642969`:
+
+| Missing Python counterpart | Current C++ donor and mutation |
+| --- | --- |
+| Missing fixture `kind` | Remove `kind` from `roundtrip_empty_state.json`. |
+| Numeric JSON where a decimal string is required | Set `checkpoint_zero_ingress.json` `checkpoint.net_position_contracts` to numeric `1`. |
+| Unknown checkpoint side | Set the first live order side in `checkpoint_buy_exposure_limit.json` to `hold`. |
+| Decreasing checkpoint identifiers | Swap the first two live orders in `checkpoint_active_order_limit.json`. |
+| Wrong checkpoint schema | Set `checkpoint_zero_ingress.json` `checkpoint.schema` to `pmm.risk_checkpoint.v2`. |
+| Bad manifest payload hash | Replace top-level `payload_sha256` with 64 `a` characters without rehashing it. |
+| Symlink manifest member | Replace temporary `roundtrip_empty_state.json` with a symlink to renamed real bytes. |
+| Duplicate manifest member | Make the second entry reuse the first entry's expected-trace name and digest, then rehash the payload. |
+| Continuation after rejected restore | Give `checkpoint_zero_ingress` one kill-switch operation and append a matching continuation transition after its rejected restore. |
+
+Existing Python mutation tests already cover unknown fixture fields, noncanonical decimal strings,
+bad member hashes, unsafe member paths, unreferenced JSON, restore without an immediately preceding
+capture, state attached to a rejected restore, and the forbidden frozen-V1 executor. The strict
+captured-checkpoint matrix and its position-independent donor coverage are also already mirrored;
+do not duplicate them in A2.
+
+Design question for A2: compare nine separate test methods with one named table-driven mutation
+matrix and with a narrow shared assertion helper. Prefer the smallest structure that keeps each
+defect, donor, rehash rule, and expected diagnostic visible. Do not weaken the proof to generic
+`AssertionError` alone.
 
 Non-goal: do not expand production checkpoint semantics or convert the test-only JSON into a
 durable production format.
@@ -750,14 +778,20 @@ The next agent should implement **remaining Python checkpoint-reader mutation pa
 
 Required design boundary:
 
-- inventory the exact schema-specific mutation rows covered by the C++ checkpoint reader but not
-  the Python reader before choosing donors;
+- confirm the nine-row inventory recorded in A2 against the current C++ and Python tests;
 - keep the two reader implementations independent rather than sharing validation code;
 - make every temporary document canonical and keep both member and manifest-payload hashes current
   so each case reaches its intended reader rule;
 - isolate one named defect per row and require a field-specific diagnostic;
 - preserve checkpoint rejection categories, enum ordinals, and first-failure ordering; and
 - keep checkpoint JSON and the Python checkpoint model test-only.
+
+Do not duplicate the existing strict captured-checkpoint matrix, donor-shift coverage, lifecycle
+repair cycle, integrity-parser refusal matrix, public CLI subprocess matrix, or reviewed semantic
+checkpoint fixtures. The likely implementation surface is
+`python/tests/test_risk_checkpoint_conformance.py`; changes to the independent Python reader helper
+should occur only if exact diagnostics cannot be pinned cleanly at the existing public test
+boundary.
 
 The completed A1 package is preserved above and is evidenced by:
 
