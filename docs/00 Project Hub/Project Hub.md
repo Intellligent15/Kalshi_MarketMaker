@@ -20,6 +20,7 @@ fees, collateral, settlement, durable persistence, and gateways remain intention
 
 ## Navigation
 
+- [[00 Project Hub/Current State and Remaining Work|Authoritative current state and remaining work]]
 - [[01 Roadmap/Phase 1 Plan|Roadmap and Phase 1 plan]]
 - [[01 Roadmap/Phase 2 Core Domain Types|Phase 2 plan and scope]]
 - [[01 Roadmap/Phase 3 Limit Order Book|Phase 3 plan and scope]]

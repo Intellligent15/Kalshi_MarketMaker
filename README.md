@@ -85,6 +85,8 @@ documented in [python/README.md](python/README.md).
 | `python/` | Analysis, data preparation, and future ML support code. |
 
 See the [Project Hub](docs/00%20Project%20Hub/Project%20Hub.md), the
+[current state and remaining-work roadmap](docs/00%20Project%20Hub/Current%20State%20and%20Remaining%20Work.md),
+the
 [Phase 3 plan](docs/01%20Roadmap/Phase%203%20Limit%20Order%20Book.md), the
 [Phase 4 plan](docs/01%20Roadmap/Phase%204%20Exchange%20Simulator.md), and
 [ADR-004](docs/02%20Architecture/ADR-004%20Exchange%20Simulator%20and%20Replay.md) for matching
