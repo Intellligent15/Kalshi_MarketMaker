@@ -70,6 +70,8 @@ Use these documents to verify or deepen a claim in this roadmap:
 - [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage|Authoritative product terms and lineage]]
 - [[07 Engineering Notes/Phase 7 Critique|Original Phase 7 critique]]
 - [[07 Engineering Notes/Product Terms Source and Review Guide|Product-term source and review guide]]
+- [[07 Engineering Notes/Authoritative Product Terms Explained|Product-term implementation walkthrough]]
+- [[07 Engineering Notes/Authoritative Product Terms Critique|Product-term severity-ranked critique]]
 - [[07 Engineering Notes/Research Execution Foundation Critique|Research execution critique]]
 - [[07 Engineering Notes/Canonical Risk Conformance Critique|Current risk-conformance debt and reviews]]
 - [[07 Engineering Notes/Canonical Risk Conformance Explained|Risk-conformance walkthroughs]]
@@ -450,6 +452,13 @@ B1a evidence:
   compatibility artifacts retain their old meaning; and
 - focused validation passes 10 product-term tests, the full Python suite passes 69 tests, and all
   78 CTest tests pass. The implementation commit is `6dc3000`.
+
+The post-implementation review is recorded in
+[[07 Engineering Notes/Authoritative Product Terms Critique]]. Its highest-impact findings are
+effective-interval consistency, redirect/fetch provenance hardening, schema/runtime parity,
+reviewer governance, linked-document evidence, and deeper end-to-end negative tests. The
+plain-language system walkthrough is
+[[07 Engineering Notes/Authoritative Product Terms Explained]].
 
 Boundary: the first reviewed package is explicitly retrospective. It retains the official linked
 contract-document identities but not the linked PDF bytes, and it covers one market. Fee and

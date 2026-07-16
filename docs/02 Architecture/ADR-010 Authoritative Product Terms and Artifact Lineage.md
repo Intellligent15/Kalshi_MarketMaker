@@ -161,3 +161,8 @@ market recovery, experiment grids, reporting, or ML; change Phase 3 matching, in
 watermarks, kill switches, or the closed lifecycle/checkpoint corpora. It makes no claim of venue-
 equivalent execution, profitability, paper readiness, or live readiness. `Observed`,
 `Reconstructed`, `Synthetic`, and `ModelDerived` remain distinct.
+
+See [[07 Engineering Notes/Authoritative Product Terms Explained]] for the plain-language
+walkthrough, [[07 Engineering Notes/Product Terms Source and Review Guide]] for the operator and
+evidence boundary, and [[07 Engineering Notes/Authoritative Product Terms Critique]] for the
+severity-ranked remaining debt.

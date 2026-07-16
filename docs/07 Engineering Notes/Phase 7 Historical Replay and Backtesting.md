@@ -66,3 +66,6 @@ The first post-V1 risk and unresolved-cash-flow foundation is recorded in
 and [[07 Engineering Notes/Research Execution Foundation Critique]] for the ranked follow-up register.
 Product-term ownership and lineage are specified by
 [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage]].
+See [[07 Engineering Notes/Authoritative Product Terms Explained]] for the deeper what/how/why
+walkthrough and [[07 Engineering Notes/Authoritative Product Terms Critique]] for the current
+severity-ranked limitations and follow-up order.
