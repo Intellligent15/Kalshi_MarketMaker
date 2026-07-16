@@ -8,6 +8,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -23,6 +25,20 @@ class RiskFixtureIntegrityTests(unittest.TestCase):
         shutil.copytree(integrity.CORPORA[name][0], root)
         return scratch, root
 
+    def _copy_cli_repository(
+        self, *corpora: str
+    ) -> tuple[tempfile.TemporaryDirectory[str], Path]:
+        scratch = tempfile.TemporaryDirectory(prefix="pmm-risk-integrity-cli-")
+        repository = Path(scratch.name) / "repository"
+        tools_root = repository / "tools"
+        tools_root.mkdir(parents=True)
+        shutil.copy2(Path(integrity.__file__).resolve(), tools_root / "risk_fixture_integrity.py")
+        fixture_root = repository / "python" / "tests" / "fixtures" / "risk_conformance"
+        fixture_root.mkdir(parents=True)
+        for corpus in corpora:
+            shutil.copytree(integrity.CORPORA[corpus][0], fixture_root / corpus)
+        return scratch, repository
+
     @staticmethod
     def _snapshot(root: Path) -> dict[str, bytes]:
         return {
@@ -30,6 +46,46 @@ class RiskFixtureIntegrityTests(unittest.TestCase):
             for path in sorted(root.iterdir())
             if path.is_file() and not path.is_symlink()
         }
+
+    @staticmethod
+    def _snapshot_cli_corpora(repository: Path) -> dict[str, bytes]:
+        root = repository / "python" / "tests" / "fixtures" / "risk_conformance"
+        return {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in sorted(root.rglob("*"))
+            if path.is_file() and not path.is_symlink()
+        }
+
+    @staticmethod
+    def _run_cli(repository: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(repository / "tools" / "risk_fixture_integrity.py"),
+                *arguments,
+            ],
+            cwd=repository,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def _make_cli_member_stale(
+        self, repository: Path, corpus: str, member_name: str
+    ) -> dict[str, object]:
+        member = (
+            repository
+            / "python"
+            / "tests"
+            / "fixtures"
+            / "risk_conformance"
+            / corpus
+            / member_name
+        )
+        document = self._load(member)
+        document["fixture_id"] = f"{document['fixture_id']}_cli_edited"
+        member.write_text(json.dumps(document, indent=2), encoding="utf-8")
+        return document
 
     @staticmethod
     def _load(path: Path) -> dict[str, object]:
@@ -46,6 +102,169 @@ class RiskFixtureIntegrityTests(unittest.TestCase):
                 self.assertEqual(plan.changes, ())
                 integrity.write_plans([plan])
                 self.assertEqual(self._snapshot(root), before)
+
+    def test_cli_canonical_verification_is_read_only(self) -> None:
+        scratch, repository = self._copy_cli_repository("checkpoint_v1")
+        self.addCleanup(scratch.cleanup)
+        before = self._snapshot_cli_corpora(repository)
+
+        completed = self._run_cli(repository, "--corpus", "checkpoint_v1")
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(
+            completed.stdout,
+            "fixture integrity metadata is canonical and current\n",
+        )
+        self.assertEqual(completed.stderr, "")
+        self.assertEqual(self._snapshot_cli_corpora(repository), before)
+
+    def test_cli_verification_selects_only_requested_corpora_without_writing(self) -> None:
+        cases = (
+            (
+                "checkpoint_v1",
+                ("checkpoint_v1",),
+                (("checkpoint_v1", "roundtrip_empty_state.json"),),
+            ),
+            (
+                "v1",
+                ("v1",),
+                (("v1", "lifecycle.json"),),
+            ),
+            (
+                "all",
+                ("v1", "checkpoint_v1"),
+                (
+                    ("v1", "lifecycle.json"),
+                    ("checkpoint_v1", "roundtrip_empty_state.json"),
+                ),
+            ),
+        )
+        for selection, copied_corpora, mutations in cases:
+            with self.subTest(selection=selection):
+                scratch, repository = self._copy_cli_repository(*copied_corpora)
+                try:
+                    for corpus, member_name in mutations:
+                        self._make_cli_member_stale(repository, corpus, member_name)
+                    before = self._snapshot_cli_corpora(repository)
+
+                    completed = self._run_cli(repository, "--corpus", selection)
+
+                    expected_lines: list[str] = []
+                    for corpus, member_name in mutations:
+                        prefix = f"python/tests/fixtures/risk_conformance/{corpus}"
+                        expected_lines.extend(
+                            (
+                                f"would update {prefix}/{member_name}",
+                                f"would update {prefix}/manifest.json",
+                            )
+                        )
+                    expected_lines.append(
+                        "rerun with --write after reviewing the authored JSON values"
+                    )
+                    self.assertEqual(completed.returncode, 1)
+                    self.assertEqual(completed.stdout, "")
+                    self.assertEqual(completed.stderr, "\n".join(expected_lines) + "\n")
+                    self.assertEqual(self._snapshot_cli_corpora(repository), before)
+                finally:
+                    scratch.cleanup()
+
+    def test_cli_structural_refusal_is_read_only(self) -> None:
+        scratch, repository = self._copy_cli_repository("checkpoint_v1")
+        self.addCleanup(scratch.cleanup)
+        manifest = (
+            repository
+            / "python"
+            / "tests"
+            / "fixtures"
+            / "risk_conformance"
+            / "checkpoint_v1"
+            / "manifest.json"
+        )
+        manifest.write_bytes(b"\xef\xbb\xbf" + manifest.read_bytes())
+        before = self._snapshot_cli_corpora(repository)
+
+        completed = self._run_cli(repository, "--corpus", "checkpoint_v1")
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertEqual(completed.stdout, "")
+        self.assertTrue(completed.stderr.startswith("error: "))
+        self.assertNotIn("usage:", completed.stderr)
+        self.assertIn("must not contain a UTF-8 byte-order mark", completed.stderr)
+        self.assertEqual(self._snapshot_cli_corpora(repository), before)
+
+    def test_cli_write_repairs_then_verifies_and_repeats_as_no_op(self) -> None:
+        scratch, repository = self._copy_cli_repository("checkpoint_v1")
+        self.addCleanup(scratch.cleanup)
+        member_name = "roundtrip_empty_state.json"
+        document = self._make_cli_member_stale(repository, "checkpoint_v1", member_name)
+        before = self._snapshot_cli_corpora(repository)
+
+        written = self._run_cli(repository, "--corpus", "checkpoint_v1", "--write")
+
+        member_relative = f"checkpoint_v1/{member_name}"
+        manifest_relative = "checkpoint_v1/manifest.json"
+        after = self._snapshot_cli_corpora(repository)
+        changed = {
+            path for path in before | after if before.get(path) != after.get(path)
+        }
+        self.assertEqual(written.returncode, 0)
+        self.assertEqual(
+            written.stdout,
+            "updated python/tests/fixtures/risk_conformance/checkpoint_v1/"
+            f"{member_name}\n"
+            "updated python/tests/fixtures/risk_conformance/checkpoint_v1/manifest.json\n",
+        )
+        self.assertEqual(written.stderr, "")
+        self.assertEqual(changed, {member_relative, manifest_relative})
+        self.assertEqual(after[member_relative], integrity.canonical_bytes(document))
+
+        manifest = json.loads(after[manifest_relative])
+        entry = next(
+            item
+            for item in manifest["payload"]["entries"]
+            if item["fixture"] == member_name
+        )
+        self.assertEqual(
+            entry["fixture_sha256"], hashlib.sha256(after[member_relative]).hexdigest()
+        )
+        self.assertEqual(
+            manifest["payload_sha256"],
+            hashlib.sha256(integrity.canonical_bytes(manifest["payload"])).hexdigest(),
+        )
+
+        verified = self._run_cli(repository, "--corpus", "checkpoint_v1")
+        self.assertEqual(verified.returncode, 0)
+        self.assertEqual(
+            verified.stdout,
+            "fixture integrity metadata is canonical and current\n",
+        )
+        self.assertEqual(verified.stderr, "")
+        self.assertEqual(self._snapshot_cli_corpora(repository), after)
+
+        repeated = self._run_cli(repository, "--corpus", "checkpoint_v1", "--write")
+        self.assertEqual(repeated.returncode, 0)
+        self.assertEqual(
+            repeated.stdout,
+            "fixture integrity metadata is already canonical and current\n",
+        )
+        self.assertEqual(repeated.stderr, "")
+        self.assertEqual(self._snapshot_cli_corpora(repository), after)
+
+    def test_cli_argparse_refusals_are_distinct_from_corpus_errors(self) -> None:
+        scratch, repository = self._copy_cli_repository()
+        self.addCleanup(scratch.cleanup)
+        cases = (
+            ((), "the following arguments are required: --corpus"),
+            (("--corpus", "invalid"), "invalid choice: 'invalid'"),
+        )
+        for arguments, expected_diagnostic in cases:
+            with self.subTest(arguments=arguments):
+                completed = self._run_cli(repository, *arguments)
+                self.assertEqual(completed.returncode, 2)
+                self.assertEqual(completed.stdout, "")
+                self.assertTrue(completed.stderr.startswith("usage: "))
+                self.assertIn("risk_fixture_integrity.py: error:", completed.stderr)
+                self.assertIn(expected_diagnostic, completed.stderr)
 
     def test_stale_hashes_and_noncanonical_json_are_repaired(self) -> None:
         scratch, root = self._copy_corpus()
