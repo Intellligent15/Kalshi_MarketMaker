@@ -1172,3 +1172,332 @@ serialization and the Python checkpoint model remain test-only.
 Nothing here establishes durable storage, WAL integration, process restart, portfolio or
 multi-account recovery, calibrated fills, queue priority, execution realism, PnL, collateral,
 settlement, paper trading, live readiness, or profitability.
+
+## Deeper post-implementation review of lifecycle-root repair
+
+This review examines commit `4e6336b` as implemented, not only the approved design. Impact uses 1
+for minor review or maintenance friction and 5 for a defect that would undermine the integrity
+workflow's central evidence. A high score would justify corrective work before moving on; a low
+score should normally remain documented debt rather than expanding this bounded package.
+
+### Overall judgment
+
+The implementation satisfies A1 and should not be reopened. The lifecycle case executes the copied
+real command, keeps every mutation inside a fresh temporary repository, asserts the complete public
+process contract, constrains the write set to two paths, reconstructs both digest relationships,
+preserves the authored identifier, verifies the repaired root, and proves a repeated write is a
+complete byte no-op.
+
+The strongest property is compositional evidence. No single assertion is asked to prove too much:
+
+```text
+exact status and streams       prove the public command contract
+complete file snapshots        prove the permitted write boundary
+canonical member equality      proves the repaired representation
+explicit fixture_id equality   proves authored-value preservation
+two independent digest checks  prove the repaired integrity envelope
+verify and repeated write      prove acceptance and idempotence
+```
+
+The implementation is not minimal in raw line count. Parameterizing the existing test changed 142
+lines and left a roughly 100-line nested method. Most of that size is direct evidence rather than
+general infrastructure, but it creates review and maintenance costs worth recording.
+
+### Category ratings
+
+| Category | Impact | Assessment |
+| --- | ---: | --- |
+| Unnecessary complexity | 2/5 | The two-row test is conceptually simple, but a long `subTest`/`try` body combines setup, three processes, byte comparisons, JSON navigation, and cleanup. The explicit sequence is valuable; the nesting is the main readability cost. |
+| Future technical debt | 2/5 | Donor filenames, the `fixture_id` shape, edited identifiers, exact output prose, POSIX-style paths, and the imported canonicalizer are deliberate couplings. They are safe today but require coordinated maintenance. |
+| Missing tests | 2/5 | A1 itself is complete. The largest missing test remains adjacent Python checkpoint-reader parity; lifecycle-specific omissions are low-impact precondition or composition checks. |
+| Missing documentation | 2/5 | The guide, explanation, critique, and living roadmap are accurate, but the chronological notes now repeat the same milestone at several depths and root README discoverability remains limited. |
+| Possible optimizations | 1/5 | Six fresh subprocesses and full byte snapshots repeat work, but the focused module remains below one second. Optimization would currently cost more clarity and isolation than it saves. |
+| Future scalability concerns | 2/5 | Runtime grows with cases times corpus size, and the single long method plus append-only notes will become awkward before compute becomes a serious bottleneck. No current scale requires redesign. |
+
+No category exceeds impact 2. The correct response is to preserve these findings and move to A2,
+not to change the tool, introduce a framework, or add speculative tests.
+
+### Unnecessary complexity
+
+#### 1. One test body carries the entire three-command protocol — impact 2/5
+
+The method contains the case table, temporary-repository lifecycle, mutation, baseline snapshot,
+first write, changed-file calculation, output assertions, content assertions, manifest lookup, two
+digest checks, verification, repeated write, and cleanup. The nesting is four levels deep in some
+places:
+
+```text
+test method
+  -> case loop
+    -> subTest
+      -> try/finally
+        -> assertions and generator expressions
+```
+
+A helper object or `_assert_cli_write_cycle` function would shorten the method. It would also hide
+the order in which invalid input becomes the read-only baseline and the point at which each
+snapshot is taken. Those are not incidental details; they determine what the test proves.
+
+Recommended handling: keep the method intact for two corpora. Reconsider extraction only if a
+third corpus or materially different writer scenario needs the same full cycle. If extraction
+becomes necessary, pass an immutable case record and keep mutation, baseline snapshot, and all
+three process invocations in one plainly named helper.
+
+#### 2. The case table stores an expected value that setup derives mechanically — impact 1/5
+
+`_make_cli_member_stale` appends `_cli_edited` to the donor's existing identifier, while the table
+also spells out the complete edited identifier. This is deliberate duplication:
+
+```text
+roundtrip_empty_state -> roundtrip_empty_state_cli_edited
+lifecycle             -> lifecycle_cli_edited
+```
+
+The third column could be derived, removing two strings. Keeping it explicit proves that setup
+authored the exact intended value and that repair preserved that same value. It also prevents a
+future change to the helper's suffix from silently redefining the assertion.
+
+Recommended handling: retain the explicit expected identifiers. They are audit anchors, not a
+general configuration vocabulary.
+
+#### 3. Authored-value preservation is asserted twice — impact 1/5
+
+Complete member-byte equality already implies that every authored value, including `fixture_id`,
+survived. The later parsed-field assertion is logically redundant.
+
+The redundancy communicates the responsibility boundary more directly than raw byte equality:
+the writer may change representation and hashes but must not replace the author's identifier. A
+failure names the field rather than presenting two opaque byte strings.
+
+Recommended handling: keep both assertions. Remove the field assertion only if a future test uses
+a donor without `fixture_id`, and replace it with an equally explicit authored-value assertion.
+
+### Future technical debt
+
+#### 1. Mutation setup assumes every selected donor has `fixture_id` — impact 2/5
+
+The helper indexes `document["fixture_id"]` and constructs an edited string. That is correct for
+the two explicit donors, but it is not a general JSON-member mutation API. A future corpus may use
+a different identity field or may need to exercise an expected-trace member instead of a fixture.
+
+Recommended handling: preserve explicit donor coupling. If a future corpus lacks this field, give
+that corpus a local authored mutation rather than making `_make_cli_member_stale` search for any
+mutable string. Opportunistic selection would be harder to review and could silently change the
+test's meaning after schema evolution.
+
+#### 2. Exact messages and path spelling are compatibility surfaces — impact 1/5
+
+The test constructs exact `updated` lines and compares exact canonical/current messages. This
+makes wording, repository-relative ordering, and slash style part of the supported author
+interface. Cosmetic changes therefore require coordinated code, test, and documentation edits.
+
+That cost is intentional for tool-owned output. A regression that moves paths to stderr, changes
+member-before-manifest ordering, or omits the already-current distinction would affect authors and
+CI even if the underlying write were correct.
+
+Recommended handling: keep exact comparisons on currently supported macOS/Linux environments.
+Use fragment-based assertions only for environment-owned text such as argparse wrapping or random
+temporary absolute paths. Add Windows-specific expectations only if Windows becomes supported.
+
+#### 3. The expected canonical bytes come from the same source file under test — impact 2/5
+
+The subprocess executes a copy of `risk_fixture_integrity.py`, while the parent test imports the
+original module and calls its `canonical_bytes`. These are separate runtime instances but not
+independent implementations. A defect introduced identically in that function would affect both
+the writer and the expected-byte calculation.
+
+This does not invalidate A1. Elsewhere in the same module,
+`test_stale_hashes_and_noncanonical_json_are_repaired` compares integrity output with
+`python/pmm_phase7.py::canonical_json`, and checked-in corpus readers enforce the established byte
+contract. A1's purpose is lifecycle-root CLI composition, not a second canonical-JSON
+implementation.
+
+Recommended handling: keep the local assertion for clarity. If canonicalization changes, add or
+strengthen one focused cross-implementation byte-vector test rather than duplicating phase7
+serialization in every subprocess case.
+
+#### 4. Untyped nested JSON navigation remains easy to break noisily — impact 1/5
+
+The test annotates JSON objects broadly and then indexes nested `payload`, `entries`, and hash
+fields dynamically. A malformed result will usually fail with `KeyError`, `TypeError`, or
+`StopIteration` instead of a tailored assertion.
+
+The produced manifest comes from a command that has already returned success against controlled
+fixtures, so tailored schema diagnostics would duplicate parser coverage. The repository also has
+no static Python type gate that this code currently violates.
+
+Recommended handling: leave the navigation local. Introduce a small JSON type alias or assertion
+helper only if static checking is adopted or multiple tests need the same manifest extraction.
+
+### Missing tests
+
+#### 1. The noncanonical precondition is inferred, not asserted directly — impact 1/5
+
+Setup writes `json.dumps(..., indent=2)`, but the write-cycle test does not explicitly assert:
+
+```text
+before member bytes != canonical_bytes(authored document)
+```
+
+The post-write equality and two-file changed set prove that canonical member bytes were installed,
+and the helper's implementation makes the precondition visible. An explicit inequality would
+improve failure localization if setup were later changed, but it would not add a new public
+behavior claim.
+
+Recommended handling: add this assertion only when the helper or write-cycle method next changes.
+Do not create a new commit solely for a low-impact precondition already guaranteed by local setup.
+
+#### 2. Lifecycle expected-trace repair is not exercised through the subprocess — impact 1/5
+
+The lifecycle row mutates the fixture member, not `lifecycle.expected.json`. Both are parsed,
+canonicalized, hashed, and replaced through the same member loop. Existing direct coverage also
+proves that an authored semantic expected value is preserved rather than derived.
+
+Recommended handling: do not add a second lifecycle writer case. Add expected-trace subprocess
+coverage only if the tool introduces different behavior for fixture and trace fields, which it
+currently does not.
+
+#### 3. Successful `all --write`, `--help`, and process-level write failure remain absent — impact 1/5
+
+The suite separately proves `all` selects both stale roots, per-root `--write` dispatch and repair,
+argparse behavior, direct atomic-replacement failure safety, and tool-level `CorpusError`
+translation. Combining those already-covered boundaries into more subprocess cases would add some
+integration confidence but little independent evidence.
+
+Recommended handling: add a case only when the corresponding interface changes. A natural
+process-level failure seam would justify write-failure translation coverage; do not add a hidden
+environment variable or patch the copied source solely for injection.
+
+#### 4. Remaining Python checkpoint-reader parity is still the highest adjacent gap — impact 2/5
+
+The C++ reader covers schema-specific mutations the independent Python reader does not yet mirror.
+Lifecycle repair neither worsens nor closes that drift risk.
+
+Recommended handling: make A2 the next bounded package. Inventory exact asymmetries first, keep
+temporary documents canonical and hashes current, isolate one defect per row, and preserve
+checkpoint categories and first-failure ordering.
+
+### Missing documentation
+
+#### 1. The same milestone is now described at several depths — impact 2/5
+
+The fixture guide states the author contract, the first lifecycle explanation records what/how/why,
+the implementation critique ranks debt, and this deeper review examines maintainability. That
+separation is defensible, but chronological append-only growth makes it easier for a reader to
+encounter an older "next" statement before the current roadmap.
+
+Recommended handling: keep the living roadmap authoritative and preserve historical notes. The
+next substantial conformance documentation change should add a compact table of contents or
+current-state links near the top of the long critique and explanation instead of adding another
+root-level summary document.
+
+#### 2. Root README discoverability remains limited — impact 1/5
+
+The root README links the living roadmap and Project Hub, while detailed fixture authoring commands
+remain in the fixture guide. A reader looking specifically for checkpoint or integrity workflows
+may need an extra navigation step.
+
+Recommended handling: retain this as the already-separated README discoverability package. Add one
+curated link rather than copying commands or chronological detail into the root README.
+
+#### 3. Test counts do not reveal the second corpus scenario — impact 1/5
+
+The focused suite still says "Ran 17 tests" because lifecycle is a subtest, even though the method
+now launches three additional subprocesses. A casual reader comparing only totals could miss the
+coverage increase.
+
+The roadmap and current critique explicitly state this fact, and verbose unittest output can name
+the parent method but not a successful subtest as a separate test. Changing structure solely to
+increase a count would optimize the metric rather than the evidence.
+
+Recommended handling: continue documenting the unchanged method count and the two explicit corpus
+rows. Do not add an empty wrapper test to manufacture a new total.
+
+### Possible optimizations
+
+#### 1. Reuse an immutable temporary repository template — impact 1/5
+
+Each row copies the real script and a complete corpus into a fresh directory. An immutable template
+could reduce filesystem work, with each case cloning from that template.
+
+Fresh construction is simpler and makes cross-case contamination unlikely. The focused module runs
+in roughly seven tenths of a second, so template lifecycle and verification would cost more than
+the saved time.
+
+Recommended handling: defer until measured runtime becomes material. If needed, clone a verified
+immutable base into a fresh writable destination; never share one writable corpus across cases.
+
+#### 2. Combine the three subprocesses — impact 1/5
+
+One Python process could invoke `main` three times or call planner/writer functions directly. That
+would reduce startup cost but stop modeling three independent author commands and could retain
+module or filesystem state between phases.
+
+Recommended handling: preserve separate processes. Independent startup and root discovery are part
+of the public boundary being tested.
+
+#### 3. Store only hashes in complete snapshots — impact 1/5
+
+Per-file hashes would use less memory than retaining raw bytes as corpora grow. Raw bytes currently
+provide better diagnostics, make repaired-member equality direct, and are negligible at current
+corpus size.
+
+Recommended handling: retain raw snapshots. Consider streaming per-file hashes only after corpus
+memory becomes measurable, while continuing to retain the deliberately changed member bytes.
+
+### Future scalability concerns
+
+#### 1. Runtime grows with cases times corpus bytes — impact 2/5
+
+Every row copies, snapshots, and parses its complete selected root three times across fresh
+processes. Growth is approximately proportional to:
+
+```text
+number of write-cycle rows x selected corpus bytes x process phases
+```
+
+This is desirable isolation at current size. A much larger corpus registry could eventually make
+the focused module slow enough to discourage local use.
+
+Recommended handling: measure first. Prefer reducing accidental duplicate scenarios, then use an
+immutable copy template. Do not weaken per-case roots or complete write-boundary checks.
+
+#### 2. The case table and generic path construction assume one uniform protocol — impact 1/5
+
+A third corpus with different manifest fields, mutation shape, or output policy would make the
+current three-string tuple insufficient. Extending it with callbacks and flags could turn a clear
+table into a small framework.
+
+Recommended handling: add a third row only if it truly follows the same protocol. If behavior
+differs, give it a separate focused test rather than forcing heterogeneous cases through one loop.
+
+#### 3. Documentation review cost is growing faster than test runtime — impact 2/5
+
+The code added one corpus row; the chronological guide, explanation, critique, deeper explanation,
+and deeper critique add substantially more text. The main scaling risk is no longer compute but
+finding the authoritative current boundary among accurate historical sections.
+
+Recommended handling: use the living roadmap as the status index, add top-of-document navigation
+when these notes next change materially, and stop adding deeper sections once they cease to provide
+new reasoning. Preserve history, but do not confuse documentation volume with stronger evidence.
+
+### Priority after the deeper review
+
+1. Implement A2, the remaining Python checkpoint-reader mutation parity.
+2. Exit the conformance tail and return to Phase 7 product metadata and research validity.
+3. Add compact navigation when the long risk notes next change materially.
+4. Add strict-matrix cardinality or the noncanonical precondition only when their containing tests
+   are already being edited.
+5. Keep README discoverability, integer endpoints, Windows support, `--help`, `all --write`, and
+   process-level failure injection as separate conditional work.
+6. Defer test harness extraction, copy templates, hash-only snapshots, caching, streaming, sharding,
+   locking, transactions, extra SHA vectors, and fuzz/property testing until evidence or
+   measurement justifies them.
+
+### Final assessment
+
+A1 is complete and appropriately bounded. The implementation has visible test complexity and
+several deliberate maintenance couplings, but no finding above impact 2/5 and no reason to change
+production code, the integrity tool, fixture schemas, reviewed corpus bytes, checkpoint semantics,
+or the frozen V1 adapter. The best engineering choice is to carry the documented low-impact debt
+forward and move to the higher-value A2 boundary.
