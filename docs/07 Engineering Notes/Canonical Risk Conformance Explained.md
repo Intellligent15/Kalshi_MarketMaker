@@ -2599,3 +2599,169 @@ would introduce new surface without a demonstrated defect. Running semantic exec
 the integrity boundary. The highest-value next work is therefore not another lifecycle writer
 case; it is A2, the known remaining Python checkpoint-reader mutation parity, followed by a return
 to Phase 7 product metadata and research validity.
+
+## Closing Python checkpoint-reader mutation parity
+
+### What problem remained
+
+The checkpoint corpus already had broad dual-executor semantic evidence and mirrored strict
+captured-checkpoint tests. The independent C++ corpus reader nevertheless had nine negative cases
+that the Python reader did not exercise. This was not evidence that Python accepted the malformed
+documents; ad hoc inspection showed that it rejected all nine. The gap was that several failures
+were reported only through a generic parent-object assertion, and no committed Python test pinned
+the same refusal inventory.
+
+That distinction matters. A malformed corpus being rejected today does not prove that a future
+reader change will continue to reject it for the intended reason. A stale member hash, missing
+file, or unrelated schema check can make a broad negative test pass while the named rule has
+silently disappeared.
+
+### The selected structure
+
+`test_rejects_every_remaining_cpp_reader_mutation` is one test method with nine named subtests.
+Each subtest receives a local mutation function and a stable diagnostic fragment. The local
+functions are deliberately explicit: they name the donor, edit the field, perform the canonical
+write, and choose the rehash boundary in ordinary Python.
+
+Three alternatives were considered:
+
+1. Nine separate methods provide excellent method-level reporting but duplicate the temporary
+   copy, refusal, diagnostic, and read-only protocol.
+2. Separate methods plus a new shared assertion helper retain the names but spread the completed
+   inventory across the file and add another callback interface beside `_mutated_corpus_fails`.
+3. A generic path/replacement framework makes scalar edits compact but needs special cases for a
+   symlink, duplicate manifest reference, deliberately stale digest, and coordinated fixture/trace
+   continuation.
+
+The named table is the smallest auditable compromise. `subTest(name=...)` localizes failures,
+while one visible inventory makes omissions and rehash differences reviewable. Explicit local
+functions prevent the table from becoming a mutation language.
+
+### The common proof protocol
+
+Every row follows the same sequence:
+
+```text
+copy reviewed checkpoint corpus to a fresh temporary root
+                       |
+                       v
+             introduce one intended defect
+                       |
+                       v
+        write canonical JSON and current metadata
+          except where stale metadata is the defect
+                       |
+                       v
+       snapshot file bytes and symlink topology
+                       |
+                       v
+          run the independent Python verifier
+                       |
+             +---------+---------+
+             |                   |
+             v                   v
+    require intended path   require unchanged snapshot
+```
+
+The snapshot occurs after mutation. The authored defect is the input under test, not an
+unauthorized write. Comparing with the pristine corpus would conflate intentional setup with
+reader behavior.
+
+Regular files are stored as their complete bytes. Symlinks are stored as a distinct node type plus
+their target. That topology component matters: following a symlink and recording only target bytes
+would not detect a verifier that replaced it with a regular file containing the same bytes.
+
+### Why the rehash policy differs by row
+
+Six rows change fixture or trace bytes. They use `_rehash`, which reconstructs every member digest
+from the temporary root and then hashes the canonical manifest payload plus its final LF. The
+reader therefore reaches the missing field, wrong type, side, ordering, schema, or continuation
+rule instead of stopping at stale integrity metadata.
+
+The duplicate-member row changes only the manifest payload. Its second entry reuses the first
+entry's expected-trace filename and the digest already matching those bytes. Only the payload hash
+is recomputed. The displaced original trace becomes unreferenced as a consequence, but duplicate
+membership is checked first and the test requires that exact manifest-entry diagnostic.
+
+The bad-payload row is the inverse: the canonical payload and every member digest remain current,
+and only the top-level digest becomes 64 `a` characters. Rehashing it would erase the intended
+defect.
+
+The symlink row changes no JSON bytes. It renames the real member to a non-JSON hidden filename and
+places a symlink at the manifest path. The symlink resolves to the unchanged bytes named by the
+existing digest, so missing content and hash mismatch cannot satisfy the test.
+
+### How rejected-restore continuation stays single-defect
+
+`checkpoint_zero_ingress` is already a reviewed document-restore rejection. The mutation gives it
+one valid kill-switch continuation operation and appends one matching `applied` transition. The
+state comes from the first restored state in
+`document_restore_unbound_pending.expected.json`, which supplies a complete valid state shape.
+
+Both documents are emitted canonically, the operation and transition counts agree, the
+continuation result is known, the state fields and aggregates are internally valid, both member
+digests are current, and the manifest payload is current. The reader therefore reaches the rule
+that a rejected restore must terminate the fixture.
+
+No executor runs this temporary pair. It is reader-refusal evidence, not a reviewed semantic
+answer, and the valid-shape donor is not used to bless risk behavior.
+
+### Why diagnostic assertions changed
+
+Before this package, Python's assertions often contained enough information for a human to infer
+the problem but not enough for a test to pin the field. Examples included `False is not true` at a
+live-order object, a raw list comparison for continuation, and two digest values without the
+manifest field name.
+
+The reader now attaches precise contexts to existing assertions:
+
+- exact-key failures name missing or unexpected fields;
+- schema, side, and ordering assertions name `.schema`, `.side`, and `.order_id`;
+- the payload mismatch names `manifest.payload_sha256`;
+- the member rule says `regular non-symlink file`;
+- duplicate membership identifies the manifest entry and field; and
+- rejected restore explicitly says it must not continue.
+
+These changes improve evidence without changing acceptance. They add no exception hierarchy or
+public diagnostic contract; tests require stable paths or rule fragments rather than all of
+`unittest`'s rendered comparison prose.
+
+### Independence and scope
+
+The C++ reader remains in its CTest-only source files and uses nlohmann JSON, its own canonical
+dump, its own SHA-256 implementation, filesystem status checks, and `Fail` diagnostics. The Python
+reader continues to use Python JSON, `phase7.canonical_json`, `hashlib`, `pathlib`, and unittest
+assertions. No validation implementation crosses that boundary.
+
+The shared artifact is the reviewed corpus contract. Independent readers agreeing on positive and
+negative evidence is valuable precisely because neither calls the other.
+
+The package changes no production risk behavior, checkpoint rejection category, enum ordinal,
+first-failure order, fixture schema, reviewed fixture, expected trace, integrity tool, or frozen
+V1 operation. Checkpoint serialization and the Python model remain test-only.
+
+### What the completed package proves
+
+- The remaining nine C++ reader refusals have named Python counterparts.
+- Every row begins from a fresh temporary checkpoint corpus.
+- Changed JSON members are canonical and have the intended current metadata.
+- Manifest-only and deliberately stale cases use the correct narrower hash boundary.
+- Each malformed corpus reaches its intended field or rule diagnostic.
+- Verification changes neither file bytes nor symlink topology.
+- The checked-in lifecycle and checkpoint corpora remain unchanged.
+- C++ and Python validation implementations remain independent.
+
+It does not prove durable recovery, execution realism, calibrated fills, queue priority, PnL,
+fees, collateral, settlement, paper trading, live readiness, or profitability.
+
+### Why Track A ends here
+
+A1 proved the missing lifecycle write composition. A2 closes the last meaningful asymmetric reader
+matrix. The remaining A3 items are useful hardening—cardinality assertions, integer endpoints,
+Windows setup, navigation, `--help`, `all --write`, injected write failure, extra SHA vectors, and
+fuzzing—but none currently has comparable impact.
+
+Continuing the conformance tail would now displace work that affects the truth of research inputs.
+The next package is authoritative product metadata: versioned venue product terms, provenance,
+content hashes, unit conversion, and compatibility gates. That work is required before accounting,
+cross-market comparison, or later economic claims can be credible.

@@ -1501,3 +1501,94 @@ several deliberate maintenance couplings, but no finding above impact 2/5 and no
 production code, the integrity tool, fixture schemas, reviewed corpus bytes, checkpoint semantics,
 or the frozen V1 adapter. The best engineering choice is to carry the documented low-impact debt
 forward and move to the higher-value A2 boundary.
+
+## Post-implementation critique: Python checkpoint-reader parity and Track A exit
+
+### Review scope
+
+This review covers commit `ecca209`, which adds the nine-row Python checkpoint-reader parity
+matrix, precise test-only diagnostics, and post-mutation read-only snapshots. It also considers
+whether the completed evidence justifies closing Track A under the living roadmap's exit rule.
+
+The review does not reassess production checkpoint semantics, the reviewed 26-pair corpus,
+`AccountRiskProjection`, the frozen V1 adapter, or the integrity writer. None changed.
+
+### Severity-ranked findings
+
+| Priority | Finding | Category | Impact | Ease | Assessment | Recommended handling |
+| --- | --- | --- | ---: | ---: | --- | --- |
+| P1 | Authoritative venue product terms remain absent from the research identity boundary. | Research validity | 5 | 3 | Internally consistent replay can still use the wrong tick, lot, payout, lifecycle, settlement, or fee assumptions. This now dominates the closed conformance tail. | Make versioned product metadata the next bounded package. |
+| P3 | `_exact_keys` diagnostics use `field(s)` prose even when one field is missing. | Clarity | 1 | 5 | The field name and parent path are explicit, so failure localization is adequate; the grammar is mildly mechanical. | Leave it unless the helper next changes. Do not add churn for prose alone. |
+| P3 | The nine local mutation functions make one test method long. | Maintainability | 2 | 4 | The length is deliberate and keeps heterogeneous rehash rules visible. Extraction would hide the single-defect setup behind a parameter API. | Retain the local functions while the inventory remains fixed. Split only if workflows diverge. |
+| P3 | Full `_rehash` recalculates every member for six rows. | Test efficiency | 1 | 3 | This is more work than updating one digest, but it is simple and eliminates stale metadata as an accidental first failure. Runtime remains sub-second. | Preserve until measured cost becomes material. |
+| P3 | The duplicate-member case also makes the displaced trace unreferenced. | Test coupling | 2 | 3 | This is an inherent consequence of duplicating a manifest reference. Exact duplicate-entry diagnostics and current payload metadata prove the intended earlier rule fires. | Keep the exact diagnostic; do not mutate or delete the displaced reviewed copy. |
+| P3 | Snapshot representation is local to the checkpoint test rather than shared with integrity tests. | Duplication | 1 | 2 | The checkpoint snapshot includes symlink topology, while the integrity snapshots intentionally focus on regular-file bytes. Sharing them would couple independent packages with different proof needs. | Keep the helpers local. |
+| P3 | Strict-matrix cardinality is still implicit. | Missing test precision | 1 | 5 | Named strict rows remain intact, but a direct 16-row count would produce a clearer deletion failure. It is deferred A3 hardening, not a blocker to reader parity. | Add only when that matrix is next edited. |
+| P3 | Accepted signed and unsigned integer endpoints remain unpinned. | Boundary coverage | 1 | 4 | Refusal ranges are covered, but exact accepted endpoints would improve completeness. They do not affect the nine asymmetric reader rules. | Keep as separate A3 work if the numeric reader changes. |
+| P3 | Long chronological risk notes remain harder to navigate. | Documentation usability | 2 | 3 | The living roadmap now gives the authoritative current state, but finding the latest explanation within the long notes still takes effort. | Add compact current-state navigation during a future substantial documentation restructuring, not as another Track A package. |
+
+No finding identifies a production regression, corpus mutation, semantic change, or reason to keep
+Track A active.
+
+### What was done well
+
+#### 1. The matrix proves the intended rule, not merely rejection
+
+Every row keeps earlier integrity metadata current unless that metadata is the named defect. The
+required diagnostic then identifies the intended field or rule. This closes the main weakness in
+the previous Python negatives, where generic `AssertionError` was sometimes enough.
+
+#### 2. Heterogeneous cases remain readable
+
+The symlink, duplicate-member, bad-payload, and rejected-continuation rows do not fit a scalar JSON
+path replacement. Local functions make their distinct filesystem and hash treatment obvious. The
+implementation avoided a generic mutation framework with flags and special cases.
+
+#### 3. Read-only proof is stronger than byte comparison alone
+
+The snapshot includes node type and symlink target. It would catch a verifier that followed a
+symlink and replaced it with a regular file containing identical bytes. Taking the baseline after
+mutation correctly treats the defective corpus as the reader input.
+
+#### 4. Diagnostic changes stayed at the reader boundary
+
+No exception type, production parser, checkpoint model, or risk semantic changed. The assertions
+now name fields and rules without turning complete unittest output into a public textual API.
+
+#### 5. The readers remain genuinely independent
+
+No C++ parsing or validation helper was translated into shared code, and no Python function was
+called from C++. The two suites independently apply the same reviewed contract.
+
+### Limitations and non-claims
+
+This package proves reader parity for a bounded nine-row inventory. It is not exhaustive parser
+verification, fuzzing, or a formal schema proof. It does not add cardinality checks, accepted
+integer endpoints, Windows behavior, README discoverability, `--help`, successful `all --write`,
+injected write failure, locking, transactions, caching, streaming, sharding, or additional SHA
+vectors.
+
+It changes no `CheckpointRejectCode`, enum ordinal, first-failure ordering, schema, reviewed
+fixture, expected trace, integrity tool, frozen-oracle behavior, matching rule, integer core type,
+watermark, post-only boundary, external admission ownership, or kill-switch ownership.
+
+It establishes no calibrated fill, queue priority, execution realism, PnL, fees, collateral,
+settlement, durable full-run recovery, paper trading, live readiness, or profitability.
+
+### Reranked debt after A2
+
+1. Authoritative product metadata and compatibility hashes — impact 5/5.
+2. Broader observed-market coverage and recovery — impact 4/5.
+3. Experiment compatibility and reporting — impact 4/5.
+4. Accounting, fees, collateral, and settlement — impact 5/5 but dependent on product terms.
+5. Execution sensitivity and later evidence-backed calibration — impact 4/5.
+6. Durable full-run continuation — impact 3/5.
+7. Deferred A3 conformance hardening — impact 1–2/5 unless new evidence changes it.
+
+### Final assessment
+
+The implementation closes the stated asymmetric inventory with precise, single-defect,
+read-only evidence. Its main cost is one long test method and repeated temporary-corpus hashing,
+both proportionate to a fixed nine-row matrix. There is no high-impact conformance defect left in
+the planned tail. Track A should close, and Phase 7 authoritative product metadata should become
+the next package.

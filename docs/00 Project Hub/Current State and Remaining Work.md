@@ -24,16 +24,17 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-16 |
-| Baseline commit | `7642969` (`docs(risk): deepen lifecycle repair explanation`) |
-| Branch state at review | `main` five commits ahead of `origin/main` |
-| Recent risk commits | `7642969`, `7f8b2bc`, `54d030b`, `4e6336b`, and `1fcc7ae` |
+| Baseline commit | `ecca209` (`test(risk): close Python checkpoint reader parity`) |
+| Branch state at review | `main` seven commits ahead of `origin/main` at the implementation baseline |
+| Recent risk commits | `ecca209`, `cc980d4`, `7642969`, `7f8b2bc`, and `54d030b` |
 | C++/CTest validation | 78 tests passing |
-| Python validation | 58 tests passing |
+| Python validation | 59 tests passing |
+| Focused checkpoint-reader validation | 17 tests passing |
 | Focused fixture-integrity validation | 17 tests passing |
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | Remaining Python checkpoint-reader mutation parity |
+| Next bounded package | Authoritative product metadata and research validity |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -278,12 +279,12 @@ Completion evidence:
 Boundary: this is temporary integrity-repair evidence. It does not change or execute a reviewed
 lifecycle pair, generate a semantic trace, or expand the integrity tool or frozen V1 adapter.
 
-### A2. Remaining Python checkpoint-reader mutation parity — next
+### A2. Remaining Python checkpoint-reader mutation parity — complete
 
 Goal: close schema-specific rejection cases that the C++ checkpoint reader covers but the Python
 reader does not yet mirror.
 
-Required approach:
+Completed approach:
 
 - use the completed C++/Python inventory below rather than repeating a broad rediscovery pass;
 - keep C++ and Python implementations independent;
@@ -291,9 +292,9 @@ Required approach:
 - require field-specific diagnostics; and
 - preserve checkpoint rejection semantics and first-failure ordering.
 
-Current asymmetric inventory at `7642969`:
+The asymmetric inventory recorded at `7642969` is now mirrored by one named Python matrix:
 
-| Missing Python counterpart | Current C++ donor and mutation |
+| Mirrored refusal | Donor and single temporary mutation |
 | --- | --- |
 | Missing fixture `kind` | Remove `kind` from `roundtrip_empty_state.json`. |
 | Numeric JSON where a decimal string is required | Set `checkpoint_zero_ingress.json` `checkpoint.net_position_contracts` to numeric `1`. |
@@ -305,16 +306,27 @@ Current asymmetric inventory at `7642969`:
 | Duplicate manifest member | Make the second entry reuse the first entry's expected-trace name and digest, then rehash the payload. |
 | Continuation after rejected restore | Give `checkpoint_zero_ingress` one kill-switch operation and append a matching continuation transition after its rejected restore. |
 
-Existing Python mutation tests already cover unknown fixture fields, noncanonical decimal strings,
-bad member hashes, unsafe member paths, unreferenced JSON, restore without an immediately preceding
-capture, state attached to a rejected restore, and the forbidden frozen-V1 executor. The strict
-captured-checkpoint matrix and its position-independent donor coverage are also already mirrored;
-do not duplicate them in A2.
+Completion evidence in `ecca209`:
 
-Design question for A2: compare nine separate test methods with one named table-driven mutation
-matrix and with a narrow shared assertion helper. Prefer the smallest structure that keeps each
-defect, donor, rehash rule, and expected diagnostic visible. Do not weaken the proof to generic
-`AssertionError` alone.
+- `test_rejects_every_remaining_cpp_reader_mutation` executes the nine rows as named subtests,
+  with explicit local mutation functions rather than a generic mutation framework;
+- every row starts from a fresh temporary copy of `checkpoint_v1`;
+- member changes use canonical UTF-8 sorted-key JSON with exactly one final LF;
+- member mutations receive a complete manifest rehash, the duplicate-member row receives only a
+  payload rehash, the bad-payload row deliberately leaves only that digest stale, and the symlink
+  row preserves the real target bytes and current member digest;
+- field and rule diagnostics identify the missing `kind`, decimal-string field, side, identifier,
+  checkpoint schema, payload hash, non-symlink rule, duplicate membership, and rejected-restore
+  continuation respectively;
+- `_mutated_corpus_fails` snapshots every regular file byte plus symlink identity and target after
+  mutation and proves verification is read-only; and
+- focused validation passes 17 tests, the full Python suite passes 59 tests, all 78 CTest tests
+  pass, and all three integrity selections report canonical/current.
+
+The earlier Python mutation tests for unknown fields, noncanonical decimals, member hashes, unsafe
+paths, unreferenced JSON, restore placement, rejected-restore state, and frozen-V1 eligibility
+remain separate. The strict captured-checkpoint matrix and position-independent donor coverage
+also remain unchanged.
 
 Non-goal: do not expand production checkpoint semantics or convert the test-only JSON into a
 durable production format.
@@ -334,8 +346,9 @@ Lower-priority items:
 - additional SHA padding-boundary vectors; and
 - fuzz or property testing.
 
-Exit rule for Track A: after A1 and A2, return to Phase 7 research validity unless new evidence
-shows a higher-impact conformance defect.
+Track A exit: A1 and A2 are complete. Return to Phase 7 research validity unless new evidence
+shows a higher-impact conformance defect. A3 remains deliberately deferred and is not a reason to
+keep the conformance tail active.
 
 ## Track B: finish Phase 7 research validity
 
@@ -717,7 +730,7 @@ Gate: live trading must not begin merely because the software builds or a demo e
 ## Dependency map
 
 ```text
-Track A conformance tail
+Track A conformance tail (closed)
         |
         v
 B1 product metadata -----> B5 accounting and settlement
@@ -754,53 +767,42 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | Remaining Python checkpoint-reader mutation parity | Closes the last meaningful mirrored-reader drift. |
-| 2 | Product metadata ingest and compatibility hashes | Required for truthful units, accounting, and cross-market work. |
-| 3 | Multi-market/reconnect/gap-recovery fixtures | Establishes broader observed-data validity. |
-| 4 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
-| 5 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
-| 6 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
-| 7 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
-| 8 | Durable full-run continuation | Required for long and operationally reliable experiments. |
-| 9 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
-| 10 | Predictive models and model registry | Follows held-out baseline evidence. |
-| 11 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
-| 12 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
-| 13 | Demo exchange integration | Follows stable paper operations and reconciliation. |
-| 14 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
+| 1 | Product metadata ingest and compatibility hashes | Required for truthful units, accounting, and cross-market work. |
+| 2 | Multi-market/reconnect/gap-recovery fixtures | Establishes broader observed-data validity. |
+| 3 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
+| 4 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
+| 5 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
+| 6 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
+| 7 | Durable full-run continuation | Required for long and operationally reliable experiments. |
+| 8 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
+| 9 | Predictive models and model registry | Follows held-out baseline evidence. |
+| 10 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
+| 11 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
+| 12 | Demo exchange integration | Follows stable paper operations and reconciliation. |
+| 13 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
 
 This order is a default, not a prohibition on discovery work. A prototype may explore a later idea,
 but it must remain labelled experimental and must not bypass its promotion gates.
 
 ## Current next package
 
-The next agent should implement **remaining Python checkpoint-reader mutation parity**.
+The next agent should design **authoritative product metadata and research validity** under B1.
 
 Required design boundary:
 
-- confirm the nine-row inventory recorded in A2 against the current C++ and Python tests;
-- keep the two reader implementations independent rather than sharing validation code;
-- make every temporary document canonical and keep both member and manifest-payload hashes current
-  so each case reaches its intended reader rule;
-- isolate one named defect per row and require a field-specific diagnostic;
-- preserve checkpoint rejection categories, enum ordinals, and first-failure ordering; and
-- keep checkpoint JSON and the Python checkpoint model test-only.
+- define a versioned product-term document with venue provenance and content hashes;
+- represent tick/price grid, lot and quantity units, payout, lifecycle/expiration, settlement,
+  fees/rounding, and market/event/contract identity explicitly;
+- make normalization and backtest manifests identify the exact product-term version;
+- reject unsupported price or quantity conversions and incompatible experiment comparisons;
+- keep observed venue facts distinct from reconstructed, assumed, synthetic, and model-derived
+  values; and
+- do not mix accounting, calibrated execution, ML, gateway, paper-trading, or live behavior into
+  the first metadata package.
 
-Do not duplicate the existing strict captured-checkpoint matrix, donor-shift coverage, lifecycle
-repair cycle, integrity-parser refusal matrix, public CLI subprocess matrix, or reviewed semantic
-checkpoint fixtures. The likely implementation surface is
-`python/tests/test_risk_checkpoint_conformance.py`; changes to the independent Python reader helper
-should occur only if exact diagnostics cannot be pinned cleanly at the existing public test
-boundary.
-
-The completed A1 package is preserved above and is evidenced by:
-
-- `4e6336b` (`test(risk): exercise lifecycle fixture repair`); and
-- the accompanying documentation commit that records the guide, explanation, critique, and this
-  status promotion.
-
-After A2, exit Track A and return to Phase 7 product metadata and research validity unless new
-evidence identifies a higher-impact conformance defect.
+Track A is closed by `4e6336b` for A1 and `ecca209` for A2, with their documentation packages.
+Deferred A3 hardening remains available only when evidence raises its impact or its containing
+tests are already changing.
 
 ## Non-claims that must remain explicit
 

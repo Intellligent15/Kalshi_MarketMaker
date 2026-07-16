@@ -270,3 +270,45 @@ or execute the reviewed expected trace. The integrity command preserves and hash
 it does not decide whether the authored fixture is semantically valid, derive an expected result,
 or use any risk implementation to bless an answer. The checked-in 16-pair lifecycle corpus and
 26-pair checkpoint corpus remain unchanged.
+
+## Python checkpoint-reader mutation parity
+
+The independent Python checkpoint reader now mirrors the remaining nine schema and envelope
+refusals already pinned in C++. One named table-driven test keeps every donor, mutation, rehash
+rule, and expected diagnostic together while using a fresh temporary `checkpoint_v1` copy for
+every row:
+
+| Refusal | Temporary donor and mutation | Integrity treatment |
+| --- | --- | --- |
+| Missing fixture kind | Remove `kind` from `roundtrip_empty_state.json`. | Rehash every member and the payload. |
+| Numeric decimal | Set `checkpoint_zero_ingress.json` `checkpoint.net_position_contracts` to JSON integer `1`. | Rehash every member and the payload. |
+| Unknown side | Set the first `checkpoint_buy_exposure_limit.json` live-order side to `hold`. | Rehash every member and the payload. |
+| Decreasing identifiers | Swap the first two `checkpoint_active_order_limit.json` live orders. | Rehash every member and the payload. |
+| Wrong schema | Set `checkpoint_zero_ingress.json` `checkpoint.schema` to `pmm.risk_checkpoint.v2`. | Rehash every member and the payload. |
+| Bad payload hash | Replace top-level `payload_sha256` with 64 `a` characters. | Keep the canonical payload current and corrupt only its digest. |
+| Symlink member | Rename the real `roundtrip_empty_state.json` bytes and put a symlink at the manifest path. | Keep target bytes and existing hashes unchanged. |
+| Duplicate member | Make manifest entry 1 reuse entry 0's expected-trace filename and digest. | Recompute only `payload_sha256`. |
+| Rejected continuation | Add one kill-switch operation and matching valid-shape continuation transition to `checkpoint_zero_ingress`. | Rehash both changed members and the payload. |
+
+Every JSON mutation uses the checkpoint test's canonical writer: UTF-8, sorted keys, compact
+separators, and exactly one final LF. Complete rehashing after member changes prevents a stale
+digest from satisfying a row before its intended schema rule. The duplicate-member row keeps the
+duplicate filename and digest internally consistent; the rejected-continuation row keeps its
+fixture/trace counts, state shape, member hashes, and payload hash current.
+
+The matrix requires a stable field path or rule fragment rather than generic `AssertionError`.
+The Python reader therefore reports the missing field name, decimal field, side field, identifier
+field, checkpoint schema, manifest payload hash, regular non-symlink rule, duplicate-member entry,
+and no-continuation rule explicitly. These are test-only diagnostic improvements; accepted
+documents and checkpoint semantics are unchanged.
+
+`_mutated_corpus_fails` snapshots the authored defective corpus after mutation and before
+verification. The snapshot records every regular file's complete bytes and every symlink's type
+and target. After the expected refusal, the snapshot must be identical. This proves the Python
+reader is read-only even for malformed input and prevents a symlink from being replaced silently
+with a byte-identical regular file.
+
+The Python and C++ readers remain independent implementations. No parsing, hashing, path, schema,
+or diagnostic code is shared between them. The matrix closes mirrored-reader drift; it does not
+change a reviewed fixture, generate an expected trace, widen the frozen V1 adapter, or turn the
+test-only checkpoint document into production serialization.
