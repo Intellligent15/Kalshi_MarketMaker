@@ -9,7 +9,11 @@
     "reasons": {"type": "array", "items": {
       "type": "object", "additionalProperties": false,
       "required": ["code", "left", "right"],
-      "properties": {"code": {"type": "string"}, "left": {"type": "string"}, "right": {"type": "string"}}
+      "properties": {
+        "code": {"enum": ["MarketTickerMismatch", "TermsHashMismatch", "SourceHashMismatch", "ReviewHashMismatch", "ConversionPolicyMismatch"]},
+        "left": {"type": "string"},
+        "right": {"type": "string"}
+      }
     }}
   }
 }

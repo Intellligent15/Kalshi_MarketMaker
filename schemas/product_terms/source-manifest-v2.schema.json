@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.product_terms_source_manifest.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "payload", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "pmm.product_terms_source_manifest.v2"},
+    "payload_sha256": {"$ref": "#/$defs/hash"},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["venue", "environment", "acquisition", "sources"],
+      "properties": {
+        "venue": {"const": "kalshi"},
+        "environment": {"const": "production"},
+        "acquisition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["started_at_utc", "completed_at_utc", "tool_name", "tool_version"],
+          "properties": {
+            "started_at_utc": {"$ref": "#/$defs/utc"},
+            "completed_at_utc": {"$ref": "#/$defs/utc"},
+            "tool_name": {"const": "pmm_product_terms"},
+            "tool_version": {"type": "string", "minLength": 1}
+          }
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/source"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "utc": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z$", "format": "date-time"},
+    "approvedUrl": {"type": "string", "pattern": "^(?!.*#)https://(api\\.elections\\.kalshi\\.com|external-api\\.kalshi\\.com|docs\\.kalshi\\.com|kalshi\\.com|www\\.kalshi\\.com|kalshi-public-docs\\.s3\\.amazonaws\\.com|kalshi-public-docs\\.s3\\.us-east-1\\.amazonaws\\.com)(:443)?([/?]|$)"},
+    "nullableHeader": {"type": ["string", "null"]},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "role", "requested_url", "final_url", "redirect_history", "http_status",
+        "media_type", "retrieval_started_at_utc", "retrieval_completed_at_utc",
+        "elapsed_milliseconds", "path", "byte_length", "sha256", "tool_name",
+        "tool_version", "response_headers"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "role": {
+          "enum": [
+            "event_metadata_record", "market_record",
+            "series_record_and_contract_document_identity", "official_fee_rounding_document",
+            "official_fixed_point_document", "official_settlement_document",
+            "official_contract_terms_document", "official_certification_document"
+          ]
+        },
+        "requested_url": {"$ref": "#/$defs/approvedUrl"},
+        "final_url": {"$ref": "#/$defs/approvedUrl"},
+        "redirect_history": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status_code", "location", "resolved_url"],
+            "properties": {
+              "status_code": {"enum": [301, 302, 303, 307, 308]},
+              "location": {"type": "string", "minLength": 1},
+              "resolved_url": {"$ref": "#/$defs/approvedUrl"}
+            }
+          }
+        },
+        "http_status": {"type": "integer", "minimum": 200, "maximum": 299},
+        "media_type": {
+          "enum": ["application/json", "application/pdf", "text/markdown", "text/plain"]
+        },
+        "retrieval_started_at_utc": {"$ref": "#/$defs/utc"},
+        "retrieval_completed_at_utc": {"$ref": "#/$defs/utc"},
+        "elapsed_milliseconds": {"type": "integer", "minimum": 0},
+        "path": {"type": "string", "minLength": 1},
+        "byte_length": {"type": "integer", "minimum": 0, "maximum": 33554432},
+        "sha256": {"$ref": "#/$defs/hash"},
+        "tool_name": {"const": "pmm_product_terms"},
+        "tool_version": {"type": "string", "minLength": 1},
+        "response_headers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["content_type", "content_length", "etag", "last_modified", "date"],
+          "properties": {
+            "content_type": {"$ref": "#/$defs/nullableHeader"},
+            "content_length": {"$ref": "#/$defs/nullableHeader"},
+            "etag": {"$ref": "#/$defs/nullableHeader"},
+            "last_modified": {"$ref": "#/$defs/nullableHeader"},
+            "date": {"$ref": "#/$defs/nullableHeader"}
+          }
+        },
+        "venue_updated_at": {"$ref": "#/$defs/utc"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"role": {"enum": ["event_metadata_record", "market_record", "series_record_and_contract_document_identity"]}}},
+          "then": {"properties": {"media_type": {"const": "application/json"}, "byte_length": {"type": "integer", "minimum": 0, "maximum": 2097152}}}
+        },
+        {
+          "if": {"properties": {"role": {"enum": ["official_fee_rounding_document", "official_fixed_point_document", "official_settlement_document"]}}},
+          "then": {"properties": {"media_type": {"enum": ["text/markdown", "text/plain"]}, "byte_length": {"type": "integer", "minimum": 0, "maximum": 4194304}}}
+        },
+        {
+          "if": {"properties": {"role": {"enum": ["official_contract_terms_document", "official_certification_document"]}}},
+          "then": {"properties": {"media_type": {"const": "application/pdf"}, "byte_length": {"type": "integer", "minimum": 0, "maximum": 33554432}}}
+        }
+      ]
+    }
+  }
+}

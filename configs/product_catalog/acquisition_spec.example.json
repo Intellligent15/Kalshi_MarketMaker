@@ -1,0 +1,43 @@
+{
+  "environment": "production",
+  "schema": "pmm.product_acquisition_spec.v1",
+  "sources": [
+    {
+      "id": "event_metadata",
+      "path": "sources/event-metadata.response.json",
+      "role": "event_metadata_record",
+      "url": "https://api.elections.kalshi.com/trade-api/v2/events/REPLACE_EVENT_TICKER/metadata"
+    },
+    {
+      "id": "fee_rounding",
+      "path": "sources/fee-rounding.md",
+      "role": "official_fee_rounding_document",
+      "url": "https://docs.kalshi.com/getting_started/fee_rounding.md"
+    },
+    {
+      "id": "fixed_point",
+      "path": "sources/fixed-point-migration.md",
+      "role": "official_fixed_point_document",
+      "url": "https://docs.kalshi.com/getting_started/fixed_point_migration.md"
+    },
+    {
+      "id": "market_record",
+      "path": "sources/market.response.json",
+      "role": "market_record",
+      "url": "https://api.elections.kalshi.com/trade-api/v2/markets/REPLACE_MARKET_TICKER"
+    },
+    {
+      "id": "market_settlement",
+      "path": "sources/market-settlement.md",
+      "role": "official_settlement_document",
+      "url": "https://docs.kalshi.com/getting_started/market_settlement.md"
+    },
+    {
+      "id": "series_record",
+      "path": "sources/series.response.json",
+      "role": "series_record_and_contract_document_identity",
+      "url": "https://api.elections.kalshi.com/trade-api/v2/series/REPLACE_SERIES_TICKER"
+    }
+  ],
+  "venue": "kalshi"
+}

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.product_acquisition_spec.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "venue", "environment", "sources"],
+  "properties": {
+    "schema": {"const": "pmm.product_acquisition_spec.v1"},
+    "venue": {"const": "kalshi"},
+    "environment": {"const": "production"},
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "role", "url", "path"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "role": {
+            "enum": [
+              "event_metadata_record",
+              "market_record",
+              "series_record_and_contract_document_identity",
+              "official_fee_rounding_document",
+              "official_fixed_point_document",
+              "official_settlement_document",
+              "official_contract_terms_document",
+              "official_certification_document"
+            ]
+          },
+          "url": {"type": "string", "pattern": "^(?!.*#)https://(api\\.elections\\.kalshi\\.com|external-api\\.kalshi\\.com|docs\\.kalshi\\.com|kalshi\\.com|www\\.kalshi\\.com|kalshi-public-docs\\.s3\\.amazonaws\\.com|kalshi-public-docs\\.s3\\.us-east-1\\.amazonaws\\.com)(:443)?([/?]|$)"},
+          "path": {"type": "string", "minLength": 1},
+          "maximum_bytes": {"type": "integer", "minimum": 1, "maximum": 33554432},
+          "media_types": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": ["application/json", "application/pdf", "text/markdown", "text/plain"]
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"role": {"enum": ["event_metadata_record", "market_record", "series_record_and_contract_document_identity"]}}},
+            "then": {
+              "properties": {
+                "maximum_bytes": {"type": "integer", "minimum": 1, "maximum": 2097152},
+                "media_types": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"const": "application/json"}}
+              }
+            }
+          },
+          {
+            "if": {"properties": {"role": {"enum": ["official_fee_rounding_document", "official_fixed_point_document", "official_settlement_document"]}}},
+            "then": {
+              "properties": {
+                "maximum_bytes": {"type": "integer", "minimum": 1, "maximum": 4194304},
+                "media_types": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["text/markdown", "text/plain"]}}
+              }
+            }
+          },
+          {
+            "if": {"properties": {"role": {"enum": ["official_contract_terms_document", "official_certification_document"]}}},
+            "then": {
+              "properties": {
+                "maximum_bytes": {"type": "integer", "minimum": 1, "maximum": 33554432},
+                "media_types": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"const": "application/pdf"}}
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

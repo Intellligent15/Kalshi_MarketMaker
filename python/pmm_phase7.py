@@ -1043,10 +1043,23 @@ def verify_v3_lineage(
             )
     if normalization.get("output_events_sha256") != sha256_file(normalized_path):
         raise ProductTermsError("UpstreamManifestMismatch", "normalized events hash is stale")
+    product_path = normalization_manifest_path.parent / "product.json"
+    if normalization.get("output_product_sha256") != sha256_file(product_path):
+        raise ProductTermsError("UpstreamManifestMismatch", "normalized product identity hash is stale")
+    if normalization.get("product_terms_file_sha256") != sha256_file(
+        normalization_manifest_path.parent / "product_terms" / "product_terms.json"
+    ):
+        raise ProductTermsError("UpstreamManifestMismatch", "copied product terms file hash is stale")
+    if normalization.get("conversion_policy_file_sha256") != sha256_file(
+        normalization_manifest_path.parent / "conversion_policy.json"
+    ):
+        raise ProductTermsError("UpstreamManifestMismatch", "copied conversion policy file hash is stale")
     if features.get("input_events_sha256") != sha256_file(normalized_path):
         raise ProductTermsError("UpstreamManifestMismatch", "feature input events hash is stale")
     if features.get("output_features_sha256") != sha256_file(features_path):
         raise ProductTermsError("UpstreamManifestMismatch", "features hash is stale")
+    if features.get("input_product_sha256") != sha256_file(product_path):
+        raise ProductTermsError("UpstreamManifestMismatch", "feature product identity hash is stale")
     normalization_manifest_sha256 = sha256_file(normalization_manifest_path)
     if features.get("input_normalization_manifest_sha256") != normalization_manifest_sha256:
         raise ProductTermsError(
@@ -1091,6 +1104,22 @@ def verify_lineage(config_path: Path, result_dir: Path | None = None) -> dict[st
         if manifest.get(name) != value:
             raise ProductTermsError(
                 "UpstreamManifestMismatch", f"result manifest {name} differs from verified lineage"
+            )
+    if manifest.get("normalized_events_sha256") != sha256_file(normalized_path):
+        raise ProductTermsError("UpstreamManifestMismatch", "result normalized events hash is stale")
+    if manifest.get("features_sha256") != sha256_file(features_path):
+        raise ProductTermsError("UpstreamManifestMismatch", "result features hash is stale")
+    expected_metadata = {
+        "product_identity": package.terms.identity,
+        "product_terms_effective": package.terms.payload["effective"],
+        "product_terms_review_limitations": package.review.payload["limitations"],
+        "fee_application": policy.payload["fee_application"],
+        "settlement_application": policy.payload["settlement_application"],
+    }
+    for name, value in expected_metadata.items():
+        if manifest.get(name) != value:
+            raise ProductTermsError(
+                "UpstreamManifestMismatch", f"result manifest {name} differs from verified product metadata"
             )
     output_names = {
         "orders_sha256": "orders.jsonl",

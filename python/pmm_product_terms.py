@@ -15,15 +15,20 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
-from typing import Any, Iterable
-from urllib.parse import urlparse
+import tempfile
+import time
+from typing import Any, Callable, Iterable
+from urllib.parse import urljoin, urlparse
 
 import requests
 
 
 SOURCE_MANIFEST_SCHEMA = "pmm.product_terms_source_manifest.v1"
+SOURCE_MANIFEST_V2_SCHEMA = "pmm.product_terms_source_manifest.v2"
+ACQUISITION_SPEC_SCHEMA = "pmm.product_acquisition_spec.v1"
 PRODUCT_TERMS_SCHEMA = "pmm.venue_product_terms.v1"
 PRODUCT_REVIEW_SCHEMA = "pmm.product_terms_review.v1"
 PRODUCT_CATALOG_SCHEMA = "pmm.product_catalog.v1"
@@ -31,6 +36,16 @@ CONVERSION_POLICY_SCHEMA = "pmm.product_conversion_policy.v1"
 COMPATIBILITY_REPORT_SCHEMA = "pmm.product_compatibility_report.v1"
 
 SHA256_LENGTH = 64
+ACQUISITION_TOOL_NAME = "pmm_product_terms"
+ACQUISITION_TOOL_VERSION = "product-acquisition.v2"
+STREAM_CHUNK_BYTES = 64 * 1024
+MAX_PACKAGE_BYTES = 64 * 1024 * 1024
+MAX_REDIRECTS = 5
+CONNECT_TIMEOUT_SECONDS = 5
+READ_TIMEOUT_SECONDS = 15
+SOURCE_DEADLINE_SECONDS = 60
+PACKAGE_DEADLINE_SECONDS = 180
+REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 ALLOWED_SOURCE_HOSTS = {
     "api.elections.kalshi.com",
     "external-api.kalshi.com",
@@ -41,11 +56,94 @@ ALLOWED_SOURCE_HOSTS = {
     "kalshi-public-docs.s3.us-east-1.amazonaws.com",
 }
 
+ROLE_POLICIES = {
+    "event_metadata_record": (2 * 1024 * 1024, frozenset({"application/json"}), "json"),
+    "market_record": (2 * 1024 * 1024, frozenset({"application/json"}), "json"),
+    "series_record_and_contract_document_identity": (
+        2 * 1024 * 1024,
+        frozenset({"application/json"}),
+        "json",
+    ),
+    "official_fee_rounding_document": (
+        4 * 1024 * 1024,
+        frozenset({"text/markdown", "text/plain"}),
+        "text",
+    ),
+    "official_fixed_point_document": (
+        4 * 1024 * 1024,
+        frozenset({"text/markdown", "text/plain"}),
+        "text",
+    ),
+    "official_settlement_document": (
+        4 * 1024 * 1024,
+        frozenset({"text/markdown", "text/plain"}),
+        "text",
+    ),
+    "official_contract_terms_document": (
+        32 * 1024 * 1024,
+        frozenset({"application/pdf"}),
+        "pdf",
+    ),
+    "official_certification_document": (
+        32 * 1024 * 1024,
+        frozenset({"application/pdf"}),
+        "pdf",
+    ),
+}
+
+REFUSAL_CODES = frozenset({
+    "AcquisitionCleanupFailed",
+    "AcquisitionContentInvalid",
+    "AcquisitionHttpStatusRejected",
+    "AcquisitionMediaTypeMismatch",
+    "AcquisitionPackageTooLarge",
+    "AcquisitionRedirectLimit",
+    "AcquisitionRedirectRejected",
+    "AcquisitionSourceTooLarge",
+    "AcquisitionTimeout",
+    "AcquisitionTransportFailure",
+    "AcquisitionUrlRejected",
+    "CaptureOutsideEffectiveWindow",
+    "CatalogAmbiguous",
+    "CatalogHashMismatch",
+    "ComplementaryPriceMismatch",
+    "ConversionPolicyMismatch",
+    "CorePriceNotRepresentable",
+    "CoreQuantityNotRepresentable",
+    "EffectiveWindowGap",
+    "EffectiveWindowMismatch",
+    "EffectiveWindowOverlap",
+    "EventTickerMismatch",
+    "FeePolicyUnsupported",
+    "FeeTermsMissing",
+    "InvalidPriceRange",
+    "InvalidQuantityIncrement",
+    "MarketTickerMismatch",
+    "PackageMembershipMismatch",
+    "PriceOffVenueGrid",
+    "QuantityOffVenueIncrement",
+    "ReviewHashMismatch",
+    "ReviewMissing",
+    "ReviewNotApproved",
+    "SeriesTickerMismatch",
+    "SourceHashMismatch",
+    "SourceMissing",
+    "SourceTermsMismatch",
+    "TermsHashMismatch",
+    "TermsNoncanonical",
+    "UnsupportedMarketType",
+    "UnsupportedPayout",
+    "UnsupportedTermsSchema",
+    "UpstreamManifestMismatch",
+})
+
 
 class ProductTermsError(ValueError):
     """Stable refusal category plus a human-readable diagnostic."""
 
     def __init__(self, code: str, message: str) -> None:
+        if code not in REFUSAL_CODES:
+            raise AssertionError(f"unregistered product-term refusal code: {code}")
         self.code = code
         super().__init__(f"{code}: {message}")
 
@@ -160,6 +258,35 @@ def parse_utc(value: Any, context: str) -> datetime:
     return parsed
 
 
+def format_utc(value: datetime) -> str:
+    if value.tzinfo != timezone.utc:
+        fail("TermsNoncanonical", "observed acquisition time must be UTC")
+    return value.isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def approved_source_url(value: Any, context: str) -> str:
+    url = require_string(value, context)
+    parsed = urlparse(url)
+    try:
+        port = parsed.port
+    except ValueError as error:
+        fail("AcquisitionUrlRejected", f"{context} has an invalid port: {error}")
+    approved_netlocs = ALLOWED_SOURCE_HOSTS | {
+        f"{hostname}:443" for hostname in ALLOWED_SOURCE_HOSTS
+    }
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in ALLOWED_SOURCE_HOSTS
+        or parsed.netloc not in approved_netlocs
+        or port not in {None, 443}
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        fail("AcquisitionUrlRejected", f"{context} is not an approved first-party HTTPS URL")
+    return url
+
+
 def utc_ns_to_datetime(value: Any, context: str) -> datetime:
     if isinstance(value, bool):
         fail("TermsNoncanonical", f"{context} must be an integer nanosecond timestamp")
@@ -206,23 +333,123 @@ def validate_envelope(path: Path, schema: str, mismatch_code: str) -> tuple[dict
     return payload, declared
 
 
+def _validate_acquisition_summary(value: Any) -> None:
+    if not isinstance(value, dict):
+        fail("TermsNoncanonical", "source acquisition summary must be an object")
+    require_keys(
+        value,
+        {"started_at_utc", "completed_at_utc", "tool_name", "tool_version"},
+        set(),
+        "source acquisition",
+    )
+    started = parse_utc(value["started_at_utc"], "source acquisition.started_at_utc")
+    completed = parse_utc(value["completed_at_utc"], "source acquisition.completed_at_utc")
+    if completed < started:
+        fail("TermsNoncanonical", "source acquisition completion precedes its start")
+    if value["tool_name"] != ACQUISITION_TOOL_NAME:
+        fail("TermsNoncanonical", "source acquisition tool name is unsupported")
+    require_string(value["tool_version"], "source acquisition.tool_version")
+
+
+def _validate_acquired_source_metadata(
+    source: dict[str, Any], context: str, role: str
+) -> None:
+    if role not in ROLE_POLICIES:
+        fail("TermsNoncanonical", f"{context}.role is unsupported")
+    requested_url = approved_source_url(source["requested_url"], f"{context}.requested_url")
+    final_url = approved_source_url(source["final_url"], f"{context}.final_url")
+    redirects = source["redirect_history"]
+    if not isinstance(redirects, list) or len(redirects) > MAX_REDIRECTS:
+        fail("TermsNoncanonical", f"{context}.redirect_history is invalid")
+    current_url = requested_url
+    for index, redirect in enumerate(redirects):
+        redirect_context = f"{context}.redirect_history[{index}]"
+        if not isinstance(redirect, dict):
+            fail("TermsNoncanonical", f"{redirect_context} must be an object")
+        require_keys(
+            redirect,
+            {"status_code", "location", "resolved_url"},
+            set(),
+            redirect_context,
+        )
+        if require_integer(redirect["status_code"], f"{redirect_context}.status_code") not in REDIRECT_STATUSES:
+            fail("TermsNoncanonical", f"{redirect_context}.status_code is not a supported redirect")
+        require_string(redirect["location"], f"{redirect_context}.location")
+        resolved_url = approved_source_url(
+            redirect["resolved_url"], f"{redirect_context}.resolved_url"
+        )
+        if urljoin(current_url, redirect["location"]) != resolved_url:
+            fail("TermsNoncanonical", f"{redirect_context} does not resolve from the prior URL")
+        current_url = resolved_url
+    if final_url != current_url:
+        fail("TermsNoncanonical", f"{context}.final_url does not match the redirect chain")
+    status = require_integer(source["http_status"], f"{context}.http_status")
+    if status < 200 or status >= 300:
+        fail("TermsNoncanonical", f"{context}.http_status is not successful")
+    started = parse_utc(source["retrieval_started_at_utc"], f"{context}.retrieval_started_at_utc")
+    completed = parse_utc(source["retrieval_completed_at_utc"], f"{context}.retrieval_completed_at_utc")
+    if completed < started:
+        fail("TermsNoncanonical", f"{context} retrieval completion precedes its start")
+    require_integer(source["elapsed_milliseconds"], f"{context}.elapsed_milliseconds")
+    if source["tool_name"] != ACQUISITION_TOOL_NAME:
+        fail("TermsNoncanonical", f"{context}.tool_name is unsupported")
+    require_string(source["tool_version"], f"{context}.tool_version")
+    headers = source["response_headers"]
+    if not isinstance(headers, dict):
+        fail("TermsNoncanonical", f"{context}.response_headers must be an object")
+    require_keys(
+        headers,
+        {"content_type", "content_length", "etag", "last_modified", "date"},
+        set(),
+        f"{context}.response_headers",
+    )
+    for name, header in headers.items():
+        if header is not None:
+            require_string(header, f"{context}.response_headers.{name}")
+    maximum_bytes, media_types, _ = ROLE_POLICIES[role]
+    media_type = require_string(source["media_type"], f"{context}.media_type")
+    if media_type not in media_types:
+        fail("TermsNoncanonical", f"{context}.media_type is not permitted for {role}")
+    if require_integer(source["byte_length"], f"{context}.byte_length") > maximum_bytes:
+        fail("TermsNoncanonical", f"{context}.byte_length exceeds the role policy")
+
+
 @dataclass(frozen=True)
 class SourceEvidence:
     payload: dict[str, Any]
     payload_sha256: str
     file_sha256: str
     source_hashes: dict[str, str]
+    schema: str
 
     @classmethod
     def load(cls, package: Path) -> "SourceEvidence":
         path = package / "source_manifest.json"
         if not path.is_file():
             fail("SourceMissing", f"{path} is missing")
-        payload, payload_hash = validate_envelope(path, SOURCE_MANIFEST_SCHEMA, "SourceHashMismatch")
-        require_keys(payload, {"venue", "environment", "retrieved_at_utc", "sources"}, set(), "source payload")
+        document = read_object(path)
+        schema = document.get("schema")
+        if schema not in {SOURCE_MANIFEST_SCHEMA, SOURCE_MANIFEST_V2_SCHEMA}:
+            fail("UnsupportedTermsSchema", f"{path} uses unsupported source schema {schema!r}")
+        payload, payload_hash = validate_envelope(path, schema, "SourceHashMismatch")
+        if schema == SOURCE_MANIFEST_SCHEMA:
+            require_keys(
+                payload,
+                {"venue", "environment", "retrieved_at_utc", "sources"},
+                set(),
+                "source payload",
+            )
+            parse_utc(payload["retrieved_at_utc"], "source.retrieved_at_utc")
+        else:
+            require_keys(
+                payload,
+                {"venue", "environment", "acquisition", "sources"},
+                set(),
+                "source payload",
+            )
+            _validate_acquisition_summary(payload["acquisition"])
         if payload["venue"] != "kalshi" or payload["environment"] != "production":
             fail("TermsNoncanonical", "source venue/environment must be kalshi/production")
-        parse_utc(payload["retrieved_at_utc"], "source.retrieved_at_utc")
         sources = payload["sources"]
         if not isinstance(sources, list) or not sources:
             fail("SourceMissing", "source payload must list retained sources")
@@ -232,29 +459,48 @@ class SourceEvidence:
             context = f"source.sources[{index}]"
             if not isinstance(source, dict):
                 fail("TermsNoncanonical", f"{context} must be an object")
-            require_keys(
-                source,
-                {"id", "role", "url", "retrieved_at_utc", "media_type", "path", "byte_length", "sha256"},
-                {"content_encoding", "venue_updated_at"},
-                context,
-            )
+            if schema == SOURCE_MANIFEST_SCHEMA:
+                require_keys(
+                    source,
+                    {"id", "role", "url", "retrieved_at_utc", "media_type", "path", "byte_length", "sha256"},
+                    {"content_encoding", "venue_updated_at"},
+                    context,
+                )
+            else:
+                require_keys(
+                    source,
+                    {
+                        "id", "role", "requested_url", "final_url", "redirect_history",
+                        "http_status", "media_type", "retrieval_started_at_utc",
+                        "retrieval_completed_at_utc", "elapsed_milliseconds", "path",
+                        "byte_length", "sha256", "tool_name", "tool_version",
+                        "response_headers",
+                    },
+                    {"venue_updated_at"},
+                    context,
+                )
             identity = require_string(source["id"], f"{context}.id")
             identities.append(identity)
-            require_string(source["role"], f"{context}.role")
-            url = require_string(source["url"], f"{context}.url")
-            parsed = urlparse(url)
-            if parsed.scheme != "https" or parsed.hostname not in ALLOWED_SOURCE_HOSTS:
-                fail("SourceMissing", f"{context}.url is not an approved first-party source")
-            parse_utc(source["retrieved_at_utc"], f"{context}.retrieved_at_utc")
+            role = require_string(source["role"], f"{context}.role")
+            if schema == SOURCE_MANIFEST_SCHEMA:
+                try:
+                    approved_source_url(source["url"], f"{context}.url")
+                except ProductTermsError as error:
+                    fail("SourceMissing", str(error))
+                parse_utc(source["retrieved_at_utc"], f"{context}.retrieved_at_utc")
+            else:
+                _validate_acquired_source_metadata(source, context, role)
             require_string(source["media_type"], f"{context}.media_type")
+            if source.get("venue_updated_at") is not None:
+                parse_utc(source["venue_updated_at"], f"{context}.venue_updated_at")
             path_value = safe_member(package, source["path"], f"{context}.path")
             raw = path_value.read_bytes()
-            if source.get("content_encoding") == "base64":
+            if schema == SOURCE_MANIFEST_SCHEMA and source.get("content_encoding") == "base64":
                 try:
                     raw = base64.b64decode(raw, validate=True)
                 except ValueError as error:
                     fail("SourceHashMismatch", f"{context} has invalid base64: {error}")
-            elif source.get("content_encoding") not in {None, "identity"}:
+            elif schema == SOURCE_MANIFEST_SCHEMA and source.get("content_encoding") not in {None, "identity"}:
                 fail("TermsNoncanonical", f"{context}.content_encoding is unsupported")
             if require_integer(source["byte_length"], f"{context}.byte_length") != len(raw):
                 fail("SourceHashMismatch", f"{context} byte length is stale")
@@ -264,7 +510,32 @@ class SourceEvidence:
             hashes[identity] = expected
         if identities != sorted(identities) or len(identities) != len(set(identities)):
             fail("TermsNoncanonical", "source identifiers must be unique and sorted")
-        return cls(payload, payload_hash, sha256_file(path), hashes)
+        if schema == SOURCE_MANIFEST_V2_SCHEMA:
+            acquisition = payload["acquisition"]
+            acquisition_started = parse_utc(
+                acquisition["started_at_utc"], "source acquisition.started_at_utc"
+            )
+            acquisition_completed = parse_utc(
+                acquisition["completed_at_utc"], "source acquisition.completed_at_utc"
+            )
+            total_bytes = 0
+            for index, source in enumerate(sources):
+                source_started = parse_utc(
+                    source["retrieval_started_at_utc"],
+                    f"source.sources[{index}].retrieval_started_at_utc",
+                )
+                source_completed = parse_utc(
+                    source["retrieval_completed_at_utc"],
+                    f"source.sources[{index}].retrieval_completed_at_utc",
+                )
+                if source_started < acquisition_started or source_completed > acquisition_completed:
+                    fail("TermsNoncanonical", "source retrieval lies outside package acquisition time")
+                if source["tool_version"] != acquisition["tool_version"]:
+                    fail("TermsNoncanonical", "source and package acquisition tool versions differ")
+                total_bytes += source["byte_length"]
+            if total_bytes > MAX_PACKAGE_BYTES:
+                fail("TermsNoncanonical", "retained package exceeds its byte limit")
+        return cls(payload, payload_hash, sha256_file(path), hashes, schema)
 
 
 @dataclass(frozen=True)
@@ -351,10 +622,25 @@ def _validate_terms_payload(payload: dict[str, Any], evidence: SourceEvidence) -
     _validate_payout_terms(payload["payout"])
     _validate_rules_lifecycle_settlement_fees(payload)
     refs = payload["source_refs"]
-    if not isinstance(refs, list) or refs != sorted(refs) or len(refs) != len(set(refs)):
+    if (
+        not isinstance(refs, list)
+        or any(not isinstance(reference, str) or not reference for reference in refs)
+        or refs != sorted(refs)
+        or len(refs) != len(set(refs))
+    ):
         fail("TermsNoncanonical", "terms.source_refs must be a sorted unique list")
     if not refs or any(reference not in evidence.source_hashes for reference in refs):
         fail("SourceMissing", "terms reference missing retained source evidence")
+    direct_refs = {
+        payload["rules"]["contract_terms_source"],
+        payload["settlement"]["rules_source"],
+        payload["fees"]["schedule_source"],
+        payload["fees"]["rounding_source"],
+    }
+    if any(reference not in evidence.source_hashes for reference in direct_refs):
+        fail("SourceMissing", "a direct terms source reference is not retained")
+    if not direct_refs.issubset(set(refs)):
+        fail("SourceMissing", "direct terms source references must appear in source_refs")
 
 
 def _retained_json(package: Path, evidence: SourceEvidence, source_id: str) -> dict[str, Any]:
@@ -569,7 +855,13 @@ class ProductReview:
         if end is not None and end <= start:
             fail("EffectiveWindowGap", "review effective interval is empty")
         if payload["effective_time_basis"] != terms.payload["effective"]["basis"]:
-            fail("ReviewHashMismatch", "review and terms effective-time basis differ")
+            fail("EffectiveWindowMismatch", "review and terms effective-time basis differ")
+        terms_effective = terms.payload["effective"]
+        if (
+            payload["effective_from_utc"] != terms_effective["from_utc"]
+            or payload["effective_until_utc"] != terms_effective["until_utc"]
+        ):
+            fail("EffectiveWindowMismatch", "review and terms effective intervals differ")
         if not isinstance(payload["limitations"], list) or any(not isinstance(item, str) for item in payload["limitations"]):
             fail("TermsNoncanonical", "review limitations must be strings")
         return cls(payload, payload_hash, sha256_file(path))
@@ -683,8 +975,8 @@ class ProductCatalog:
         payload, payload_hash = validate_envelope(path, PRODUCT_CATALOG_SCHEMA, "CatalogHashMismatch")
         require_keys(payload, {"entries"}, set(), "catalog payload")
         entries = payload["entries"]
-        if not isinstance(entries, list):
-            fail("TermsNoncanonical", "catalog entries must be a list")
+        if not isinstance(entries, list) or not entries:
+            fail("TermsNoncanonical", "catalog entries must be a non-empty list")
         keys: list[tuple[str, str]] = []
         for index, entry in enumerate(entries):
             if not isinstance(entry, dict):
@@ -695,8 +987,15 @@ class ProductCatalog:
             for name in ("series_ticker", "event_ticker", "market_ticker", "package"):
                 require_string(entry[name], f"catalog entry {index}.{name}")
             parse_utc(entry["effective_from_utc"], f"catalog entry {index}.effective_from_utc")
+            catalog_start = parse_utc(
+                entry["effective_from_utc"], f"catalog entry {index}.effective_from_utc"
+            )
             if entry["effective_until_utc"] is not None:
-                parse_utc(entry["effective_until_utc"], f"catalog entry {index}.effective_until_utc")
+                catalog_end = parse_utc(
+                    entry["effective_until_utc"], f"catalog entry {index}.effective_until_utc"
+                )
+                if catalog_end <= catalog_start:
+                    fail("EffectiveWindowGap", f"catalog entry {index} interval is empty")
             for name in ("product_terms_sha256", "source_manifest_sha256", "review_sha256"):
                 require_hash(entry[name], f"catalog entry {index}.{name}")
             keys.append((entry["market_ticker"], entry["effective_from_utc"]))
@@ -707,7 +1006,16 @@ class ProductCatalog:
         return catalog
 
     def _package_for(self, entry: dict[str, Any]) -> ProductPackage:
-        package_path = (self.root / entry["package"]).resolve()
+        relative = Path(entry["package"])
+        if relative.is_absolute() or ".." in relative.parts or "\\" in entry["package"]:
+            fail("SourceMissing", "catalog package path is unsafe")
+        unresolved = self.root / relative
+        candidate = self.root
+        for part in relative.parts:
+            candidate = candidate / part
+            if candidate.is_symlink():
+                fail("SourceMissing", "catalog package path must not contain a symlink")
+        package_path = unresolved.resolve()
         try:
             package_path.relative_to(self.root)
         except ValueError:
@@ -719,6 +1027,16 @@ class ProductCatalog:
         for name in ("series_ticker", "event_ticker", "market_ticker"):
             if identity[name] != entry[name]:
                 fail(f"{name.split('_')[0].title()}TickerMismatch", f"catalog entry {name} differs from package")
+        terms_effective = package.terms.payload["effective"]
+        review = package.review.payload
+        catalog_interval = (entry["effective_from_utc"], entry["effective_until_utc"])
+        terms_interval = (terms_effective["from_utc"], terms_effective["until_utc"])
+        review_interval = (review["effective_from_utc"], review["effective_until_utc"])
+        if catalog_interval != terms_interval or catalog_interval != review_interval:
+            fail(
+                "EffectiveWindowMismatch",
+                f"catalog entry for {entry['market_ticker']} differs from its terms or review interval",
+            )
         return package
 
     def verify(self) -> None:
@@ -736,13 +1054,17 @@ class ProductCatalog:
         ticker = metadata.get("ticker")
         started = utc_ns_to_datetime(metadata.get("capture_started_at_utc_ns"), "capture_started_at_utc_ns")
         ended = utc_ns_to_datetime(metadata.get("capture_ended_at_utc_ns"), "capture_ended_at_utc_ns")
+        if ended < started:
+            fail("CaptureOutsideEffectiveWindow", "capture completion precedes its start")
         matches: list[ProductPackage] = []
         for entry in self.payload["entries"]:
             if entry["market_ticker"] != ticker:
                 continue
-            package = self._package_for(entry)
-            if package.review.covers(started, ended):
-                matches.append(package)
+            start = parse_utc(entry["effective_from_utc"], "catalog effective_from")
+            end_value = entry["effective_until_utc"]
+            end = None if end_value is None else parse_utc(end_value, "catalog effective_until")
+            if started >= start and (end is None or ended < end):
+                matches.append(self._package_for(entry))
         if not matches:
             fail("EffectiveWindowGap", f"no reviewed terms cover {ticker!r} for the capture interval")
         if len(matches) != 1:
@@ -786,52 +1108,315 @@ def build_envelope(schema: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {"schema": schema, "payload": payload, "payload_sha256": sha256_bytes(canonical_json_bytes(payload))}
 
 
-def fetch_sources(spec_path: Path, output: Path) -> None:
+def _safe_output_path(root: Path, value: Any, context: str) -> tuple[Path, Path]:
+    text = require_string(value, context)
+    relative = Path(text)
+    if relative.is_absolute() or ".." in relative.parts or "\\" in text:
+        fail("SourceMissing", f"{context} path is unsafe")
+    return relative, root / relative
+
+
+def _media_type(headers: Any) -> str:
+    content_type = str(headers.get("Content-Type", "")).strip()
+    return content_type.split(";", 1)[0].strip().lower()
+
+
+def _selected_headers(headers: Any) -> dict[str, str | None]:
+    return {
+        "content_type": headers.get("Content-Type"),
+        "content_length": headers.get("Content-Length"),
+        "etag": headers.get("ETag"),
+        "last_modified": headers.get("Last-Modified"),
+        "date": headers.get("Date"),
+    }
+
+
+def _validate_retained_content(path: Path, content_kind: str, context: str) -> None:
+    try:
+        if content_kind == "json":
+            value = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(value, dict):
+                fail("AcquisitionContentInvalid", f"{context} JSON must contain an object")
+        elif content_kind == "text":
+            path.read_text(encoding="utf-8")
+        elif content_kind == "pdf":
+            with path.open("rb") as source:
+                if source.read(5) != b"%PDF-":
+                    fail("AcquisitionContentInvalid", f"{context} has no PDF signature")
+        else:
+            raise AssertionError(f"unsupported acquisition content kind: {content_kind}")
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        fail("AcquisitionContentInvalid", f"{context} content is invalid: {error}")
+
+
+def _request_source(
+    session: Any,
+    item: dict[str, Any],
+    destination: Path,
+    *,
+    package_bytes: int,
+    package_started: float,
+    now: Callable[[], datetime],
+    monotonic: Callable[[], float],
+) -> tuple[dict[str, Any], int]:
+    role = require_string(item["role"], "fetch source role")
+    if role not in ROLE_POLICIES:
+        fail("TermsNoncanonical", f"fetch source role {role!r} is unsupported")
+    role_limit, role_media, content_kind = ROLE_POLICIES[role]
+    declared_limit = item.get("maximum_bytes", role_limit)
+    maximum_bytes = require_integer(declared_limit, "fetch source maximum_bytes", minimum=1)
+    if maximum_bytes > role_limit:
+        fail("TermsNoncanonical", "fetch source maximum_bytes may not exceed the role policy")
+    declared_media = item.get("media_types", sorted(role_media))
+    if (
+        not isinstance(declared_media, list)
+        or not declared_media
+        or any(not isinstance(value, str) or value not in role_media for value in declared_media)
+    ):
+        fail("TermsNoncanonical", "fetch source media_types must narrow the role policy")
+    allowed_media = frozenset(declared_media)
+    requested_url = approved_source_url(item["url"], "fetch source url")
+    current_url = requested_url
+    redirect_history: list[dict[str, Any]] = []
+    source_started_utc = now()
+    source_started = monotonic()
+    response: Any = None
+    try:
+        while True:
+            if monotonic() - source_started > SOURCE_DEADLINE_SECONDS:
+                fail("AcquisitionTimeout", "source acquisition exceeded its wall-clock deadline")
+            if monotonic() - package_started > PACKAGE_DEADLINE_SECONDS:
+                fail("AcquisitionTimeout", "package acquisition exceeded its wall-clock deadline")
+            try:
+                response = session.get(
+                    current_url,
+                    timeout=(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS),
+                    allow_redirects=False,
+                    stream=True,
+                    headers={"Accept-Encoding": "identity"},
+                )
+            except requests.Timeout as error:
+                fail("AcquisitionTimeout", f"request timed out: {error}")
+            except requests.RequestException as error:
+                fail("AcquisitionTransportFailure", f"request failed: {error}")
+            response_url = str(getattr(response, "url", current_url) or current_url)
+            approved_source_url(response_url, "response final url")
+            if response_url != current_url:
+                fail("AcquisitionRedirectRejected", "response URL changed without a recorded redirect")
+            status = require_integer(response.status_code, "response status")
+            if status in REDIRECT_STATUSES:
+                location = response.headers.get("Location")
+                if not isinstance(location, str) or not location:
+                    fail("AcquisitionRedirectRejected", "redirect response has no Location header")
+                if len(redirect_history) >= MAX_REDIRECTS:
+                    fail("AcquisitionRedirectLimit", "source exceeded the redirect-hop limit")
+                resolved = urljoin(response_url, location)
+                try:
+                    approved_source_url(resolved, "redirect destination")
+                except ProductTermsError as error:
+                    fail("AcquisitionRedirectRejected", str(error))
+                redirect_history.append({
+                    "status_code": status,
+                    "location": location,
+                    "resolved_url": resolved,
+                })
+                response.close()
+                response = None
+                current_url = resolved
+                continue
+            if 300 <= status < 400:
+                fail("AcquisitionRedirectRejected", f"unsupported redirect status {status}")
+            if status < 200 or status >= 300:
+                fail("AcquisitionHttpStatusRejected", f"source returned HTTP status {status}")
+            break
+
+        encoding = response.headers.get("Content-Encoding")
+        if encoding not in {None, "", "identity"}:
+            fail("AcquisitionContentInvalid", f"unsupported HTTP content encoding {encoding!r}")
+        media_type = _media_type(response.headers)
+        if media_type not in allowed_media:
+            fail(
+                "AcquisitionMediaTypeMismatch",
+                f"role {role} does not permit response media type {media_type!r}",
+            )
+        content_length = response.headers.get("Content-Length")
+        if content_length is not None:
+            try:
+                declared_length = int(content_length)
+            except (TypeError, ValueError):
+                fail("AcquisitionContentInvalid", "response Content-Length is not an integer")
+            if declared_length < 0:
+                fail("AcquisitionContentInvalid", "response Content-Length is negative")
+            if declared_length > maximum_bytes:
+                fail("AcquisitionSourceTooLarge", "declared response exceeds the source limit")
+            if package_bytes + declared_length > MAX_PACKAGE_BYTES:
+                fail("AcquisitionPackageTooLarge", "declared response exceeds the package limit")
+
+        digest = hashlib.sha256()
+        byte_count = 0
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        download = destination.with_name(destination.name + ".download")
+        with download.open("xb") as retained:
+            try:
+                for chunk in response.iter_content(chunk_size=STREAM_CHUNK_BYTES):
+                    if not chunk:
+                        continue
+                    if monotonic() - source_started > SOURCE_DEADLINE_SECONDS:
+                        fail("AcquisitionTimeout", "source acquisition exceeded its wall-clock deadline")
+                    if monotonic() - package_started > PACKAGE_DEADLINE_SECONDS:
+                        fail("AcquisitionTimeout", "package acquisition exceeded its wall-clock deadline")
+                    byte_count += len(chunk)
+                    if byte_count > maximum_bytes:
+                        fail("AcquisitionSourceTooLarge", "streamed response exceeds the source limit")
+                    if package_bytes + byte_count > MAX_PACKAGE_BYTES:
+                        fail("AcquisitionPackageTooLarge", "streamed response exceeds the package limit")
+                    digest.update(chunk)
+                    retained.write(chunk)
+                retained.flush()
+                os.fsync(retained.fileno())
+            except requests.Timeout as error:
+                download.unlink(missing_ok=True)
+                fail("AcquisitionTimeout", f"response stream timed out: {error}")
+            except requests.RequestException as error:
+                download.unlink(missing_ok=True)
+                fail("AcquisitionTransportFailure", f"response stream failed: {error}")
+            except BaseException:
+                download.unlink(missing_ok=True)
+                raise
+        if content_length is not None and byte_count != declared_length:
+            download.unlink(missing_ok=True)
+            fail("AcquisitionContentInvalid", "retained byte count differs from Content-Length")
+        _validate_retained_content(download, content_kind, f"source {item['id']}")
+        download.rename(destination)
+        source_completed_utc = now()
+        elapsed_milliseconds = int((monotonic() - source_started) * 1000)
+        final_url = str(getattr(response, "url", current_url) or current_url)
+        approved_source_url(final_url, "response final url")
+        retained = {
+            "id": require_string(item["id"], "fetch source id"),
+            "role": role,
+            "requested_url": requested_url,
+            "final_url": final_url,
+            "redirect_history": redirect_history,
+            "http_status": int(response.status_code),
+            "media_type": media_type,
+            "retrieval_started_at_utc": format_utc(source_started_utc),
+            "retrieval_completed_at_utc": format_utc(source_completed_utc),
+            "elapsed_milliseconds": elapsed_milliseconds,
+            "path": item["path"],
+            "byte_length": byte_count,
+            "sha256": digest.hexdigest(),
+            "tool_name": ACQUISITION_TOOL_NAME,
+            "tool_version": ACQUISITION_TOOL_VERSION,
+            "response_headers": _selected_headers(response.headers),
+        }
+        return retained, byte_count
+    finally:
+        if response is not None:
+            response.close()
+
+
+def fetch_sources(
+    spec_path: Path,
+    output: Path,
+    *,
+    session: Any | None = None,
+    now: Callable[[], datetime] | None = None,
+    monotonic: Callable[[], float] | None = None,
+) -> None:
     spec = read_object(spec_path)
-    require_keys(spec, {"venue", "environment", "retrieved_at_utc", "sources"}, set(), "fetch spec")
+    require_keys(spec, {"schema", "venue", "environment", "sources"}, set(), "fetch spec")
+    if spec["schema"] != ACQUISITION_SPEC_SCHEMA:
+        fail("UnsupportedTermsSchema", f"fetch spec must use {ACQUISITION_SPEC_SCHEMA}")
     if spec["venue"] != "kalshi" or spec["environment"] != "production":
         fail("SourceMissing", "fetch supports only kalshi production sources")
-    parse_utc(spec["retrieved_at_utc"], "fetch.retrieved_at_utc")
-    if output.exists() or output.with_name(output.name + ".partial").exists():
+    sources = spec["sources"]
+    if not isinstance(sources, list) or not sources:
+        fail("SourceMissing", "fetch spec must list at least one source")
+    if output.exists():
         fail("SourceMissing", f"fetch output already exists: {output}")
-    partial = output.with_name(output.name + ".partial")
-    partial.mkdir(parents=True)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    partial = Path(tempfile.mkdtemp(
+        prefix=f".{output.name}.", suffix=".partial", dir=output.parent
+    ))
+    request_session = requests.Session() if session is None else session
+    clock = (lambda: datetime.now(timezone.utc)) if now is None else now
+    timer = time.monotonic if monotonic is None else monotonic
+    acquisition_started_utc = clock()
+    package_started = timer()
     retained: list[dict[str, Any]] = []
+    total_bytes = 0
+    identities: set[str] = set()
+    paths: set[str] = set()
     try:
-        for index, item in enumerate(spec["sources"]):
+        for index, item in enumerate(sources):
             if not isinstance(item, dict):
                 fail("TermsNoncanonical", f"fetch source {index} must be an object")
-            require_keys(item, {"id", "role", "url", "path"}, set(), f"fetch source {index}")
-            url = require_string(item["url"], f"fetch source {index}.url")
-            parsed = urlparse(url)
-            if parsed.scheme != "https" or parsed.hostname not in ALLOWED_SOURCE_HOSTS:
-                fail("SourceMissing", f"fetch source {index} is not an approved first-party URL")
-            response = requests.get(url, timeout=30, allow_redirects=True)
-            response.raise_for_status()
-            relative = Path(require_string(item["path"], f"fetch source {index}.path"))
-            if relative.is_absolute() or ".." in relative.parts:
-                fail("SourceMissing", f"fetch source {index} path is unsafe")
-            destination = partial / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(response.content)
-            retained.append({
-                "id": require_string(item["id"], f"fetch source {index}.id"),
-                "role": require_string(item["role"], f"fetch source {index}.role"),
-                "url": url,
-                "retrieved_at_utc": spec["retrieved_at_utc"],
-                "media_type": response.headers.get("Content-Type", "application/octet-stream").split(";", 1)[0],
-                "path": relative.as_posix(),
-                "byte_length": len(response.content),
-                "sha256": sha256_bytes(response.content),
-            })
+            require_keys(
+                item,
+                {"id", "role", "url", "path"},
+                {"maximum_bytes", "media_types"},
+                f"fetch source {index}",
+            )
+            identity = require_string(item["id"], f"fetch source {index}.id")
+            relative, destination = _safe_output_path(
+                partial, item["path"], f"fetch source {index}"
+            )
+            relative_text = relative.as_posix()
+            if identity in identities or relative_text in paths:
+                fail("TermsNoncanonical", "fetch source identifiers and paths must be unique")
+            if relative_text == "source_manifest.json":
+                fail("SourceMissing", "fetch source path collides with source_manifest.json")
+            identities.add(identity)
+            paths.add(relative_text)
+            normalized_item = dict(item)
+            normalized_item["path"] = relative_text
+            source_record, added_bytes = _request_source(
+                request_session,
+                normalized_item,
+                destination,
+                package_bytes=total_bytes,
+                package_started=package_started,
+                now=clock,
+                monotonic=timer,
+            )
+            total_bytes += added_bytes
+            retained.append(source_record)
         retained.sort(key=lambda value: value["id"])
-        payload = {"venue": "kalshi", "environment": "production", "retrieved_at_utc": spec["retrieved_at_utc"], "sources": retained}
-        _write_new_canonical(partial / "source_manifest.json", build_envelope(SOURCE_MANIFEST_SCHEMA, payload))
+        payload = {
+            "venue": "kalshi",
+            "environment": "production",
+            "acquisition": {
+                "started_at_utc": format_utc(acquisition_started_utc),
+                "completed_at_utc": format_utc(clock()),
+                "tool_name": ACQUISITION_TOOL_NAME,
+                "tool_version": ACQUISITION_TOOL_VERSION,
+            },
+            "sources": retained,
+        }
+        _write_new_canonical(
+            partial / "source_manifest.json",
+            build_envelope(SOURCE_MANIFEST_V2_SCHEMA, payload),
+        )
+        retained_package_bytes = sum(
+            member.stat().st_size for member in partial.rglob("*") if member.is_file()
+        )
+        if retained_package_bytes > MAX_PACKAGE_BYTES:
+            fail("AcquisitionPackageTooLarge", "retained package exceeds the package limit")
         SourceEvidence.load(partial)
         partial.rename(output)
-    except Exception:
-        shutil.rmtree(partial, ignore_errors=True)
+    except BaseException as original:
+        try:
+            shutil.rmtree(partial)
+        except OSError as cleanup_error:
+            raise ProductTermsError(
+                "AcquisitionCleanupFailed",
+                f"failed to remove partial acquisition {partial}: {cleanup_error}",
+            ) from original
         raise
+    finally:
+        if session is None:
+            request_session.close()
 
 
 def build_terms(payload_path: Path, package: Path) -> None:
@@ -859,7 +1444,12 @@ def review_terms(
     if effective_until_utc is not None:
         parse_utc(effective_until_utc, "effective_until_utc")
     if effective_time_basis != product.payload["effective"]["basis"]:
-        fail("ReviewHashMismatch", "review basis must match the terms payload")
+        fail("EffectiveWindowMismatch", "review basis must match the terms payload")
+    if (
+        effective_from_utc != product.payload["effective"]["from_utc"]
+        or effective_until_utc != product.payload["effective"]["until_utc"]
+    ):
+        fail("EffectiveWindowMismatch", "review interval must match the terms payload")
     payload = {
         "status": "reviewed",
         "reviewed_at_utc": reviewed_at_utc,
