@@ -163,6 +163,87 @@ class ProductTermsTests(unittest.TestCase):
                 }, separators=(",", ":")) + "\n")
         return capture
 
+    def make_capture_v2(self) -> Path:
+        capture = self.generated_root / f"capture-v2-{uuid.uuid4()}"
+        capture.mkdir()
+        metadata = self.metadata()
+        metadata.update(
+            {
+                "schema": phase7.RAW_CAPTURE_V2_SCHEMA,
+                "market_tickers": [TICKER],
+                "truth_category": "Synthetic",
+                "sequence_domain": {
+                    "status": "fixture_declared",
+                    "components": ["connection_segment_id", "venue_subscription_id"],
+                    "mechanical_validation_key": ["connection_segment_id", "venue_subscription_id"],
+                    "limitation": "Synthetic product-lineage fixture.",
+                },
+            }
+        )
+        metadata.pop("ticker")
+        (capture / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+        subscription = {
+            "id": 1,
+            "cmd": "subscribe",
+            "params": {
+                "channels": ["orderbook_delta", "trade"],
+                "market_tickers": [TICKER],
+                "use_yes_price": True,
+            },
+        }
+        values: list[dict[str, object]] = [
+            {"kind": "connection_attempt", "websocket_url": "wss://fixture"},
+            {"kind": "connection_opened", "websocket_url": "wss://fixture"},
+            {
+                "kind": "subscription_sent",
+                "subscription_request_id": "c1:r1",
+                "wire_request_id": 1,
+                "subscription": subscription,
+            },
+            {
+                "kind": "subscription_acknowledged",
+                "subscription_request_id": "c1:r1",
+                "wire_request_id": 1,
+                "channel": "orderbook_delta",
+                "venue_subscription_id": "1",
+                "requested_market_tickers": [TICKER],
+                "membership_claim": "request_bound_not_echoed_by_acknowledgement",
+            },
+            {
+                "kind": "subscription_acknowledged",
+                "subscription_request_id": "c1:r1",
+                "wire_request_id": 1,
+                "channel": "trade",
+                "venue_subscription_id": "2",
+                "requested_market_tickers": [TICKER],
+                "membership_claim": "request_bound_not_echoed_by_acknowledgement",
+            },
+        ]
+        for message in (self.message("orderbook_snapshot", 1), self.message("trade", 1)):
+            values.append(
+                {
+                    "kind": "inbound_frame",
+                    "message_type": message["type"],
+                    "subscription_id": message["sid"],
+                    "source_sequence": message["seq"],
+                    "market_ticker": TICKER,
+                    "venue_market_id": message["msg"]["market_id"],  # type: ignore[index]
+                    "raw_frame_utf8": json.dumps(message),
+                }
+            )
+        values.append({"kind": "connection_closed", "close_reason": "capture_deadline", "clean": True})
+        with (capture / "frames.jsonl").open("w", encoding="utf-8") as destination:
+            for ordinal, value in enumerate(values, start=1):
+                record = {
+                    "schema": phase7.RAW_CAPTURE_RECORD_V2_SCHEMA,
+                    "raw_ingress_ordinal": ordinal,
+                    "received_at_utc_ns": 1_784_047_974_008_456_000 + ordinal,
+                    "connection_segment_id": 1,
+                    **value,
+                }
+                destination.write(json.dumps(record) + "\n")
+        return capture
+
     def load(self) -> tuple[terms.ProductCatalog, terms.ConversionPolicy, terms.ProductPackage]:
         catalog = terms.ProductCatalog.load(CATALOG_ROOT)
         policy = terms.ConversionPolicy.load(POLICY_PATH)
@@ -1614,6 +1695,34 @@ Settlement Rules
         )
         self.assertEqual(feature_manifest["schema"], "pmm.historical.feature_manifest.v2")
         self.assertEqual(feature_manifest["product_terms_sha256"], package.terms.payload_sha256)
+
+    def test_normalization_v3_preserves_per_product_reviewed_lineage(self) -> None:
+        catalog, policy, package = self.load()
+        output = self.generated_root / "normalized-v3"
+        manifest = phase7.normalize_capture_v3(
+            self.make_capture_v2(),
+            output,
+            product_catalog=catalog,
+            conversion_policy=policy,
+        )
+        self.assertEqual(manifest["schema"], phase7.NORMALIZATION_MANIFEST_V3_SCHEMA)
+        self.assertEqual(
+            manifest["product_lineage"],
+            [
+                {
+                    "ticker": TICKER,
+                    "product_terms_sha256": package.terms.payload_sha256,
+                    "source_manifest_sha256": package.evidence.payload_sha256,
+                    "review_sha256": package.review.payload_sha256,
+                }
+            ],
+        )
+        product = json.loads((output / "product.json").read_text())
+        self.assertEqual(product["products"][0]["product_terms_sha256"], package.terms.payload_sha256)
+        self.assertEqual(
+            (output / "product_terms" / TICKER / "product_terms.json").read_bytes(),
+            (package.path / "product_terms.json").read_bytes(),
+        )
 
     def test_hmonth_two_market_selection_normalizes_and_features_offline(self) -> None:
         catalog = terms.ProductCatalog.load(CATALOG_ROOT)
