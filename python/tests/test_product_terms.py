@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import base64
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
+import hashlib
+import io
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import uuid
 
-from jsonschema import Draft202012Validator, FormatChecker, RefResolver
+from jsonschema import Draft202012Validator, FormatChecker, RefResolver, ValidationError
 
 from python import pmm_phase7 as phase7
 from python import pmm_product_terms as terms
@@ -27,6 +33,7 @@ HMONTH_RELATIVE = Path(
     "kalshi/production/markets/KXHMONTH-26JUL/"
     "2026-07-17T150716Z-150837Z-contemporaneous-bracketed"
 )
+B1C_FIXTURES = Path(__file__).parent / "fixtures" / "product_terms"
 
 
 class FakeResponse:
@@ -184,7 +191,12 @@ class ProductTermsTests(unittest.TestCase):
         }), encoding="utf-8")
         return path
 
-    def acquisition_spec_v2(self, observation_id: str) -> Path:
+    def acquisition_spec_v2(
+        self,
+        observation_id: str,
+        *,
+        source_path: str = "sources/market.response.json",
+    ) -> Path:
         policy = CATALOG_ROOT / "acquisition_policies" / "kalshi_first_party_v1.json"
         shutil.copyfile(policy, self.generated_root / "acquisition-policy.json")
         loaded_policy = terms.AcquisitionPolicy.load(policy)
@@ -200,10 +212,68 @@ class ProductTermsTests(unittest.TestCase):
                 "id": "market_record",
                 "role": "market_record",
                 "url": "https://external-api.kalshi.com/market",
-                "path": "sources/market.response.json",
+                "path": source_path,
             }],
         }), encoding="utf-8")
         return path
+
+    def acquisition_spec_v3(
+        self,
+        observation_id: str,
+    ) -> tuple[Path, list[FakeResponse]]:
+        policy_source = CATALOG_ROOT / "acquisition_policies" / "kalshi_first_party_v1.json"
+        policy_path = self.generated_root / f"acquisition-policy-{observation_id}.json"
+        shutil.copyfile(policy_source, policy_path)
+        loaded_policy = terms.AcquisitionPolicy.load(policy_path)
+        profile_path, profile_document = self.write_evidence_profile(
+            f"acquisition-{observation_id}"
+        )
+        pdf_bytes = base64.b64decode(
+            (B1C_FIXTURES / "b1c-two-page.pdf.base64").read_text().strip(),
+            validate=True,
+        )
+        sources = []
+        responses = []
+        for role in profile_document["payload"]["roles"]:  # type: ignore[index]
+            source_key = role["source_key"]
+            url = f"https://external-api.kalshi.com/{source_key}"
+            content_kind = role["content_kind"]
+            if content_kind == "json":
+                body = b"{}"
+                media_type = "application/json"
+                suffix = "json"
+            elif content_kind == "text":
+                body = b"# Synthetic evidence\n\nOffline only.\n"
+                media_type = "text/markdown"
+                suffix = "md"
+            else:
+                body = pdf_bytes
+                media_type = "application/pdf"
+                suffix = "pdf"
+            sources.append({
+                "id": source_key,
+                "role": role["role"],
+                "url": url,
+                "path": f"sources/{source_key}/source.{suffix}",
+            })
+            responses.append(FakeResponse(
+                url=url,
+                body=body,
+                headers={"Content-Type": media_type, "Content-Length": str(len(body))},
+            ))
+        spec_path = self.generated_root / f"acquisition-v3-{observation_id}.json"
+        spec_path.write_text(json.dumps({
+            "schema": terms.ACQUISITION_SPEC_V3_SCHEMA,
+            "venue": "kalshi",
+            "environment": "production",
+            "observation_id": observation_id,
+            "acquisition_policy": policy_path.name,
+            "acquisition_policy_sha256": loaded_policy.payload_sha256,
+            "evidence_profile": profile_path.name,
+            "evidence_profile_sha256": profile_document["payload_sha256"],
+            "sources": sources,
+        }), encoding="utf-8")
+        return spec_path, responses
 
     @staticmethod
     def advancing_clock(start_second: int) -> object:
@@ -229,6 +299,615 @@ class ProductTermsTests(unittest.TestCase):
             schema,
             format_checker=FormatChecker(),
             resolver=RefResolver(base_uri=path.parent.as_uri() + "/", referrer=schema),
+        )
+
+    @staticmethod
+    def evidence_profile_document() -> dict[str, object]:
+        roles = []
+        for role, (_, media_types, content_kind) in sorted(terms.ROLE_POLICIES.items()):
+            roles.append({
+                "source_key": role,
+                "role": role,
+                "applicability": "required",
+                "reason": None,
+                "cardinality_per_observation": {"minimum": 1, "maximum": 1},
+                "media_types": sorted(media_types),
+                "content_kind": content_kind,
+                "mutability": (
+                    "mutable_endpoint" if content_kind == "json" else "static_document"
+                ),
+                "linked_source_keys": [],
+            })
+        payload = {
+            "venue": "kalshi",
+            "environment": "production",
+            "profile_id": "synthetic_complete_binary.v1",
+            "observations": ["opening", "closing"],
+            "roles": roles,
+            "field_coverage": [{
+                "term_pointer": "/payload/identity/market_ticker",
+                "coverage_class": "mechanically_projected",
+            }],
+        }
+        return {
+            "schema": terms.EVIDENCE_PROFILE_SCHEMA,
+            "payload": payload,
+            "payload_sha256": terms.sha256_bytes(terms.canonical_json_bytes(payload)),
+        }
+
+    def write_evidence_profile(
+        self,
+        label: str,
+        mutate: object | None = None,
+    ) -> tuple[Path, dict[str, object]]:
+        document = self.evidence_profile_document()
+        if mutate is not None:
+            mutate(document)  # type: ignore[operator]
+        path = self.generated_root / f"evidence-profile-{label}.json"
+        self.write_envelope(path, document)
+        return path, document
+
+    @staticmethod
+    def profile_sources(profile: terms.EvidenceProfile) -> list[dict[str, object]]:
+        sources = []
+        for observation in profile.payload["observations"]:
+            for role in profile.payload["roles"]:
+                if role["applicability"] == "not_applicable":
+                    continue
+                sources.append({
+                    "id": f"{observation}_{role['source_key']}",
+                    "observation_id": observation,
+                    "source_key": role["source_key"],
+                    "role": role["role"],
+                    "media_type": role["media_types"][0],
+                })
+        return sources
+
+    def make_successor_hmonth_package(self, label: str) -> Path:
+        package = self.generated_root / f"successor-{label}"
+        shutil.copytree(CATALOG_ROOT / HMONTH_RELATIVE, package)
+        manifest_path = package / "source_manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+
+        role_templates: dict[str, dict[str, object]] = {}
+        for source in manifest["payload"]["sources"]:
+            observation = source["observation_id"]
+            prefix = f"{observation}_"
+            self.assertTrue(source["id"].startswith(prefix))
+            source_key = source["id"][len(prefix):]
+            source["source_key"] = source_key
+            source["tool_version"] = terms.ACQUISITION_TOOL_V4_VERSION
+            _, allowed_media, content_kind = terms.ROLE_POLICIES[source["role"]]
+            role_templates[source_key] = {
+                "source_key": source_key,
+                "role": source["role"],
+                "applicability": "required",
+                "reason": None,
+                "cardinality_per_observation": {"minimum": 1, "maximum": 1},
+                "media_types": sorted(allowed_media),
+                "content_kind": content_kind,
+                "mutability": (
+                    "mutable_endpoint" if content_kind == "json" else "static_document"
+                ),
+                "linked_source_keys": [],
+            }
+        for acquisition in manifest["payload"]["acquisitions"]:
+            acquisition["tool_version"] = terms.ACQUISITION_TOOL_V4_VERSION
+
+        product = json.loads((package / "product_terms.json").read_text())
+        leaf_pointers = sorted(terms._term_leaf_pointers(product["payload"]))
+        title_pointer = "/payload/identity/title"
+        field_coverage = [{
+            "term_pointer": pointer,
+            "coverage_class": (
+                "mechanically_projected" if pointer == title_pointer
+                else "repository_local_policy"
+            ),
+        } for pointer in leaf_pointers]
+        profile_payload = {
+            "venue": "kalshi",
+            "environment": "production",
+            "profile_id": "synthetic_hmonth_successor.v1",
+            "observations": ["opening", "closing"],
+            "roles": [role_templates[key] for key in sorted(role_templates)],
+            "field_coverage": field_coverage,
+        }
+        profile = terms.build_envelope(terms.EVIDENCE_PROFILE_SCHEMA, profile_payload)
+        (package / "evidence_profile.json").write_bytes(terms.canonical_json_bytes(profile))
+
+        manifest["schema"] = terms.SOURCE_MANIFEST_V4_SCHEMA
+        manifest["payload"]["evidence_profile_sha256"] = profile["payload_sha256"]
+        self.write_envelope(manifest_path, manifest)
+
+        source_by_id = {
+            source["id"]: source for source in manifest["payload"]["sources"]
+        }
+        evidence_entries = []
+        for pointer in leaf_pointers:
+            if pointer == title_pointer:
+                anchors = [{
+                    "source_id": source_id,
+                    "source_sha256": source_by_id[source_id]["sha256"],
+                    "locator": {"kind": "json_pointer", "pointer": "/market/title"},
+                } for source_id in ("opening_market_record", "closing_market_record")]
+                entry = {
+                    "term_pointer": pointer,
+                    "coverage_class": "mechanically_projected",
+                    "anchors": anchors,
+                    "dependency_pointers": [],
+                    "policy_id": None,
+                    "reason": None,
+                }
+            else:
+                entry = {
+                    "term_pointer": pointer,
+                    "coverage_class": "repository_local_policy",
+                    "anchors": [],
+                    "dependency_pointers": [],
+                    "policy_id": "synthetic_test_authoring.v1",
+                    "reason": None,
+                }
+            evidence_entries.append(entry)
+        extractor = {
+            "policy_id": "poppler_page_text.v1",
+            "pdfinfo_executable": "pdfinfo",
+            "pdfinfo_version": terms.SUPPORTED_PDFINFO_VERSION,
+            "pdftotext_executable": "pdftotext",
+            "pdftotext_version": terms.SUPPORTED_PDFTOTEXT_VERSION,
+            "pdftotext_arguments": terms.PDFTOTEXT_ARGUMENTS,
+            "nixpkgs_revision": terms.SUPPORTED_EXTRACTOR_NIXPKGS_REVISION,
+            "poppler_package_version": terms.SUPPORTED_POPPLER_VERSION,
+            "normalization_policy": terms.DOCUMENT_NORMALIZATION_POLICY["policy_id"],
+            "normalization_policy_sha256": terms.DOCUMENT_NORMALIZATION_POLICY_SHA256,
+        }
+        evidence_payload = {
+            "effective_interval_evidence": {
+                "opening_observation_id": "opening",
+                "closing_observation_id": "closing",
+            },
+            "evidence_profile_sha256": profile["payload_sha256"],
+            "extractor_policy": extractor,
+            "entries": evidence_entries,
+        }
+        evidence_map = terms.build_envelope(terms.EVIDENCE_MAP_V2_SCHEMA, evidence_payload)
+        (package / "evidence_anchors.json").write_bytes(
+            terms.canonical_json_bytes(evidence_map)
+        )
+
+        review_path = package / "review.json"
+        review = json.loads(review_path.read_text())
+        review["schema"] = terms.PRODUCT_REVIEW_V3_SCHEMA
+        review["payload"]["source_manifest_sha256"] = manifest["payload_sha256"]
+        review["payload"]["evidence_profile_sha256"] = profile["payload_sha256"]
+        review["payload"]["evidence_map_sha256"] = evidence_map["payload_sha256"]
+        self.write_envelope(review_path, review)
+        return package
+
+    @staticmethod
+    def package_tree_fingerprint(path: Path) -> tuple[int, str]:
+        """Hash names and bytes so compatibility tests detect any package rewrite."""
+        digest = hashlib.sha256()
+        files = sorted(candidate for candidate in path.rglob("*") if candidate.is_file())
+        for candidate in files:
+            relative = candidate.relative_to(path).as_posix().encode("utf-8")
+            data = candidate.read_bytes()
+            digest.update(len(relative).to_bytes(8, "big"))
+            digest.update(relative)
+            digest.update(len(data).to_bytes(8, "big"))
+            digest.update(data)
+        return len(files), digest.hexdigest()
+
+    def test_accepted_package_bytes_are_frozen_across_b1c(self) -> None:
+        self.assertEqual(
+            self.package_tree_fingerprint(CATALOG_ROOT / HMONTH_RELATIVE),
+            (21, "ebb859a8af47c6c8e6c1c231af2b05bdf5c48a338b77c4f2cb4757d598640d84"),
+        )
+        self.assertEqual(
+            self.package_tree_fingerprint(CATALOG_ROOT / PACKAGE_RELATIVE),
+            (9, "c46c9c9075c67909e898aeb6f92667659a7c19a1122fd31b51e49ff77c3ab3a7"),
+        )
+
+    def test_legacy_package_meanings_remain_version_specific(self) -> None:
+        hmonth = terms.ProductPackage.load(CATALOG_ROOT / HMONTH_RELATIVE)
+        wnba = terms.ProductPackage.load(CATALOG_ROOT / PACKAGE_RELATIVE)
+        self.assertEqual(hmonth.evidence.schema, terms.SOURCE_MANIFEST_V3_SCHEMA)
+        self.assertEqual(hmonth.review.schema, terms.PRODUCT_REVIEW_V2_SCHEMA)
+        self.assertEqual(
+            json.loads((hmonth.path / "evidence_anchors.json").read_text())["schema"],
+            terms.EVIDENCE_MAP_SCHEMA,
+        )
+        self.assertEqual(wnba.evidence.schema, terms.SOURCE_MANIFEST_SCHEMA)
+        self.assertEqual(wnba.review.schema, terms.PRODUCT_REVIEW_SCHEMA)
+        self.assertIsNone(wnba.review.evidence_map)
+        hmonth_roles = {
+            observation: {
+                source["role"]
+                for source in hmonth.evidence.payload["sources"]
+                if source["observation_id"] == observation
+            }
+            for observation in ("opening", "closing")
+        }
+        self.assertEqual(hmonth_roles["opening"], set(terms.ROLE_POLICIES))
+        self.assertEqual(hmonth_roles["closing"], set(terms.ROLE_POLICIES))
+        self.assertEqual(len(wnba.evidence.payload["sources"]), 6)
+
+    def test_successor_package_verifies_profile_manifest_map_and_review(self) -> None:
+        package_path = self.make_successor_hmonth_package("valid")
+        with mock.patch.object(
+            terms,
+            "_tool_version",
+            side_effect=[terms.SUPPORTED_PDFINFO_VERSION, terms.SUPPORTED_PDFTOTEXT_VERSION],
+        ):
+            package = terms.ProductPackage.load(package_path)
+        self.assertEqual(package.evidence.schema, terms.SOURCE_MANIFEST_V4_SCHEMA)
+        self.assertEqual(package.review.schema, terms.PRODUCT_REVIEW_V3_SCHEMA)
+        self.assertEqual(package.review.evidence_map.schema, terms.EVIDENCE_MAP_V2_SCHEMA)
+        self.assertIsNotNone(package.evidence.evidence_profile)
+
+    def test_successor_profile_hash_mutations_refuse_at_each_boundary(self) -> None:
+        cases = (
+            ("manifest", "source_manifest.json", "evidence_profile_sha256"),
+            ("evidence-map", "evidence_anchors.json", "evidence_profile_sha256"),
+            ("review", "review.json", "evidence_profile_sha256"),
+        )
+        for label, filename, field in cases:
+            with self.subTest(label=label):
+                package = self.make_successor_hmonth_package(label)
+                path = package / filename
+                document = json.loads(path.read_text())
+                document["payload"][field] = "0" * 64
+                self.write_envelope(path, document)
+                with mock.patch.object(
+                    terms,
+                    "_tool_version",
+                    side_effect=[
+                        terms.SUPPORTED_PDFINFO_VERSION,
+                        terms.SUPPORTED_PDFTOTEXT_VERSION,
+                    ],
+                ):
+                    with self.assertRaisesRegex(
+                        terms.ProductTermsError,
+                        "EvidenceProfileMismatch",
+                    ):
+                        terms.ProductPackage.load(package)
+
+    def test_review_v3_duplicate_checklist_refuses_in_schema_and_runtime(self) -> None:
+        package = self.make_successor_hmonth_package("review-v3-duplicate")
+        review_path = package / "review.json"
+        review = json.loads(review_path.read_text())
+        review["payload"]["checklist"].append(dict(review["payload"]["checklist"][0]))
+        self.write_envelope(review_path, review)
+        with self.assertRaises(ValidationError):
+            self.schema_validator("review-v3.schema.json").validate(review)
+        with self.assertRaisesRegex(terms.ProductTermsError, "TermsNoncanonical"):
+            terms.ProductPackage.load(package)
+
+    def test_successor_public_cli_success_and_refusal_streams(self) -> None:
+        package = self.make_successor_hmonth_package("cli")
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with mock.patch.object(
+            terms,
+            "_tool_version",
+            side_effect=[terms.SUPPORTED_PDFINFO_VERSION, terms.SUPPORTED_PDFTOTEXT_VERSION],
+        ), redirect_stdout(stdout), redirect_stderr(stderr):
+            status = terms.main(["verify-package", "--package", str(package)])
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(json.loads(stdout.getvalue())["status"], "valid")
+
+        review_path = package / "review.json"
+        review = json.loads(review_path.read_text())
+        review["payload"]["evidence_profile_sha256"] = "0" * 64
+        self.write_envelope(review_path, review)
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with mock.patch.object(
+            terms,
+            "_tool_version",
+            side_effect=[terms.SUPPORTED_PDFINFO_VERSION, terms.SUPPORTED_PDFTOTEXT_VERSION],
+        ), redirect_stdout(stdout), redirect_stderr(stderr):
+            status = terms.main(["verify-package", "--package", str(package)])
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("error: EvidenceProfileMismatch:", stderr.getvalue())
+
+    def test_evidence_profile_schema_and_runtime_one_defect_matrix(self) -> None:
+        valid_path, valid_document = self.write_evidence_profile("valid")
+        validator = self.schema_validator("evidence-profile-v1.schema.json")
+        validator.validate(valid_document)
+        profile = terms.EvidenceProfile.load(valid_path)
+        self.assertEqual(profile.payload["observations"], ["opening", "closing"])
+
+        def role(document: dict[str, object], name: str) -> dict[str, object]:
+            return next(
+                item for item in document["payload"]["roles"]  # type: ignore[index]
+                if item["role"] == name
+            )
+
+        cases = {
+            "missing-role": lambda document: document["payload"]["roles"].pop(),  # type: ignore[index]
+            "duplicate-source-key": lambda document: role(
+                document, "market_record"
+            ).update({"source_key": "event_metadata_record"}),
+            "optional-empty-reason": lambda document: role(
+                document, "market_record"
+            ).update({
+                "applicability": "optional",
+                "reason": "",
+                "cardinality_per_observation": {"minimum": 0, "maximum": 1},
+            }),
+            "not-applicable-wrong-cardinality": lambda document: role(
+                document, "market_record"
+            ).update({
+                "applicability": "not_applicable",
+                "reason": "not used by this synthetic family",
+            }),
+            "wrong-media": lambda document: role(
+                document, "market_record"
+            ).update({"media_types": ["application/pdf"]}),
+            "wrong-mutability": lambda document: role(
+                document, "market_record"
+            ).update({"mutability": "static_document"}),
+            "unknown-link": lambda document: role(
+                document, "market_record"
+            ).update({"linked_source_keys": ["missing"]}),
+        }
+        schema_structural = {
+            "missing-role",
+            "optional-empty-reason",
+        }
+        for label, mutation in cases.items():
+            with self.subTest(label=label):
+                path, document = self.write_evidence_profile(label, mutation)
+                if label in schema_structural:
+                    self.assertFalse(validator.is_valid(document))
+                with self.assertRaisesRegex(terms.ProductTermsError, "EvidenceProfileMismatch"):
+                    terms.EvidenceProfile.load(path)
+
+    def test_profile_source_membership_required_optional_and_not_applicable(self) -> None:
+        for applicability, cardinality, reason in (
+            ("required", {"minimum": 1, "maximum": 1}, None),
+            ("optional", {"minimum": 0, "maximum": 1}, "optional test role"),
+            ("not_applicable", {"minimum": 0, "maximum": 0}, "not applicable here"),
+        ):
+            with self.subTest(applicability=applicability):
+                def mutate(document: dict[str, object]) -> None:
+                    target = next(
+                        item for item in document["payload"]["roles"]  # type: ignore[index]
+                        if item["role"] == "market_record"
+                    )
+                    target.update({
+                        "applicability": applicability,
+                        "cardinality_per_observation": cardinality,
+                        "reason": reason,
+                    })
+
+                path, _ = self.write_evidence_profile(applicability, mutate)
+                profile = terms.EvidenceProfile.load(path)
+                sources = self.profile_sources(profile)
+                if applicability == "optional":
+                    sources = [
+                        source for source in sources if source["source_key"] != "market_record"
+                    ]
+                profile.verify_sources(sources, ["opening", "closing"])
+
+                if applicability == "required":
+                    missing = [
+                        source for source in sources
+                        if not (
+                            source["observation_id"] == "opening"
+                            and source["source_key"] == "market_record"
+                        )
+                    ]
+                    with self.assertRaisesRegex(terms.ProductTermsError, "EvidenceIncomplete"):
+                        profile.verify_sources(missing, ["opening", "closing"])
+                elif applicability == "optional":
+                    opening_only = sources + [{
+                        "id": "opening_market_record",
+                        "observation_id": "opening",
+                        "source_key": "market_record",
+                        "role": "market_record",
+                        "media_type": "application/json",
+                    }]
+                    with self.assertRaisesRegex(terms.ProductTermsError, "EvidenceIncomplete"):
+                        profile.verify_sources(opening_only, ["opening", "closing"])
+                else:
+                    present = sources + [{
+                        "id": "opening_market_record",
+                        "observation_id": "opening",
+                        "source_key": "market_record",
+                        "role": "market_record",
+                        "media_type": "application/json",
+                    }]
+                    with self.assertRaisesRegex(terms.ProductTermsError, "EvidenceIncomplete"):
+                        profile.verify_sources(present, ["opening", "closing"])
+
+    def test_profile_source_membership_refuses_one_defect_at_a_time(self) -> None:
+        path, _ = self.write_evidence_profile("membership")
+        profile = terms.EvidenceProfile.load(path)
+        donors = self.profile_sources(profile)
+        cases = {
+            "duplicate-required": lambda sources: sources.append(dict(sources[0])),
+            "wrong-source-id": lambda sources: sources[0].update({"id": "wrong"}),
+            "wrong-role": lambda sources: sources[0].update({"role": "market_record"}),
+            "wrong-media": lambda sources: sources[0].update({"media_type": "application/pdf"}),
+        }
+        expected = {
+            "duplicate-required": "EvidenceIncomplete",
+            "wrong-source-id": "EvidenceIncomplete",
+            "wrong-role": "EvidenceIncomplete",
+            "wrong-media": "AcquisitionMediaTypeMismatch",
+        }
+        for label, mutation in cases.items():
+            with self.subTest(label=label):
+                sources = [dict(source) for source in donors]
+                mutation(sources)
+                with self.assertRaisesRegex(terms.ProductTermsError, expected[label]):
+                    profile.verify_sources(sources, ["opening", "closing"])
+
+    def test_document_normalization_is_unicode_and_line_ending_stable(self) -> None:
+        decomposed = "  Cafe\u0301\u00a0terms\t\r\n\r\n\r\n  second  line  \r\n"
+        self.assertEqual(
+            terms._normalize_document_text(decomposed, pdf=False),
+            "Caf\u00e9 terms\n\nsecond line",
+        )
+        self.assertEqual(
+            terms._normalize_document_text("o\ufb03cial \ufb02ow", pdf=True),
+            "official flow",
+        )
+        self.assertEqual(
+            terms._normalize_document_text("o\ufb03cial \ufb02ow", pdf=False),
+            "o\ufb03cial \ufb02ow",
+        )
+
+    def test_markdown_structural_sections_ignore_body_text_and_fences(self) -> None:
+        fixture = (B1C_FIXTURES / "b1c-sections.md").read_text(encoding="utf-8")
+        sections = terms._markdown_sections(fixture)
+        settlement = next(
+            section for section in sections
+            if section[0][-1] == {"level": 2, "text": "Settlement Rules"}
+        )
+        normalized = terms._normalize_document_text(fixture, pdf=False)
+        lines = normalized.split("\n")
+        bounded = "\n".join(lines[settlement[1]:settlement[2]])
+        self.assertIn("### Contingencies", bounded)
+        self.assertNotIn("## Fee Rules", bounded)
+
+        lookalikes = """Settlement Rules in body text
+
+```markdown
+## Settlement Rules
+```
+
+Settlement Rules
+----------------
+"""
+        self.assertEqual(terms._markdown_sections(lookalikes), [])
+
+    def test_pdf_page_extraction_bounds_textless_and_repetition_offline(self) -> None:
+        pdf_path = self.generated_root / "two-page.pdf"
+        encoded = (B1C_FIXTURES / "b1c-two-page.pdf.base64").read_text().strip()
+        pdf_bytes = base64.b64decode(encoded, validate=True)
+        pdf_path.write_bytes(pdf_bytes)
+        extractor = {
+            "policy_id": "poppler_page_text.v1",
+            "pdfinfo_executable": "pdfinfo",
+            "pdfinfo_version": terms.SUPPORTED_PDFINFO_VERSION,
+            "pdftotext_executable": "pdftotext",
+            "pdftotext_version": terms.SUPPORTED_PDFTOTEXT_VERSION,
+            "pdftotext_arguments": terms.PDFTOTEXT_ARGUMENTS,
+            "nixpkgs_revision": terms.SUPPORTED_EXTRACTOR_NIXPKGS_REVISION,
+            "poppler_package_version": terms.SUPPORTED_POPPLER_VERSION,
+            "normalization_policy": terms.DOCUMENT_NORMALIZATION_POLICY["policy_id"],
+            "normalization_policy_sha256": terms.DOCUMENT_NORMALIZATION_POLICY_SHA256,
+        }
+        with mock.patch.object(
+            terms,
+            "_tool_version",
+            side_effect=[terms.SUPPORTED_PDFINFO_VERSION, terms.SUPPORTED_PDFTOTEXT_VERSION],
+        ):
+            self.assertEqual(terms._verify_extractor_policy(extractor), extractor)
+        first = terms._extract_pdf_page(pdf_path, 2, extractor)
+        second = terms._extract_pdf_page(pdf_path, 2, extractor)
+        self.assertEqual(first, second)
+        self.assertEqual(first[0], 2)
+        self.assertIn("Settlement Rules", first[1])
+        for page in (0, 3):
+            with self.subTest(page=page):
+                with self.assertRaisesRegex(terms.ProductTermsError, "EvidenceAnchorMismatch"):
+                    terms._extract_pdf_page(pdf_path, page, extractor)
+
+        malformed = self.generated_root / "malformed.pdf"
+        malformed.write_bytes(pdf_bytes[:80])
+        with self.assertRaisesRegex(terms.ProductTermsError, "EvidenceAnchorMismatch"):
+            terms._extract_pdf_page(malformed, 1, extractor)
+
+        textless = self.generated_root / "textless.pdf"
+        textless_bytes = bytearray(pdf_bytes)
+        for match in list(re.finditer(b"stream\n(.*?)\nendstream", pdf_bytes, re.DOTALL)):
+            textless_bytes[match.start(1):match.end(1)] = b" " * (match.end(1) - match.start(1))
+        textless.write_bytes(textless_bytes)
+        with self.assertRaisesRegex(terms.ProductTermsError, "EvidenceAnchorMismatch"):
+            terms._extract_pdf_page(textless, 1, extractor)
+
+    def test_extractor_policy_refuses_every_unpinned_identity(self) -> None:
+        donor = {
+            "policy_id": "poppler_page_text.v1",
+            "pdfinfo_executable": "pdfinfo",
+            "pdfinfo_version": terms.SUPPORTED_PDFINFO_VERSION,
+            "pdftotext_executable": "pdftotext",
+            "pdftotext_version": terms.SUPPORTED_PDFTOTEXT_VERSION,
+            "pdftotext_arguments": terms.PDFTOTEXT_ARGUMENTS,
+            "nixpkgs_revision": terms.SUPPORTED_EXTRACTOR_NIXPKGS_REVISION,
+            "poppler_package_version": terms.SUPPORTED_POPPLER_VERSION,
+            "normalization_policy": terms.DOCUMENT_NORMALIZATION_POLICY["policy_id"],
+            "normalization_policy_sha256": terms.DOCUMENT_NORMALIZATION_POLICY_SHA256,
+        }
+        cases = {
+            "nixpkgs-revision": ("nixpkgs_revision", "0" * 40),
+            "poppler-package": ("poppler_package_version", "26.07.0"),
+            "pdfinfo-declaration": ("pdfinfo_version", "pdfinfo version 26.07.0"),
+            "pdftotext-declaration": (
+                "pdftotext_version",
+                "pdftotext version 26.07.0",
+            ),
+            "normalization-hash": ("normalization_policy_sha256", "0" * 64),
+        }
+        for label, (field, value) in cases.items():
+            with self.subTest(label=label):
+                changed = dict(donor)
+                changed[field] = value
+                with mock.patch.object(
+                    terms,
+                    "_tool_version",
+                    side_effect=[
+                        terms.SUPPORTED_PDFINFO_VERSION,
+                        terms.SUPPORTED_PDFTOTEXT_VERSION,
+                    ],
+                ):
+                    with self.assertRaisesRegex(
+                        terms.ProductTermsError,
+                        "EvidenceAnchorMismatch",
+                    ):
+                        terms._verify_extractor_policy(changed)
+
+    def test_encrypted_pdf_refuses_at_offline_process_boundary(self) -> None:
+        pdf_path = self.generated_root / "encrypted.pdf"
+        pdf_path.write_bytes(b"%PDF-1.7\nsynthetic encrypted boundary\n")
+        extractor = {
+            "pdfinfo_executable": "pdfinfo",
+            "pdftotext_executable": "pdftotext",
+            "pdftotext_arguments": terms.PDFTOTEXT_ARGUMENTS,
+        }
+        encrypted_result = subprocess.CompletedProcess(
+            ["pdfinfo", str(pdf_path)],
+            1,
+            stdout=b"",
+            stderr=b"Command Line Error: Incorrect password\n",
+        )
+        with mock.patch.object(terms.subprocess, "run", return_value=encrypted_result):
+            with self.assertRaisesRegex(
+                terms.ProductTermsError,
+                "EvidenceAnchorMismatch: PDF is malformed, encrypted, or unreadable",
+            ):
+                terms._extract_pdf_page(pdf_path, 1, extractor)
+
+    def test_section_fingerprints_bind_boundaries_and_normalized_content(self) -> None:
+        boundary = {"page": 2, "start": "Settlement Rules", "end": "Fee Rules"}
+        text = "Settlement Rules\nSecond page evidence."
+        fingerprint = terms._section_fingerprint("pdf_section", boundary, text)
+        self.assertEqual(
+            fingerprint,
+            terms._section_fingerprint("pdf_section", dict(boundary), text),
+        )
+        self.assertNotEqual(
+            fingerprint,
+            terms._section_fingerprint("pdf_section", {**boundary, "page": 1}, text),
+        )
+        self.assertNotEqual(
+            fingerprint,
+            terms._section_fingerprint("pdf_section", boundary, text + " changed"),
         )
 
     def test_reviewed_catalog_and_conversion_policy_are_canonical(self) -> None:
@@ -289,6 +968,34 @@ class ProductTermsTests(unittest.TestCase):
             path.relative_to(copied): path.read_bytes()
             for path in copied.rglob("*") if path.is_file()
         })
+
+    def test_review_v2_responsibility_and_checklist_one_defect_matrix(self) -> None:
+        cases = {
+            "empty-reviewer": (
+                lambda payload: payload["reviewer"].update({"identity": ""}),
+                "TermsNoncanonical",
+            ),
+            "duplicate-responsibility": (
+                lambda payload: payload["responsibilities"].append(
+                    payload["responsibilities"][0]
+                ),
+                "TermsNoncanonical",
+            ),
+            "unaccepted-checklist-item": (
+                lambda payload: payload["checklist"][0].update({"status": "rejected"}),
+                "ReviewNotApproved",
+            ),
+        }
+        for label, (mutation, expected) in cases.items():
+            with self.subTest(label=label):
+                package = self.generated_root / f"review-v2-{label}"
+                shutil.copytree(CATALOG_ROOT / HMONTH_RELATIVE, package)
+                review_path = package / "review.json"
+                review = json.loads(review_path.read_text())
+                mutation(review["payload"])
+                self.write_envelope(review_path, review)
+                with self.assertRaisesRegex(terms.ProductTermsError, expected):
+                    terms.ProductPackage.load(package)
 
     def test_source_mutation_is_specific_and_verification_is_read_only(self) -> None:
         copied_catalog = self.generated_root / "catalog"
@@ -501,6 +1208,62 @@ class ProductTermsTests(unittest.TestCase):
         self.assertEqual(len(session.requests), 2)
         self.assertTrue(all(request["allow_redirects"] is False for request in session.requests))
 
+    def test_profile_bound_v3_spec_fetches_complete_v4_observation_offline(self) -> None:
+        spec_path, responses = self.acquisition_spec_v3("opening")
+        output = self.generated_root / "profile-bound-opening"
+        terms.fetch_sources(
+            spec_path,
+            output,
+            session=FakeSession(responses),
+            now=self.advancing_clock(0),  # type: ignore[arg-type]
+            monotonic=lambda: 0.0,
+        )
+        evidence = terms.SourceEvidence.load(output)
+        self.assertEqual(evidence.schema, terms.SOURCE_MANIFEST_V4_SCHEMA)
+        self.assertIsNotNone(evidence.evidence_profile)
+        self.assertEqual(len(evidence.payload["sources"]), len(terms.ROLE_POLICIES))
+        self.assertTrue(all(
+            source["id"] == f"opening_{source['source_key']}"
+            for source in evidence.payload["sources"]
+        ))
+
+    def test_profile_bound_fetch_refuses_missing_role_and_interrupts_cleanly(self) -> None:
+        spec_path, responses = self.acquisition_spec_v3("opening")
+        document = json.loads(spec_path.read_text())
+        document["sources"].pop()
+        spec_path.write_text(json.dumps(document), encoding="utf-8")
+        missing_output = self.generated_root / "profile-missing-role"
+        with self.assertRaisesRegex(terms.ProductTermsError, "EvidenceIncomplete"):
+            terms.fetch_sources(
+                spec_path,
+                missing_output,
+                session=FakeSession(responses),
+                now=self.advancing_clock(0),  # type: ignore[arg-type]
+                monotonic=lambda: 0.0,
+            )
+        self.assertFalse(missing_output.exists())
+        self.assertEqual(
+            list(self.generated_root.glob(f".{missing_output.name}.*.partial")),
+            [],
+        )
+
+        interrupt_spec, interrupt_responses = self.acquisition_spec_v3("closing")
+        interrupt_responses[0].interruption = KeyboardInterrupt()
+        interrupted_output = self.generated_root / "profile-interrupted"
+        with self.assertRaises(KeyboardInterrupt):
+            terms.fetch_sources(
+                interrupt_spec,
+                interrupted_output,
+                session=FakeSession(interrupt_responses),
+                now=self.advancing_clock(20),  # type: ignore[arg-type]
+                monotonic=lambda: 0.0,
+            )
+        self.assertFalse(interrupted_output.exists())
+        self.assertEqual(
+            list(self.generated_root.glob(f".{interrupted_output.name}.*.partial")),
+            [],
+        )
+
     def test_v3_policy_observations_assemble_into_exact_time_bracket(self) -> None:
         opening = self.generated_root / "opening"
         closing = self.generated_root / "closing"
@@ -549,6 +1312,41 @@ class ProductTermsTests(unittest.TestCase):
         self.write_envelope(output / "acquisition_policy.json", changed_policy)
         with self.assertRaisesRegex(terms.ProductTermsError, "AcquisitionPolicyMismatch"):
             terms.SourceEvidence.load(output)
+
+    def test_assembly_preserves_full_paths_when_basenames_match(self) -> None:
+        opening = self.generated_root / "opening-nested"
+        closing = self.generated_root / "closing-nested"
+        body = b'{"market":{"ticker":"KXTEST"}}'
+        for observation, output, source_path, second in (
+            ("opening", opening, "sources/first/shared.json", 0),
+            ("closing", closing, "sources/second/shared.json", 20),
+        ):
+            terms.fetch_sources(
+                self.acquisition_spec_v2(observation, source_path=source_path),
+                output,
+                session=FakeSession([
+                    FakeResponse(url="https://external-api.kalshi.com/market", body=body)
+                ]),
+                now=self.advancing_clock(second),  # type: ignore[arg-type]
+                monotonic=lambda: 0.0,
+            )
+
+        assembled = self.generated_root / "assembled-nested"
+        terms.assemble_observations(opening, closing, assembled)
+        manifest = json.loads((assembled / "source_manifest.json").read_text())
+        paths = {source["id"]: source["path"] for source in manifest["payload"]["sources"]}
+        self.assertEqual(paths, {
+            "closing_market_record": "sources/closing/second/shared.json",
+            "opening_market_record": "sources/opening/first/shared.json",
+        })
+        self.assertEqual(
+            (assembled / paths["opening_market_record"]).read_bytes(),
+            body,
+        )
+        self.assertEqual(
+            (assembled / paths["closing_market_record"]).read_bytes(),
+            body,
+        )
 
     def test_acquisition_refuses_redirect_size_media_and_interruption_without_partial_output(self) -> None:
         cases = (
@@ -688,17 +1486,43 @@ class ProductTermsTests(unittest.TestCase):
     def test_reviewed_schema_runtime_parity_matrix(self) -> None:
         _, policy, package = self.load()
         hmonth = terms.ProductPackage.load(CATALOG_ROOT / HMONTH_RELATIVE)
+        successor = self.make_successor_hmonth_package("schema-parity")
+        successor_profile = json.loads((successor / "evidence_profile.json").read_text())
+        acquisition_v3_path = self.generated_root / "acquisition-v3.json"
+        acquisition_v3_path.write_text(json.dumps({
+            "schema": terms.ACQUISITION_SPEC_V3_SCHEMA,
+            "venue": "kalshi",
+            "environment": "production",
+            "observation_id": "opening",
+            "acquisition_policy": "acquisition_policy.json",
+            "acquisition_policy_sha256": json.loads(
+                (successor / "acquisition_policy.json").read_text()
+            )["payload_sha256"],
+            "evidence_profile": "evidence_profile.json",
+            "evidence_profile_sha256": successor_profile["payload_sha256"],
+            "sources": [{
+                "id": role["source_key"],
+                "role": role["role"],
+                "url": f"https://external-api.kalshi.com/{role['source_key']}",
+                "path": f"sources/{role['source_key']}.source",
+            } for role in successor_profile["payload"]["roles"]],
+        }), encoding="utf-8")
         positive_documents = {
             "acquisition-spec-v1.schema.json": CATALOG_ROOT / "acquisition_spec.example.json",
             "acquisition-policy-v1.schema.json": CATALOG_ROOT / "acquisition_policies" / "kalshi_first_party_v1.json",
             "acquisition-spec-v2.schema.json": self.acquisition_spec_v2("opening"),
             "source-manifest-v1.schema.json": package.path / "source_manifest.json",
             "source-manifest-v3.schema.json": hmonth.path / "source_manifest.json",
+            "source-manifest-v4.schema.json": successor / "source_manifest.json",
+            "acquisition-spec-v3.schema.json": acquisition_v3_path,
+            "evidence-profile-v1.schema.json": successor / "evidence_profile.json",
             "product-terms-v1.schema.json": package.path / "product_terms.json",
             "product-terms-v2.schema.json": hmonth.path / "product_terms.json",
             "review-v1.schema.json": package.path / "review.json",
             "review-v2.schema.json": hmonth.path / "review.json",
             "evidence-map-v1.schema.json": hmonth.path / "evidence_anchors.json",
+            "evidence-map-v2.schema.json": successor / "evidence_anchors.json",
+            "review-v3.schema.json": successor / "review.json",
             "catalog-v1.schema.json": CATALOG_ROOT / "manifest.json",
             "conversion-policy-v1.schema.json": policy.path,
         }
