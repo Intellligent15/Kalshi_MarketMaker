@@ -45,6 +45,32 @@ preserves the raw WebSocket payload and local receive timestamp for every inboun
 source sequence values where provided, and does not normalize data, model fills, or place orders.
 `inspect` performs a best-effort observed-L2 snapshot/delta replay; it is not an execution replay.
 
+### Multi-market and reconnect-aware successor
+
+`capture-v2` is additive; the original `capture` command remains the frozen single-market path.
+The successor accepts repeated tickers, sorts them deterministically, binds subscription
+acknowledgements to request/channel/SID identities, and records explicit connection segments and
+raw ingress ordinals:
+
+```sh
+uv run --env-file .env python python/kalshi_capture.py capture-v2 \
+  --ticker MARKET-A --ticker MARKET-B \
+  --duration 300 \
+  --output data/raw/two-market-smoke
+```
+
+Normalize the capture with the successor contract:
+
+```sh
+uv run python python/pmm_phase7.py normalize-v3 \
+  --input data/raw/two-market-smoke \
+  --output data/processed/kalshi/two-market-normalized-v3
+```
+
+Default normalization refuses discontinuous or incomplete input. `--continuity-policy record`
+retains explicit evidence for audit, but current feature and backtest commands deliberately refuse
+normalization V3 until B2b implements segment-aware multi-market projection.
+
 ## Phase 7 local historical pipeline
 
 After validating a capture, normalize it once into immutable canonical events, materialize causal features, then run both the synthetic-fill experiment and its no-fill control:

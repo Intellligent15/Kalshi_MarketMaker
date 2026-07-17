@@ -93,6 +93,23 @@ accounting, execution calibration, or multi-market replay.
 
 See [[02 Architecture/ADR-012 Deterministic Document Evidence and Completeness Profiles]].
 
+## Multi-scope capture and reconnect-aware normalization implemented
+
+- Raw capture V2 accepts deterministically sorted multiple tickers on one connection attempt and
+  binds request, channel, venue SID, connection segment, and unknown/documented sequence scope.
+- Every raw record has a capture-global ingress ordinal; normalization never creates cross-scope
+  causality from timestamps.
+- Normalized record V2 keeps market events, connection/sequence discontinuities, and segment starts
+  in one ordered stream, with product-map V3 and source-scope-map V1 side artifacts.
+- A gap invalidates prior book state. A later snapshot starts a new valid observed segment but does
+  not recover the missing interval.
+- Normalization manifest V3 distinguishes complete observed intervals, observed discontinuity, and
+  incomplete evidence. Current feature/backtest consumers refuse it pending B2b.
+- Formal schemas and offline fake-transport tests cover scope, acknowledgement, duplicate, gap,
+  recovery, ordering, cleanup, determinism, legacy compatibility, and product lineage.
+
+See [[02 Architecture/ADR-013 Multi-Scope Capture and Reconnect-Aware Normalization]].
+
 ## Explicitly deferred
 
 - PnL, fees, collateral, settlement, margin, and paper-trading claims.
@@ -100,5 +117,7 @@ See [[02 Architecture/ADR-012 Deterministic Document Evidence and Completeness P
   model.
 - Portfolio risk, account sharing, live gateways, fanout backpressure, retention compaction,
   sharding, and machine-learning models.
+- Multi-market projection/features/backtests and retained long-capture regression evidence; these
+  remain B2b and B2c respectively.
 
 See [[02 Architecture/ADR-007 Deterministic Historical Replay and Backtesting]].

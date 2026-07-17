@@ -64,6 +64,13 @@ endpoints, while evidence-map V2 verifies bounded Markdown sections and one-base
 Nix-pinned Poppler extractor and normalized section fingerprints. The older manifest, evidence,
 and review versions retain their original narrower meanings.
 
+B2a adds versioned multi-market raw capture and reconnect-aware normalization without widening
+feature or backtest consumers. Capture V2 binds request/channel/SID scopes, gives every raw record
+an ingress ordinal, and represents venue sequence scope as unknown unless evidence proves it.
+Normalization V3 keeps market events, discontinuities, and segment boundaries in one ordered
+stream; a post-gap snapshot starts a new observed segment but never repairs the missing interval.
+Existing V1/V2/V3 artifacts retain their bytes and meanings.
+
 ## Quick start
 
 Prerequisites: CMake 3.24+, a C++20 compiler, Git (to fetch GoogleTest for test builds),
