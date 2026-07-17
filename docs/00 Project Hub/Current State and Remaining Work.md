@@ -24,9 +24,9 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-17 |
-| Baseline commit before B1c implementation | `cea28fc` (`docs: define B1c multi-agent design gate`) |
-| Branch state after B1c closure | `main` seven commits ahead of `origin/main` |
-| B1c implementation commits | `f826fae` and `8262c2c` |
+| Last completed package | B1c document-anchor truth and generic source-completeness hardening |
+| B1c closure commits | `f826fae`, `8262c2c`, and `4825aa5` |
+| Branch state before the B2a tracking update | `main` seven commits ahead of `origin/main` |
 | Recent B1b-2 implementation commits | `b3da27e`, `b28a3ad`, `4ba99a6`, and `ff9dbe6` |
 | Recent B1b-2 review commits | `73dc566`, `6e22b27`, and `61a2188` |
 | Recent B1b-1 commits | `902a2df`, `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
@@ -39,8 +39,8 @@ complete, this current-state document wins; the older note remains useful histor
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | B2 broader observed-market coverage and recovery |
-| Immediate next action | B2 design review; do not mix implementation into its first design gate |
+| Next bounded package | B2a multi-scope capture and reconnect-aware normalization design |
+| Immediate next action | Multi-agent B2a design review only; wait for approval before implementation |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -571,7 +571,7 @@ retain their original narrower meanings. HMONTH evidence-map V1 PDF locators rem
 addresses; neither package is silently upgraded. B1c adds no OCR, continuous-source-history proof,
 fees, settlement, accounting, execution calibration, reconnect recovery, or multi-market replay.
 
-### B2. Broader observed-market coverage and recovery — planned
+### B2. Broader observed-market coverage and recovery — next track
 
 The current single-observed-market replay foundation must expand to evidence that the pipeline
 generalizes:
@@ -592,6 +592,63 @@ Acceptance gate:
 - a reconnect cannot silently erase provenance;
 - multi-market ordering is deterministic; and
 - a full-capture regression fixture pins known counts and hashes.
+
+#### B2a. Multi-scope capture and reconnect-aware normalization — next bounded package
+
+The first B2 package is deliberately narrower than multi-market feature generation or backtesting.
+It must design the raw-capture and normalization truth boundary that those later consumers need.
+
+Confirmed current behavior:
+
+- `kalshi_capture.py` accepts one ticker, creates one subscription per connection, and records
+  connection openings and gaps before resubscribing;
+- capture sequence tracking and normalization duplicate identity are scoped by connection and
+  subscription, so a reconnect begins a new mechanical scope rather than proving continuity;
+- `pmm_phase7.py` requires one metadata ticker and one stable market ID, rejects market changes,
+  preserves raw ingress order, and makes logical time monotonic without reordering late events;
+- source-sequence gaps refuse normalization by default or can be recorded, but a reconnect snapshot
+  does not yet create an explicit recovery/discontinuity artifact; and
+- feature projection and backtest orchestration remain single-product consumers and must not be
+  silently widened as part of the first normalization package.
+
+The B2a design must decide:
+
+1. The stable source-scope identity across connection, subscription, channel, market, and ticker,
+   including whether venue sequence values are global, channel-scoped, subscription-scoped, or
+   unknown rather than inferred.
+2. The exact capture metadata and frame representation for multiple requested markets, subscription
+   acknowledgements, disconnects, resubscriptions, and snapshot boundaries.
+3. Deterministic total ordering across scopes: source sequence inside a proven scope, receive order
+   for incomparable scopes, logical-time monotonicity, duplicate identity, and late-event labels.
+4. Reconnect recovery semantics: when a post-gap snapshot may seed a new segment, which prior book
+   state is invalidated, and how the discontinuity and incomplete interval propagate downstream.
+5. Versioning for capture metadata, normalized rows/manifests, product maps, and any discontinuity
+   artifact without reinterpreting accepted V1/V2 artifacts or existing result lineage.
+6. Offline fixtures and one-defect tests for two markets, independent and shared sequence scopes,
+   conflicting duplicates, missing/duplicate snapshots, gaps before/after reconnect, late and
+   out-of-order records, connection interruption, cleanup, schema migration, and byte-identical
+   repetition.
+
+The first B2a turn is design only. It must not edit implementation or schemas, perform live capture,
+install dependencies, rewrite retained evidence, or commit changes. After approval, implementation
+should remain offline and synthetic/retained-fixture driven. Multi-market features/backtests,
+long-capture regression, performance streaming, and reconnecting live operations remain later B2
+packages unless the design proves a smaller dependency must move with the normalization contract.
+
+Use read-only parallel discovery when available: one agent for capture/protocol scope, one for
+normalization/versioning and deterministic ordering, and one for offline fixtures/tests and
+downstream compatibility. The primary agent must independently inspect the authoritative roadmap,
+ADR-007, implementation, and tests; reconcile contradictions; recommend one design; and stop for
+approval. Sub-agents must not edit the shared worktree during the design gate.
+
+#### Later B2 packages — planned
+
+After B2a lands and is validated:
+
+- extend cursor/projection and feature artifacts across multiple explicit product scopes;
+- integrate multi-market replay/backtest orchestration with deterministic cross-market ordering;
+- retain a longer full-capture regression fixture with pinned manifests, counts, and hashes; and
+- address streaming/memory scaling only after the larger fixtures provide measurements.
 
 ### B3. Experiment compatibility and reporting — planned
 
@@ -962,30 +1019,32 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | Multi-market/reconnect/gap-recovery design and fixtures | Establishes broader observed-data validity after B1 completion. |
-| 2 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
-| 3 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
-| 4 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
-| 5 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
-| 6 | Durable full-run continuation | Required for long and operationally reliable experiments. |
-| 7 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
-| 8 | Predictive models and model registry | Follows held-out baseline evidence. |
-| 9 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
-| 10 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
-| 11 | Demo exchange integration | Follows stable paper operations and reconciliation. |
-| 12 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
+| 1 | B2a multi-scope capture and reconnect-aware normalization | Establishes the source-scope and discontinuity contract needed by later multi-market consumers. |
+| 2 | B2b multi-market projection, features, and replay | Consumes B2a scopes without hiding discontinuities or weakening causality. |
+| 3 | B2c retained full-capture regression evidence | Pins broader counts, hashes, recovery cases, and reproducibility before B2 closes. |
+| 4 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
+| 5 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
+| 6 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
+| 7 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
+| 8 | Durable full-run continuation | Required for long and operationally reliable experiments. |
+| 9 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
+| 10 | Predictive models and model registry | Follows held-out baseline evidence. |
+| 11 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
+| 12 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
+| 13 | Demo exchange integration | Follows stable paper operations and reconciliation. |
+| 14 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
 
 This order is a default, not a prohibition on discovery work. A prototype may explore a later idea,
 but it must remain labelled experimental and must not bypass its promotion gates.
 
 ## Current next package
 
-The next bounded package is **B2 broader observed-market coverage and recovery**. Its first turn
-should be a design gate that defines retained multi-market and reconnect fixtures, source-scope and
-ordering semantics, explicit sequence-gap recovery or incompleteness propagation, conflicting and
-out-of-order input behavior, source-schema migration, and the exact acceptance corpus. It should
-wait for approval before implementation and must not combine B3 reporting, execution calibration,
-accounting, settlement, ML, or operational gateway work into the package.
+The next bounded package is **B2a multi-scope capture and reconnect-aware normalization design**.
+Its first turn is a read-only design gate for stable source scopes, multi-market capture metadata,
+deterministic cross-scope ordering, reconnect snapshot recovery, discontinuity propagation,
+version compatibility, and the exact offline acceptance corpus. It must stop for approval before
+implementation and must not combine multi-market feature/backtest implementation, B3 reporting,
+execution calibration, accounting, settlement, ML, or operational gateway work into the package.
 
 B1b-2's two-entry metadata catalog and B1c's generic evidence profile prove product metadata
 selection and evidence validation generalize; they do not prove multi-market observed replay,
