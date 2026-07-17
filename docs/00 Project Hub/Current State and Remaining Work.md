@@ -24,9 +24,9 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-16 |
-| Baseline commit before this tracking update | `5d40d64` (`docs(phase7): expand B1b-1 integrity walkthrough`) |
-| Branch state after this tracking update | `main` seven commits ahead of `origin/main` |
-| Recent B1b-1 commits | `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
+| Baseline commit before this tracking update | `902a2df` (`docs: track B1b-1 critique and explanation`) |
+| Branch state after this tracking update | `main` eight commits ahead of `origin/main` |
+| Recent B1b-1 commits | `902a2df`, `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
 | C++/CTest validation | 78 tests passing |
 | Python validation | 77 tests passing |
@@ -37,6 +37,7 @@ complete, this current-state document wins; the older note remains useful histor
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
 | Next bounded package | B1b-2 contemporaneous linked-document and second-product evidence |
+| Immediate next action | B1b-2 design review; no retained acquisition or implementation before approval |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -524,6 +525,37 @@ B1b remains metadata/evidence work. Neither subpackage may add fees, accounting,
 processing, multi-market replay/reconnect policy, calibrated execution, paper/live behavior, or new
 core numeric types.
 
+The first B1b-2 turn is design and evidence discovery only. Read-only inspection of current
+first-party public sources may identify candidate products and linked documents, but the agent must
+not run the repository acquisition command, retain a source package, edit schemas/runtime code, or
+approve/catalog a product before the design is reviewed.
+
+Before requesting implementation approval, the design must:
+
+1. Compare at least two currently available candidate products and recommend one whose family,
+   price grid, quantity shape, lifecycle, or linked-document structure tests a real new assumption.
+2. Inventory every required first-party source and linked document, with proposed source role,
+   requested URL, expected media type, expected size, and the product fields each source supports.
+3. Define the completeness/refusal rule when a contract, certification, fee, settlement, or other
+   linked document is missing, mutable, unretainable, or semantically insufficient.
+4. Define the contemporaneous effective interval and the retained evidence supporting both exact
+   endpoints; terms, review, and catalog must remain exactly equal and half-open.
+5. Propose field-level evidence anchors for structured JSON, Markdown, and PDF sources, including
+   how anchors survive offline review and source mutation.
+6. Decide whether acquisition-spec V1/source-manifest V2 policy semantics can be frozen as-is or
+   need an explicit immutable policy identity before the first real V2 package is committed.
+7. Compare keeping review V1 with repository review controls against a versioned review successor
+   carrying reviewer identity, responsibility, supersession, or revocation metadata.
+8. State whether existing product-terms/catalog schemas can represent the candidate honestly or a
+   versioned successor is required; do not add conditionals merely to force the product into V1.
+9. Define immutable catalog/package paths and additive migration that leaves the retrospective B1a
+   package and all existing normalized, feature, configuration, and result artifacts unchanged.
+10. Define offline positive, refusal, mutation, schema/runtime parity, public-CLI, two-product
+    catalog, compatibility, normalization, feature, V3 lineage, and byte-reproduction tests.
+11. Identify documentation updates and logical implementation, evidence, test, and documentation
+    commit boundaries.
+12. Reconfirm every B1b non-goal and readiness/economic non-claim before implementation begins.
+
 ### B2. Broader observed-market coverage and recovery — planned
 
 The current one-market foundation must expand to evidence that the pipeline generalizes:
@@ -935,6 +967,10 @@ but it must remain labelled experimental and must not bypass its promotion gates
 
 The next agent should design **B1b-2 contemporaneous linked-document and second-product evidence**
 and wait for approval before performing network acquisition or creating a reviewed package.
+
+This is a design gate, not authorization to implement B1b-2. The first response should explain the
+existing boundary, compare candidate products and schema/governance alternatives, recommend one
+bounded design, identify uncertainties, and stop for approval.
 
 Required design and implementation boundary:
 
