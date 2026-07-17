@@ -332,7 +332,7 @@ scale defined at the top of this document. Ease remains 1 for a large or evidenc
 
 | Gap | Impact | Ease | Needed documentation |
 |---|---:|---:|---|
-| PDF and Markdown anchor guarantees are overstated. | 5 | 5 | State that JSON mechanical anchors compare values, Markdown checks a text occurrence, and PDF currently validates only a hash-bound human review address plus PDF signature/locator shape. |
+| No pinned extraction semantics or operator procedure exists for stronger document anchors. | 5 | 3 | The companion explanation now states the current narrow guarantee. B1c must document the chosen PDF extraction identity, page/section fingerprint rules, Markdown section normalization, and manual fallback before runtime claims become stronger. |
 | No complete two-observation operator walkthrough exists. | 4 | 4 | Show acquisition-spec V2 creation, opening fetch, closing fetch, assembly, terms V2 build, evidence-map build, review V2, package inspection, catalog addition, and offline verification, including failure recovery. |
 | Required versus optional source roles are not defined as a reusable profile. | 4 | 3 | Document the exact completeness profile, why each role is required, and what a future product may explicitly mark not applicable. Runtime should ultimately own the same profile. |
 | Policy evolution is described conceptually but lacks a compatibility playbook. | 4 | 3 | Explain when a new policy hash is enough, when a schema successor is required, how V2 remains frozen, and how old packages/results are verified after runtime upgrades. |
