@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.historical.source_scope_map.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "sequence_domain", "scopes"],
+  "properties": {
+    "schema": {"const": "pmm.historical.source_scope_map.v1"},
+    "sequence_domain": {"type": "object", "required": ["status"]},
+    "scopes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_scope_id", "connection_segment_id", "subscription_request_id", "wire_request_id", "channel", "venue_subscription_id", "requested_market_tickers", "membership_claim", "sequence_domain_status", "sequence_domain_components"],
+        "properties": {
+          "source_scope_id": {"type": "string", "minLength": 1},
+          "connection_segment_id": {"type": "integer", "minimum": 1},
+          "subscription_request_id": {"type": "string", "minLength": 1},
+          "wire_request_id": {"type": "integer"},
+          "channel": {"enum": ["orderbook_delta", "trade"]},
+          "venue_subscription_id": {"type": "string"},
+          "requested_market_tickers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+          "membership_claim": {"const": "request_bound_not_echoed_by_acknowledgement"},
+          "sequence_domain_status": {"enum": ["documented", "fixture_declared", "unknown"]},
+          "sequence_domain_components": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

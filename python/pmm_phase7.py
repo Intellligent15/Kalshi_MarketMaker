@@ -44,13 +44,26 @@ except ImportError:
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 NORMALIZED_SCHEMA = "pmm.historical.normalized_event.v1"
+NORMALIZED_RECORD_V2_SCHEMA = "pmm.historical.normalized_record.v2"
+NORMALIZATION_MANIFEST_V3_SCHEMA = "pmm.historical.normalization_manifest.v3"
+PRODUCT_MAP_V3_SCHEMA = "pmm.historical.product_map.v3"
+SOURCE_SCOPE_MAP_SCHEMA = "pmm.historical.source_scope_map.v1"
+RAW_CAPTURE_V2_SCHEMA = "pmm.kalshi.raw_capture.v2"
+RAW_CAPTURE_RECORD_V2_SCHEMA = "pmm.kalshi.raw_capture_record.v2"
 NORMALIZER_VERSION = "kalshi-l2-normalizer.v1"
+NORMALIZER_V2_VERSION = "kalshi-multi-scope-normalizer.v2"
 FEATURE_SCHEMA = "pmm.historical.feature_row.v1"
 FEATURE_VERSION = "observed-l2-top-of-book.v1"
 BACKTEST_SCHEMA = "pmm.backtest.v1"
 BACKTEST_V2_SCHEMA = "pmm.backtest.v2"
 BACKTEST_V3_SCHEMA = "pmm.backtest.v3"
 RISK_TRACE_SCHEMA = "pmm.risk_conformance_trace.v2"
+
+
+class HistoricalDataError(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(f"{code}: {message}")
+        self.code = code
 
 
 def canonical_json(value: Any) -> str:
@@ -444,6 +457,576 @@ def normalize_capture(
         raise
 
 
+def normalize_capture_v3(
+    input_dir: Path,
+    output_dir: Path,
+    *,
+    continuity_policy: str = "refuse",
+    product_catalog: ProductCatalog | None = None,
+    conversion_policy: ConversionPolicy | None = None,
+) -> dict[str, Any]:
+    if continuity_policy not in {"refuse", "record"}:
+        raise HistoricalDataError(
+            "ContinuityPolicyInvalid", "continuity policy must be 'refuse' or 'record'"
+        )
+    if (product_catalog is None) != (conversion_policy is None):
+        raise HistoricalDataError(
+            "ProductLineageIncomplete", "product catalog and conversion policy must be provided together"
+        )
+    input_dir = input_dir.resolve()
+    frames = input_dir / "frames.jsonl"
+    metadata_path = input_dir / "metadata.json"
+    if not frames.is_file() or not metadata_path.is_file():
+        raise HistoricalDataError(
+            "CaptureInputMissing", "input must contain frames.jsonl and metadata.json"
+        )
+    metadata = read_json(metadata_path)
+    if metadata.get("schema") != RAW_CAPTURE_V2_SCHEMA:
+        raise HistoricalDataError("CaptureSchemaMismatch", "normalize-v3 requires raw capture V2")
+    tickers_value = metadata.get("market_tickers")
+    if (
+        not isinstance(tickers_value, list)
+        or not tickers_value
+        or any(not isinstance(ticker, str) or not ticker for ticker in tickers_value)
+        or tickers_value != sorted(set(tickers_value))
+    ):
+        raise HistoricalDataError(
+            "CaptureIdentityInvalid", "market_tickers must be a sorted unique non-empty list"
+        )
+    tickers = tuple(tickers_value)
+    sequence_domain = metadata.get("sequence_domain")
+    if not isinstance(sequence_domain, dict) or sequence_domain.get("status") not in {
+        "documented",
+        "fixture_declared",
+        "unknown",
+    }:
+        raise HistoricalDataError(
+            "SequenceDomainMissing", "capture must represent sequence-domain status explicitly"
+        )
+    source_truth = metadata.get("truth_category", "Observed")
+    if source_truth not in {"Observed", "Synthetic"}:
+        raise HistoricalDataError(
+            "TruthCategoryInvalid", "raw capture truth must be Observed or Synthetic"
+        )
+
+    packages: dict[str, ProductPackage] = {}
+    if product_catalog is not None:
+        for ticker in tickers:
+            ticker_metadata = dict(metadata)
+            ticker_metadata["ticker"] = ticker
+            package = product_catalog.resolve(ticker_metadata)
+            package.verify_capture(ticker_metadata)
+            packages[ticker] = package
+
+    output_dir = ensure_new_output(output_dir)
+    temporary = output_dir.with_name(f"{output_dir.name}.partial")
+    if temporary.exists():
+        raise HistoricalDataError(
+            "PartialOutputExists", f"temporary normalization output already exists: {temporary}"
+        )
+    temporary.mkdir(parents=True)
+    records_path = temporary / "records.jsonl"
+    scope_path = temporary / "source_scopes.json"
+    product_path = temporary / "product.json"
+    manifest_path = temporary / "manifest.json"
+
+    next_normalized_ordinal = 1
+    last_raw_ordinal = 0
+    last_logical_time = -1
+    last_scope_time: dict[str, int] = {}
+    request_membership: dict[tuple[int, int], tuple[str, ...]] = {}
+    scopes: dict[tuple[int, str], dict[str, Any]] = {}
+    sequence_previous: dict[str, int] = {}
+    sequence_payloads: dict[tuple[str, int], str] = {}
+    market_ids: dict[str, str] = {}
+    market_state = {
+        ticker: {"segment": 0, "valid": False, "awaiting": "initial_snapshot"}
+        for ticker in tickers
+    }
+    snapshot_counts: Counter[tuple[int, str]] = Counter()
+    event_counts: Counter[str] = Counter()
+    discontinuity_counts: Counter[str] = Counter()
+    identical_duplicates = 0
+    late_source_events = 0
+    has_discontinuity = False
+    incomplete_reasons: list[dict[str, Any]] = []
+
+    def write_record(destination: Any, record: dict[str, Any]) -> None:
+        nonlocal next_normalized_ordinal
+        record["schema"] = NORMALIZED_RECORD_V2_SCHEMA
+        record["normalization_ordinal"] = next_normalized_ordinal
+        next_normalized_ordinal += 1
+        destination.write(canonical_json(record) + "\n")
+
+    def control_record(
+        destination: Any,
+        *,
+        raw_ordinal: int,
+        received_at: int,
+        control_type: str,
+        ticker: str | None,
+        source_scope_id: str | None,
+        details: dict[str, Any],
+    ) -> None:
+        nonlocal last_logical_time, has_discontinuity
+        last_logical_time = max(last_logical_time, received_at)
+        discontinuity_counts[control_type] += 1
+        has_discontinuity = True
+        write_record(
+            destination,
+            {
+                "kind": "discontinuity",
+                "control_type": control_type,
+                "raw_ingress_ordinal": raw_ordinal,
+                "logical_time_utc_ns": last_logical_time,
+                "local_received_at_utc_ns": received_at,
+                "ticker": ticker,
+                "source_scope_id": source_scope_id,
+                "truth_category": "Synthetic" if source_truth == "Synthetic" else "Reconstructed",
+                "source_fidelity": "level_2",
+                "details": details,
+            },
+        )
+
+    try:
+        with frames.open(encoding="utf-8") as source, records_path.open(
+            "x", encoding="utf-8"
+        ) as destination:
+            for line_number, line in enumerate(source, start=1):
+                try:
+                    raw_record = json.loads(line)
+                except json.JSONDecodeError as error:
+                    raise HistoricalDataError(
+                        "MalformedCaptureRecord", f"raw JSONL line {line_number} is corrupt"
+                    ) from error
+                if not isinstance(raw_record, dict) or raw_record.get("schema") != RAW_CAPTURE_RECORD_V2_SCHEMA:
+                    raise HistoricalDataError(
+                        "CaptureRecordSchemaMismatch", f"raw line {line_number} is not a V2 record"
+                    )
+                raw_ordinal = int_value(
+                    raw_record.get("raw_ingress_ordinal"), "raw_ingress_ordinal"
+                )
+                if raw_ordinal != last_raw_ordinal + 1:
+                    raise HistoricalDataError(
+                        "IngressOrdinalMismatch",
+                        f"raw line {line_number} does not continue ingress ordinals",
+                    )
+                last_raw_ordinal = raw_ordinal
+                received_at = int_value(
+                    raw_record.get("received_at_utc_ns"), "received_at_utc_ns"
+                )
+                kind = raw_record.get("kind")
+                connection_id = raw_record.get("connection_segment_id")
+                if kind == "subscription_sent":
+                    connection = int_value(connection_id, "connection_segment_id")
+                    subscription = raw_record.get("subscription")
+                    if not isinstance(subscription, dict):
+                        raise HistoricalDataError(
+                            "SubscriptionRequestInvalid", "subscription_sent has no request"
+                        )
+                    wire_id = int_value(subscription.get("id"), "subscription.id")
+                    params = subscription.get("params")
+                    membership = params.get("market_tickers") if isinstance(params, dict) else None
+                    channels = params.get("channels") if isinstance(params, dict) else None
+                    if membership != list(tickers) or channels != ["orderbook_delta", "trade"]:
+                        raise HistoricalDataError(
+                            "SubscriptionRequestInvalid",
+                            "subscription request differs from canonical capture membership",
+                        )
+                    request_membership[(connection, wire_id)] = tickers
+                    continue
+                if kind == "subscription_acknowledged":
+                    connection = int_value(connection_id, "connection_segment_id")
+                    wire_id = int_value(raw_record.get("wire_request_id"), "wire_request_id")
+                    if (connection, wire_id) not in request_membership:
+                        raise HistoricalDataError(
+                            "SubscriptionAckMismatch", "acknowledgement has no matching request"
+                        )
+                    channel = raw_record.get("channel")
+                    sid = raw_record.get("venue_subscription_id")
+                    if channel not in {"orderbook_delta", "trade"} or sid is None:
+                        raise HistoricalDataError(
+                            "SubscriptionAckMismatch", "acknowledgement channel or sid is invalid"
+                        )
+                    key = (connection, str(sid))
+                    if key in scopes:
+                        raise HistoricalDataError(
+                            "SubscriptionAckMismatch", "duplicate or conflicting sid binding"
+                        )
+                    scopes[key] = {
+                        "source_scope_id": f"c{connection}:sid{sid}",
+                        "connection_segment_id": connection,
+                        "subscription_request_id": raw_record.get("subscription_request_id"),
+                        "wire_request_id": wire_id,
+                        "channel": channel,
+                        "venue_subscription_id": str(sid),
+                        "requested_market_tickers": list(tickers),
+                        "membership_claim": "request_bound_not_echoed_by_acknowledgement",
+                        "sequence_domain_status": sequence_domain["status"],
+                        "sequence_domain_components": sequence_domain.get("components", []),
+                    }
+                    continue
+                if kind == "connection_gap":
+                    connection = int_value(connection_id, "connection_segment_id")
+                    for ticker in tickers:
+                        state = market_state[ticker]
+                        state["valid"] = False
+                        state["awaiting"] = "recovery_snapshot"
+                        control_record(
+                            destination,
+                            raw_ordinal=raw_ordinal,
+                            received_at=received_at,
+                            control_type="connection_gap",
+                            ticker=ticker,
+                            source_scope_id=None,
+                            details={
+                                "connection_segment_id": connection,
+                                "failure_phase": raw_record.get("failure_phase"),
+                                "error_code": raw_record.get("error_code"),
+                                "prior_book_state": "invalidated",
+                            },
+                        )
+                    continue
+                if kind in {
+                    "connection_attempt",
+                    "connection_opened",
+                    "connection_closed",
+                    "binary_frame_rejected",
+                }:
+                    if kind == "binary_frame_rejected":
+                        incomplete_reasons.append(
+                            {"code": "UnsupportedBinaryFrame", "raw_ingress_ordinal": raw_ordinal}
+                        )
+                    continue
+                if kind != "inbound_frame":
+                    continue
+                message_type = raw_record.get("message_type")
+                if message_type not in {"orderbook_snapshot", "orderbook_delta", "trade"}:
+                    continue
+                connection = int_value(connection_id, "connection_segment_id")
+                sid = raw_record.get("subscription_id")
+                scope = scopes.get((connection, str(sid)))
+                if scope is None:
+                    raise HistoricalDataError(
+                        "UnboundSourceScope", f"raw line {line_number} uses unbound sid {sid!r}"
+                    )
+                expected_channel = "trade" if message_type == "trade" else "orderbook_delta"
+                if scope["channel"] != expected_channel:
+                    raise HistoricalDataError(
+                        "SourceScopeConflict", f"{message_type} arrived on {scope['channel']} scope"
+                    )
+                parsed_type, message = parse_raw_message(raw_record, line_number)
+                if parsed_type != message_type:
+                    raise HistoricalDataError(
+                        "MessageTypeMismatch", f"raw line {line_number} type conflicts with payload"
+                    )
+                ticker, parsed_market_id, payload = normalized_payload(parsed_type, message)
+                if ticker not in tickers:
+                    raise HistoricalDataError(
+                        "MarketMembershipMismatch", f"raw line {line_number} ticker was not requested"
+                    )
+                if ticker in packages:
+                    validate_product_payload(packages[ticker], payload, parsed_type)
+                known_market_id = market_ids.get(ticker)
+                if known_market_id is None and parsed_market_id is None:
+                    raise HistoricalDataError(
+                        "MarketIdentityMissing", f"{ticker} has no market_id before identity is established"
+                    )
+                if known_market_id is None:
+                    assert parsed_market_id is not None
+                    market_ids[ticker] = parsed_market_id
+                    known_market_id = parsed_market_id
+                elif parsed_market_id is not None and parsed_market_id != known_market_id:
+                    raise HistoricalDataError(
+                        "MarketIdentityConflict", f"{ticker} market_id changed within the capture"
+                    )
+
+                source_scope_id = scope["source_scope_id"]
+                source_sequence_value = raw_record.get("source_sequence", message.get("seq"))
+                if source_sequence_value is not None:
+                    current_sequence = int_value(source_sequence_value, "source_sequence")
+                    duplicate_key = (source_scope_id, current_sequence)
+                    payload_hash = hashlib.sha256(canonical_json(message).encode()).hexdigest()
+                    prior_hash = sequence_payloads.get(duplicate_key)
+                    if prior_hash is not None:
+                        if prior_hash != payload_hash:
+                            raise HistoricalDataError(
+                                "ConflictingDuplicate",
+                                f"source identity conflicts at raw line {line_number}",
+                            )
+                        identical_duplicates += 1
+                        continue
+                    previous_sequence = sequence_previous.get(source_scope_id)
+                    if previous_sequence is not None and current_sequence < previous_sequence:
+                        raise HistoricalDataError(
+                            "SourceSequenceRegression", f"sequence regressed at raw line {line_number}"
+                        )
+                    if previous_sequence is not None and current_sequence > previous_sequence + 1:
+                        control_record(
+                            destination,
+                            raw_ordinal=raw_ordinal,
+                            received_at=received_at,
+                            control_type="sequence_gap",
+                            ticker=ticker,
+                            source_scope_id=source_scope_id,
+                            details={
+                                "expected_sequence": previous_sequence + 1,
+                                "received_sequence": current_sequence,
+                                "scope_status": sequence_domain["status"],
+                            },
+                        )
+                        if scope["channel"] == "orderbook_delta":
+                            state = market_state[ticker]
+                            state["valid"] = False
+                            state["awaiting"] = "recovery_snapshot"
+                    sequence_previous[source_scope_id] = current_sequence
+                    sequence_payloads[duplicate_key] = payload_hash
+
+                state = market_state[ticker]
+                if parsed_type == "orderbook_snapshot":
+                    if state["valid"]:
+                        raise HistoricalDataError(
+                            "RecoverySnapshotDuplicate",
+                            f"unexpected additional snapshot for {ticker}",
+                        )
+                    state["segment"] += 1
+                    state["valid"] = True
+                    recovery_kind = state["awaiting"]
+                    state["awaiting"] = None
+                    snapshot_counts[(connection, ticker)] += 1
+                    write_record(
+                        destination,
+                        {
+                            "kind": "segment_boundary",
+                            "boundary_type": "segment_started",
+                            "raw_ingress_ordinal": raw_ordinal,
+                            "logical_time_utc_ns": max(last_logical_time, received_at),
+                            "local_received_at_utc_ns": received_at,
+                            "ticker": ticker,
+                            "source_scope_id": source_scope_id,
+                            "book_segment_id": f"{ticker}:segment:{state['segment']}",
+                            "start_evidence": recovery_kind,
+                            "continuity_claim": "valid_from_observed_snapshot_only",
+                            "truth_category": source_truth,
+                            "source_fidelity": "level_2",
+                        },
+                    )
+                elif parsed_type == "orderbook_delta" and not state["valid"]:
+                    incomplete_reasons.append(
+                        {
+                            "code": "DeltaBeforeRecovery",
+                            "ticker": ticker,
+                            "raw_ingress_ordinal": raw_ordinal,
+                        }
+                    )
+                    if continuity_policy == "refuse":
+                        raise HistoricalDataError(
+                            "DeltaBeforeRecovery", f"{ticker} delta arrived before required snapshot"
+                        )
+
+                received_at = int_value(
+                    raw_record.get("received_at_utc_ns"), "received_at_utc_ns"
+                )
+                source_ts_ms = message["msg"].get("ts_ms")
+                source_time = (
+                    None
+                    if source_ts_ms is None
+                    else int_value(source_ts_ms, "ts_ms") * 1_000_000
+                )
+                event_time = source_time if source_time is not None else received_at
+                scope_previous_time = last_scope_time.get(source_scope_id)
+                scope_time_late = (
+                    source_time is not None
+                    and scope_previous_time is not None
+                    and source_time < scope_previous_time
+                )
+                global_time_late = source_time is not None and source_time < last_logical_time
+                late_source_events += global_time_late
+                last_scope_time[source_scope_id] = max(
+                    scope_previous_time if scope_previous_time is not None else event_time,
+                    event_time,
+                )
+                last_logical_time = max(last_logical_time, event_time)
+                event_counts[
+                    {
+                        "orderbook_snapshot": "book_snapshot",
+                        "orderbook_delta": "book_delta",
+                        "trade": "trade",
+                    }[parsed_type]
+                ] += 1
+                write_record(
+                    destination,
+                    {
+                        "kind": "market_event",
+                        "event_id": f"{ticker}:{raw_ordinal}",
+                        "raw_ingress_ordinal": raw_ordinal,
+                        "logical_time_utc_ns": last_logical_time,
+                        "event_time_utc_ns": event_time,
+                        "event_time_basis": (
+                            "source_ts_ms" if source_time is not None else "local_receive_time"
+                        ),
+                        "source_time_late": global_time_late,
+                        "source_scope_time_late": scope_time_late,
+                        "local_received_at_utc_ns": received_at,
+                        "source_sequence": source_sequence_value,
+                        "source_scope_id": source_scope_id,
+                        "sequence_domain_status": sequence_domain["status"],
+                        "connection_segment_id": connection,
+                        "subscription_id": str(sid),
+                        "ticker": ticker,
+                        "venue_market_id": known_market_id,
+                        "venue_market_id_provenance": (
+                            "source_message" if parsed_market_id is not None else "capture_bound"
+                        ),
+                        "book_segment_id": (
+                            f"{ticker}:segment:{state['segment']}" if state["segment"] else None
+                        ),
+                        "book_state_valid": state["valid"],
+                        "event_type": {
+                            "orderbook_snapshot": "book_snapshot",
+                            "orderbook_delta": "book_delta",
+                            "trade": "trade",
+                        }[parsed_type],
+                        "truth_category": source_truth,
+                        "source_fidelity": "level_2",
+                        "payload": payload,
+                    },
+                )
+
+        channels_by_connection: dict[int, set[str]] = {}
+        for scope in scopes.values():
+            channels_by_connection.setdefault(scope["connection_segment_id"], set()).add(
+                scope["channel"]
+            )
+        for connection, _ in request_membership:
+            if channels_by_connection.get(connection) != {"orderbook_delta", "trade"}:
+                incomplete_reasons.append(
+                    {"code": "SubscriptionAckMissing", "connection_segment_id": connection}
+                )
+            for ticker in tickers:
+                if snapshot_counts[(connection, ticker)] != 1:
+                    incomplete_reasons.append(
+                        {
+                            "code": "SnapshotCardinalityMismatch",
+                            "connection_segment_id": connection,
+                            "ticker": ticker,
+                            "count": snapshot_counts[(connection, ticker)],
+                        }
+                    )
+        if not request_membership:
+            incomplete_reasons.append({"code": "SubscriptionRequestMissing"})
+        for ticker, state in market_state.items():
+            if not state["valid"]:
+                incomplete_reasons.append(
+                    {"code": "RecoverySnapshotMissing", "ticker": ticker}
+                )
+
+        if incomplete_reasons:
+            completeness = "incomplete"
+        elif has_discontinuity:
+            completeness = "observed_discontinuous"
+        else:
+            completeness = "complete_observed_interval"
+        if completeness != "complete_observed_interval" and continuity_policy == "refuse":
+            first = incomplete_reasons[0]["code"] if incomplete_reasons else "DiscontinuousInput"
+            raise HistoricalDataError(
+                first,
+                f"normalization refuses {completeness} input by default; use --continuity-policy record",
+            )
+
+        scope_document = {
+            "schema": SOURCE_SCOPE_MAP_SCHEMA,
+            "sequence_domain": sequence_domain,
+            "scopes": sorted(scopes.values(), key=lambda value: value["source_scope_id"]),
+        }
+        write_json(scope_path, scope_document)
+        product_entries: list[dict[str, Any]] = []
+        for ticker in tickers:
+            entry: dict[str, Any] = {
+                "ticker": ticker,
+                "venue_market_id": market_ids.get(ticker),
+                "venue_market_id_authority": "capture_only_not_in_terms_source",
+                "source_fidelity": "level_2",
+            }
+            package = packages.get(ticker)
+            if package is not None:
+                assert conversion_policy is not None
+                identity = package.terms.identity
+                entry.update(
+                    {
+                        "authoritative_identity": identity,
+                        "product_terms_sha256": package.terms.payload_sha256,
+                        "source_manifest_sha256": package.evidence.payload_sha256,
+                        "review_sha256": package.review.payload_sha256,
+                        "conversion_policy_sha256": conversion_policy.payload_sha256,
+                    }
+                )
+            product_entries.append(entry)
+        product_document = {
+            "schema": PRODUCT_MAP_V3_SCHEMA,
+            "venue": "kalshi",
+            "environment": "production",
+            "products": product_entries,
+        }
+        write_json(product_path, product_document)
+        if packages:
+            terms_root = temporary / "product_terms"
+            terms_root.mkdir()
+            for ticker, package in sorted(packages.items()):
+                copy_package(package, terms_root / ticker)
+            assert conversion_policy is not None
+            shutil.copy2(conversion_policy.path, temporary / "conversion_policy.json")
+
+        manifest: dict[str, Any] = {
+            "schema": NORMALIZATION_MANIFEST_V3_SCHEMA,
+            "normalizer_version": NORMALIZER_V2_VERSION,
+            "input_capture_directory": str(input_dir.relative_to(REPOSITORY_ROOT)),
+            "input_frames_sha256": sha256_file(frames),
+            "input_capture_metadata_sha256": sha256_file(metadata_path),
+            "output_records_sha256": sha256_file(records_path),
+            "output_source_scopes_sha256": sha256_file(scope_path),
+            "output_product_sha256": sha256_file(product_path),
+            "market_tickers": list(tickers),
+            "ordering_policy": (
+                "raw ingress ordinal is the cross-scope total order; source sequences validate "
+                "only their represented domain; timestamps never reorder records"
+            ),
+            "continuity_policy": continuity_policy,
+            "completeness": completeness,
+            "incomplete_reasons": incomplete_reasons,
+            "event_counts": dict(sorted(event_counts.items())),
+            "discontinuity_counts": dict(sorted(discontinuity_counts.items())),
+            "identical_duplicates_skipped": identical_duplicates,
+            "late_source_events": late_source_events,
+            "truth_category": source_truth,
+            "source_fidelity": "level_2",
+            "limitations": [
+                "Level-2 data has no individual order identity or queue position.",
+                "Unknown sequence domains do not prove venue-global continuity.",
+                "A recovery snapshot starts a new segment and does not recover a missing interval.",
+            ],
+        }
+        if packages:
+            assert product_catalog is not None and conversion_policy is not None
+            manifest["product_catalog_sha256"] = product_catalog.payload_sha256
+            manifest["conversion_policy_sha256"] = conversion_policy.payload_sha256
+            manifest["product_lineage"] = [
+                {
+                    "ticker": ticker,
+                    "product_terms_sha256": package.terms.payload_sha256,
+                    "source_manifest_sha256": package.evidence.payload_sha256,
+                    "review_sha256": package.review.payload_sha256,
+                }
+                for ticker, package in sorted(packages.items())
+            ]
+        write_json(manifest_path, manifest)
+        temporary.rename(output_dir)
+        return manifest
+    except BaseException:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
+
+
 def iter_jsonl(path: Path) -> Iterable[dict[str, Any]]:
     with path.open(encoding="utf-8") as source:
         for line_number, line in enumerate(source, start=1):
@@ -602,9 +1185,16 @@ def materialize_features(input_dir: Path, output_dir: Path) -> dict[str, Any]:
     input_dir = input_dir.resolve()
     events_path = input_dir / "events.jsonl"
     normalization_manifest = input_dir / "manifest.json"
-    if not events_path.is_file() or not normalization_manifest.is_file():
-        raise ValueError("input must be a normalized directory containing events.jsonl and manifest.json")
+    if not normalization_manifest.is_file():
+        raise ValueError("input must be a normalized directory containing manifest.json")
     normalized = read_json(normalization_manifest)
+    if normalized.get("schema") == NORMALIZATION_MANIFEST_V3_SCHEMA:
+        raise HistoricalDataError(
+            "DownstreamContinuityRequired",
+            "normalization manifest V3 requires B2b segment-aware feature projection",
+        )
+    if not events_path.is_file():
+        raise ValueError("input must be a normalized directory containing events.jsonl")
     if normalized.get("sequence_gaps"):
         raise ValueError("cannot materialize complete features from normalized data with sequence gaps")
     product_lineage: dict[str, Any] | None = None
@@ -1436,6 +2026,16 @@ def build_parser() -> argparse.ArgumentParser:
     normalize_v2.add_argument("--catalog", required=True, type=Path)
     normalize_v2.add_argument("--conversion-policy", required=True, type=Path)
     normalize_v2.add_argument("--allow-sequence-gaps", action="store_true")
+    normalize_v3 = commands.add_parser(
+        "normalize-v3", help="Normalize V2 raw capture with explicit scopes and discontinuities."
+    )
+    normalize_v3.add_argument("--input", required=True, type=Path)
+    normalize_v3.add_argument("--output", required=True, type=Path)
+    normalize_v3.add_argument(
+        "--continuity-policy", choices=("refuse", "record"), default="refuse"
+    )
+    normalize_v3.add_argument("--catalog", type=Path)
+    normalize_v3.add_argument("--conversion-policy", type=Path)
     features = commands.add_parser("features", help="Materialize causal observed-L2 feature rows.")
     features.add_argument("--input", required=True, type=Path)
     features.add_argument("--output", required=True, type=Path)
@@ -1463,6 +2063,25 @@ def main(argv: list[str] | None = None) -> int:
                 product_catalog=ProductCatalog.load(args.catalog),
                 conversion_policy=ConversionPolicy.load(args.conversion_policy),
             )
+        elif args.command == "normalize-v3":
+            if (args.catalog is None) != (args.conversion_policy is None):
+                raise HistoricalDataError(
+                    "ProductLineageIncomplete",
+                    "--catalog and --conversion-policy must be provided together",
+                )
+            result = normalize_capture_v3(
+                args.input,
+                args.output,
+                continuity_policy=args.continuity_policy,
+                product_catalog=(
+                    None if args.catalog is None else ProductCatalog.load(args.catalog)
+                ),
+                conversion_policy=(
+                    None
+                    if args.conversion_policy is None
+                    else ConversionPolicy.load(args.conversion_policy)
+                ),
+            )
         elif args.command == "features":
             result = materialize_features(args.input, args.output)
         elif args.command == "verify-lineage":
@@ -1471,6 +2090,12 @@ def main(argv: list[str] | None = None) -> int:
             result = run_backtest(args.config, args.output)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    except KeyboardInterrupt:
+        print("error: interrupted", file=sys.stderr)
+        return 130
+    except HistoricalDataError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     except (OSError, ValueError, InvalidOperation, ProductTermsError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.historical.normalized_record.v2",
+  "type": "object",
+  "required": ["schema", "kind", "normalization_ordinal", "raw_ingress_ordinal", "logical_time_utc_ns", "local_received_at_utc_ns", "truth_category", "source_fidelity"],
+  "properties": {
+    "schema": {"const": "pmm.historical.normalized_record.v2"},
+    "kind": {"enum": ["market_event", "discontinuity", "segment_boundary"]},
+    "normalization_ordinal": {"type": "integer", "minimum": 1},
+    "raw_ingress_ordinal": {"type": "integer", "minimum": 1},
+    "logical_time_utc_ns": {"type": "integer", "minimum": 0},
+    "local_received_at_utc_ns": {"type": "integer", "minimum": 0},
+    "truth_category": {"enum": ["Observed", "Reconstructed", "Synthetic"]},
+    "source_fidelity": {"const": "level_2"},
+    "event_id": {"type": "string"},
+    "event_time_utc_ns": {"type": "integer", "minimum": 0},
+    "event_time_basis": {"enum": ["source_ts_ms", "local_receive_time"]},
+    "source_time_late": {"type": "boolean"},
+    "source_scope_time_late": {"type": "boolean"},
+    "source_sequence": {},
+    "source_scope_id": {"type": ["string", "null"]},
+    "sequence_domain_status": {"enum": ["documented", "fixture_declared", "unknown"]},
+    "connection_segment_id": {"type": "integer", "minimum": 1},
+    "subscription_id": {"type": "string"},
+    "ticker": {"type": ["string", "null"]},
+    "venue_market_id": {"type": "string"},
+    "venue_market_id_provenance": {"enum": ["source_message", "capture_bound"]},
+    "book_segment_id": {"type": ["string", "null"]},
+    "book_state_valid": {"type": "boolean"},
+    "event_type": {"enum": ["book_snapshot", "book_delta", "trade"]},
+    "payload": {"type": "object"},
+    "control_type": {"enum": ["connection_gap", "sequence_gap"]},
+    "details": {"type": "object"},
+    "boundary_type": {"const": "segment_started"},
+    "start_evidence": {"enum": ["initial_snapshot", "recovery_snapshot"]},
+    "continuity_claim": {"const": "valid_from_observed_snapshot_only"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "market_event"}}},
+      "then": {"required": ["event_id", "event_time_utc_ns", "event_time_basis", "source_time_late", "source_scope_time_late", "source_scope_id", "sequence_domain_status", "connection_segment_id", "subscription_id", "ticker", "venue_market_id", "venue_market_id_provenance", "book_segment_id", "book_state_valid", "event_type", "payload"]}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "discontinuity"}}},
+      "then": {"required": ["control_type", "ticker", "source_scope_id", "details"]}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "segment_boundary"}}},
+      "then": {"required": ["boundary_type", "ticker", "source_scope_id", "book_segment_id", "start_evidence", "continuity_claim"]}
+    }
+  ],
+  "additionalProperties": false
+}

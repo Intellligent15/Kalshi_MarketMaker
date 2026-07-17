@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.historical.product_map.v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "venue", "environment", "products"],
+  "properties": {
+    "schema": {"const": "pmm.historical.product_map.v3"},
+    "venue": {"const": "kalshi"},
+    "environment": {"const": "production"},
+    "products": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["ticker", "venue_market_id", "venue_market_id_authority", "source_fidelity"],
+        "properties": {
+          "ticker": {"type": "string", "minLength": 1},
+          "venue_market_id": {"type": "string", "minLength": 1},
+          "venue_market_id_authority": {"const": "capture_only_not_in_terms_source"},
+          "source_fidelity": {"const": "level_2"},
+          "authoritative_identity": {"type": "object"},
+          "product_terms_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "source_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "review_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "conversion_policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

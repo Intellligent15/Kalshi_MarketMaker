@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.historical.normalization_manifest.v3",
+  "type": "object",
+  "required": ["schema", "normalizer_version", "input_capture_directory", "input_frames_sha256", "input_capture_metadata_sha256", "output_records_sha256", "output_source_scopes_sha256", "output_product_sha256", "market_tickers", "ordering_policy", "continuity_policy", "completeness", "incomplete_reasons", "event_counts", "discontinuity_counts", "identical_duplicates_skipped", "late_source_events", "truth_category", "source_fidelity", "limitations"],
+  "properties": {
+    "schema": {"const": "pmm.historical.normalization_manifest.v3"},
+    "normalizer_version": {"const": "kalshi-multi-scope-normalizer.v2"},
+    "input_capture_directory": {"type": "string"},
+    "input_frames_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "input_capture_metadata_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "output_records_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "output_source_scopes_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "output_product_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "market_tickers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+    "ordering_policy": {"type": "string", "minLength": 1},
+    "continuity_policy": {"enum": ["refuse", "record"]},
+    "completeness": {"enum": ["complete_observed_interval", "observed_discontinuous", "incomplete"]},
+    "incomplete_reasons": {"type": "array", "items": {"type": "object"}},
+    "event_counts": {"type": "object"},
+    "discontinuity_counts": {"type": "object"},
+    "identical_duplicates_skipped": {"type": "integer", "minimum": 0},
+    "late_source_events": {"type": "integer", "minimum": 0},
+    "truth_category": {"enum": ["Observed", "Synthetic"]},
+    "source_fidelity": {"const": "level_2"},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "product_catalog_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "conversion_policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "product_lineage": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}
