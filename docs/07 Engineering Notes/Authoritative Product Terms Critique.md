@@ -142,14 +142,23 @@ justify changing `AccountRiskProjection`, checkpoint rejection categories or ord
 failure ordering, post-only behavior, watermarks, kill switches, or the closed lifecycle/checkpoint
 corpora. Those remain separate packages with separate evidence gates.
 
-## B1b-1 post-implementation reassessment
+## B1b-1 post-implementation critique
 
-Commits `dbd6fd8` and `6d489e3` close the critique's interval-consistency, redirect validation,
-bounded streaming, observed retrieval metadata, schema/runtime parity, stable refusal-code,
-public-CLI, result-artifact, and exact-conversion cleanup findings. The old tables above remain the
-chronological B1a review; they must not be read as the current open-debt list.
+### Scope and interpretation
 
-### Closed findings
+This section is the current critique of commits `dbd6fd8` and `6d489e3`. The B1a tables above are
+retained as chronological evidence of why B1b-1 existed; findings shown as closed below are not
+current defects. The same 1-to-5 impact scale applies. Ease remains 1 for a large or evidence-heavy
+change and 5 for a small bounded change.
+
+B1b-1 is a successful integrity package. It closes the highest-risk ambiguity in temporal
+selection, prevents redirect-based escape from the approved source boundary, bounds network input,
+separates observed provenance from operator intent, makes refusal categories usable by automation,
+and materially deepens offline mutation evidence. It also preserves the existing reviewed package
+and downstream artifact identities. The remaining problems are mostly breadth, governance, policy
+evolution, and scale. They do not justify weakening the new fail-closed rules.
+
+### Closed B1a findings
 
 | Finding | Evidence |
 |---|---|
@@ -158,22 +167,100 @@ chronological B1a review; they must not be read as the current open-debt list.
 | Fetch buffered unbounded responses | Role/source/package limits, 64 KiB streaming, incremental SHA-256, deadlines, media validation, and partial cleanup are tested offline. |
 | Retrieval time and response provenance were operator-declared | V2 separates operator acquisition intent from tool-observed timing, redirect, status, header, media, byte, hash, and version facts. |
 | Formal schemas were materially weaker | Nested V1 structures were completed, acquisition/source V2 schemas were added, and a schema/runtime parity matrix is executable. |
-| Error codes and public CLI behavior were undocumented | The refusal registry and compatibility policy now define codes, exit statuses, and stream ownership. |
+| Error codes and public CLI behavior were undocumented | The refusal registry and compatibility policy define codes, exit statuses, and stream ownership. |
 | Happy-path V3 lineage evidence was too narrow | Single-defect normalization, feature, configuration, result-manifest, and result-artifact mutations refuse; nonrepresentable inputs leave no output. |
 
-### Remaining debt, ranked
+### Unnecessary complexity
 
-| Priority | Finding | Impact | Ease | Why it remains |
+| Finding | Impact | Ease | Tradeoff and recommendation |
+|---|---:|---:|---|
+| `python/pmm_product_terms.py` is now 1,647 lines and owns canonical JSON, schemas, source validation, Kalshi projection, catalog selection, acquisition transport, compatibility, migration, and CLI dispatch. | 3 | 2 | Keeping one audit surface was reasonable for the first product, but the second adapter will make unrelated changes collide. After B1b-2 proves the seam, split transport, package/catalog, venue projection, and CLI while preserving one error registry and public command behavior. |
+| Validity is still described twice: in handwritten JSON Schemas and handwritten runtime checks. | 3 | 2 | The parity corpus prevents known drift, but it does not make the two implementations intrinsically identical. Keep schemas handwritten for reviewability now; expand the shared corpus before considering generation from typed definitions. |
+| V3 lineage fields are repeated across normalization, feature, configuration, result creation, and verification. | 3 | 3 | Repetition makes artifacts self-describing, but field-by-field dictionaries and hash comparisons can drift. Introduce one internal typed lineage record and shared verifier without removing repeated artifact fields. |
+| Supporting source-manifest V1 and V2 adds branches throughout source loading. | 2 | 2 | This is intentional compatibility complexity: rewriting V1 would invent retrieval facts. Isolate version-specific parsing behind one normalized in-memory representation if a V3 source manifest appears. |
+| Role, media, byte, redirect, and timeout policies are module-level constants beside generic parsing code. | 3 | 3 | The policy is easy to audit but difficult to version or reuse. Move it to a versioned, immutable policy definition once real second-product evidence shows which roles are stable. Do not make operators freely configurable at runtime. |
+
+### Future technical debt
+
+| Finding | Impact | Ease | Risk and recommendation |
+|---|---:|---:|---|
+| The acquisition policy has a tool-version label but no independently hashed policy/version identity. | 4 | 3 | Changing `ROLE_POLICIES` or limits can change whether an old V2 manifest verifies under the same schema. Freeze the V2 validation policy or add an explicit policy identifier whose historical definitions remain loadable. |
+| Review approval has no reviewer identity, responsibility rule, independent-approval expectation, revocation record, or supersession incident workflow. | 4 | 2 | Hashes prove what was approved, not who approved it or what dependent results should do after a defect. Define governance before product terms control economic accounting. |
+| Markdown and PDF bytes are retained but document-derived fields are not tied to page, section, or stable evidence anchors. | 4 | 2 | Byte identity detects change but cannot demonstrate that a legal or settlement interpretation is correct. Add field-level reviewed evidence references with the contemporaneous package. |
+| SIGKILL, power loss, or filesystem failure can leave a unique `.partial` directory. | 3 | 4 | Normal errors and interrupts clean up, retained source files are fsynced, and final publication is atomic, but directory durability and startup scavenging are not promised. Add age-safe scavenging and directory fsync only if acquisition becomes operationally frequent. |
+| The refusal-code document and `REFUSAL_CODES` set are separate manual registries. | 3 | 4 | A code can be added in code without a documented compatibility meaning. Add a test that extracts the documented registry or generate the reference table from reviewed structured data. |
+| Exact compatibility treats any evidence or review hash change as incompatibility, even if economic terms are unchanged. | 3 | 2 | This is the correct default for reproduction. Later reporting should add separately named economic and execution-policy compatibility levels rather than weakening exact compatibility. |
+| Response provenance does not record DNS results, peer certificate identity, or a complete header dump. | 2 | 2 | HTTPS validation plus an exact host allowlist is sufficient for the current research boundary. Record more transport evidence only if a threat model demonstrates that it changes review decisions; avoid retaining sensitive or unstable headers by default. |
+
+### Missing tests
+
+| Missing evidence | Impact | Ease | Acceptance condition |
+|---|---:|---:|---|
+| Exhaustive acquisition-spec V1 and source-manifest V2 schema/runtime negative parity | 4 | 3 | One-defect cases cover every constrained field family, and both validators agree whenever JSON Schema can express the rule. |
+| Redirect edge matrix | 3 | 4 | Cover relative redirects, redirect loops/limit, missing `Location`, unsupported 3xx, HTTPS downgrade, credentials, fragments, non-443 ports, and a response URL changed behind the client's back. |
+| Stream-boundary and content matrix | 4 | 4 | Cover absent and false `Content-Length`, streamed overflow, mismatched length, invalid/negative length, invalid UTF-8 text, invalid PDF signature, empty chunks, and multiple-source cumulative limits. |
+| Deadline and transport interruption matrix | 4 | 3 | Deterministic clocks exercise source and package deadlines before request and mid-stream; connect/read timeout and non-timeout transport failure retain no final or partial output. |
+| Publication and cleanup failure matrix | 3 | 3 | Pre-existing output, `.download` collision, final rename failure, and cleanup failure return stable behavior without deleting unrelated paths. |
+| Refusal registry/document parity | 3 | 4 | Every registered code is documented exactly once and every documented code exists in the runtime registry. |
+| Complete public CLI command matrix | 3 | 3 | All product-term commands and Phase 7 lineage verification assert success/refusal exit status, stdout/stderr ownership, overwrite behavior, and deterministic JSON shape. |
+| Additional interval edges | 3 | 4 | Open-ended revisions, a successor after an open-ended revision, exact start/end boundary captures, multiple markets, and unsorted cross-market entries have named expectations. |
+| Complete embedded-lineage field mutation matrix | 4 | 3 | Every repeated product identity, effective-time, limitation, upstream hash, and policy field in V2/V3 artifacts has a single-defect refusal case. |
+| Crash residue recovery | 3 | 2 | If scavenging is added, tests distinguish owned stale partials from active or unrelated directories and prove idempotent cleanup. |
+
+The current tests are still valuable: 18 focused tests cover the principal positive path and the
+highest-risk failure families without live network calls. The concern is matrix breadth, not the
+absence of negative testing.
+
+### Missing documentation
+
+| Gap | Impact | Ease | Needed addition |
+|---|---:|---:|---|
+| Acquisition policy evolution is not specified. | 4 | 3 | State whether V2 limits and role/media rules are frozen, how tool versions map to policy, and how old manifests remain verifiable after a policy change. |
+| Reviewer governance and incident handling remain undefined. | 4 | 2 | Name reviewer responsibilities, independence expectations, revocation/supersession records, and how dependent results are warned without erasing history. |
+| No field-level evidence-anchor format or reviewer example exists. | 4 | 2 | Show how a product field cites a retained JSON pointer, Markdown section, or PDF page/section and how that anchor is reviewed. |
+| The operator guide is not yet a complete second-product walkthrough. | 3 | 3 | Add a real fetch → inspect → build → diff → review → catalog → normalize walkthrough, including retry and refusal recovery, during B1b-2. |
+| Schema/runtime parity has no field-by-field coverage inventory. | 3 | 4 | Document which rules are schema-addressable and which require cross-file, arithmetic, canonical-byte, or filesystem runtime checks. |
+| Crash atomicity wording could be more operationally explicit. | 3 | 5 | State that normal failure cleanup and final atomic rename do not promise survival without residue across SIGKILL or power loss. |
+| Limit and timeout rationale is recorded as policy, not as measured evidence. | 2 | 3 | Record observed source sizes and acquisition timings from B1b-2 before changing defaults. |
+
+### Possible optimizations
+
+| Optimization | Impact | Ease | Recommendation |
+|---|---:|---:|---|
+| Cache a verified immutable package within one command. | 2 | 4 | Add only after profiling repeated loads; key the cache by all relevant file identities and never persist it across mutations. |
+| Index catalog entries by market and binary-search intervals. | 2 | 4 | Linear lookup is clearer at one package. Add an index when catalog scale makes verification or selection measurable. |
+| Reuse one typed lineage serializer/verifier. | 3 | 3 | This is the highest-value near-term code simplification because it reduces omission risk without changing artifact formats. |
+| Convert repetitive negative cases to data-driven fixture builders. | 2 | 4 | Do this as the missing matrices grow so each test names one defect and cleanup expectation. |
+| Use bounded concurrent acquisition. | 2 | 2 | Defer until batch latency matters. Preserve deterministic manifest ordering, package deadlines, bounded aggregate resources, and all-or-nothing publication. |
+| Avoid reparsing small JSON sources after streaming. | 1 | 3 | The 2 MiB cap makes this immaterial. Prefer clarity unless profiling proves otherwise. |
+
+### Future scalability concerns
+
+| Concern | Impact | Ease | Scaling failure mode and direction |
+|---|---:|---:|---|
+| Manual review is one package at a time. | 5 | 1 | Frequent changes can become a bottleneck or rubber stamp. Automate source diffs and projections, then keep risk-ranked human approval for semantic/legal fields. |
+| Product projection and acquisition roles are Kalshi-specific. | 4 | 1 | More venues or genuinely different product families will accumulate conditionals. Use B1b-2 to prove a versioned adapter boundary before refactoring. |
+| V3 lineage is single-product per run. | 4 | 1 | B2 multi-market replay needs an ordered product/revision set with capture-specific effective selection. Design a versioned successor instead of overloading scalar V3 fields. |
+| Every normalized dataset copies the reviewed source package. | 3 | 2 | Large linked PDFs multiply storage. Measure real duplication first, then consider content-addressed storage with self-contained export/materialization. |
+| Catalog verification reloads and rehashes packages. | 3 | 3 | Startup cost grows with revisions and document bytes. Use immutable in-process caching and a market index after measurement. |
+| Acquisition is synchronous and restarts the whole unpublished package after failure. | 2 | 2 | Large batches will be slow. Bounded concurrency or resumable staging needs a stronger ownership protocol and must not weaken atomic publication. |
+| Full-file hashing scales linearly with retained evidence and result size. | 3 | 2 | Verification cost will rise with corpora. Merkle manifests or content-addressed blobs are later options only after profiles show the simple design is inadequate. |
+
+### Ranked recommendation
+
+| Priority | Next action | Impact | Ease | Reason |
 |---:|---|---:|---:|---|
-| P0 | The only reviewed package is retrospective, covers one product, and still lacks retained linked contract/certification bytes. | 5 | 1 | B1b-2 must exercise the hardened acquisition and review boundary with contemporaneous evidence and a second product family. |
-| P1 | Review approval still has no reviewer identity, responsibility model, revocation record, or supersession incident workflow. | 4 | 2 | Hashes prove what was approved, not who approved it or how a later defect is communicated to dependent results. |
-| P2 | Markdown/PDF evidence remains byte-bound but not field-level semantically anchored. | 4 | 2 | Linked documents need reviewed page/section evidence for projected legal, fee, and settlement fields before economic behavior is implemented. |
-| P3 | A killed process or host crash can leave a uniquely named partial acquisition directory. | 3 | 4 | Expected exceptions and interrupts clean up atomically, but SIGKILL/power-loss scavenging and fsync durability are separate operational work. |
-| P4 | Acquisition roles and Kalshi source projection remain embedded in one module. | 3 | 2 | The second real product should establish the stable adapter boundary before the module is split. |
-| P5 | Exact compatibility still conflates changed evidence/review hashes with changed economic terms. | 3 | 2 | The conservative exact gate remains correct; economic and execution-policy compatibility should be added only with comparison/reporting work. |
-| P6 | Catalog loading repeatedly verifies packages and acquisition is synchronous. | 2 | 3 | Current scale is one package. Cache/index/concurrency work requires measurement and must preserve deterministic manifests. |
-| P7 | Source/package storage duplicates future large linked documents. | 3 | 2 | Content-addressed storage remains unjustified until B1b-2 supplies real document sizes and duplication measurements. |
+| P0 | Complete B1b-2 with contemporaneous linked documents and a genuinely different second product. | 5 | 1 | This tests the hardened boundary against real evidence and reveals the correct adapter and policy abstractions. |
+| P1 | Define reviewer identity, field-level evidence anchors, revocation, and supersession. | 4 | 2 | Governance and semantic interpretation are now the largest integrity gaps. |
+| P2 | Freeze or explicitly version acquisition policy semantics. | 4 | 3 | Old source-manifest V2 acceptance must not drift when constants change. |
+| P3 | Expand acquisition, schema-parity, CLI, interval-edge, and embedded-lineage mutation matrices. | 4 | 3 | Current tests cover the major families but not every boundary or repeated field. |
+| P4 | Introduce a shared typed lineage record and split the module only after the second product proves the seams. | 3 | 2 | This reduces complexity without designing abstractions around one example. |
+| P5 | Add caching, indexing, concurrent acquisition, or content-addressed storage only after measurement. | 2–3 | 2–4 | These are credible scale pressures, but none is the present bottleneck. |
 
-The next package is therefore evidence expansion, not another generic hardening pass. None of the
-remaining findings permits fee charging, settlement processing, accounting, calibrated fills,
+The recommendation is to preserve the current exact-equality, first-party, bounded-streaming,
+handwritten-schema, and exact-reproduction defaults. B1b-2 should supply missing real evidence;
+governance and policy-versioning should follow before accounting or settlement relies on these
+terms. Refactoring and performance work should remain measurement-driven.
+
+None of the findings permits fee charging, settlement processing, accounting, calibrated fills,
 multi-market replay, paper/live behavior, ML, or readiness/profitability claims.
