@@ -24,8 +24,10 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-17 |
-| Baseline commit before B1b-2 | `d49cbee` (`docs: define B1b-2 design gate`) |
-| Branch state before B1b-2 commits | `main` eight commits ahead of `origin/main` |
+| Baseline commit before B1c handoff | `61a2188` (`docs(phase7): clarify remaining anchor guidance`) |
+| Branch state before this tracking update | `main` three commits ahead of `origin/main` |
+| Recent B1b-2 implementation commits | `b3da27e`, `b28a3ad`, `4ba99a6`, and `ff9dbe6` |
+| Recent B1b-2 review commits | `73dc566`, `6e22b27`, and `61a2188` |
 | Recent B1b-1 commits | `902a2df`, `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
 | C++/CTest validation | 78 tests passing |
@@ -552,6 +554,55 @@ schema/runtime parity, one-defect mutation fixtures, and compatibility for the e
 package. It must not reacquire or rewrite HMONTH merely to change validation implementation, and it
 must preserve every B1/B2 non-goal and old package/result identity.
 
+#### B1c design questions and acceptance boundary
+
+Before implementation, compare and recommend among:
+
+- tightening evidence-map V1/source-manifest V3 runtime semantics in place;
+- preserving those formats and adding versioned evidence-map, policy/profile, manifest, or review
+  successors only where the stronger guarantee changes meaning; and
+- retaining V1/V3 as an explicit compatibility adapter while requiring successors for new
+  packages.
+
+The design must answer:
+
+1. Which pinned offline PDF parser/extractor is authoritative, how its version becomes part of
+   evidence identity, how page bounds and section fingerprints are canonicalized, and how malformed,
+   scanned, encrypted, or textless PDFs refuse.
+2. Whether Markdown anchors mean exact headings, bounded sections, normalized section hashes, or a
+   narrower rule, including duplicate headings and Unicode/newline behavior.
+3. How an immutable acquisition policy declares required, optional, and not-applicable semantic
+   source roles without silently reinterpreting old V2/V3 manifests.
+4. Which product-term leaves are mechanically projected, human-reviewed, derived, local policy, or
+   unsupported, and which coverage classes are mandatory before review.
+5. How the existing HMONTH and retrospective WNBA packages continue to verify byte-identically and
+   retain their original claims when stronger successor semantics land.
+6. The exact schema/runtime parity, one-defect mutation, CLI, cleanup, and offline reproduction
+   matrix, including PDF/Markdown mutations, missing roles, same-basename assembly collisions,
+   review mutations, and legacy-policy compatibility.
+
+Implementation acceptance, after separate approval, requires deterministic offline verification,
+no live-network tests, no rewriting of accepted packages, stable existing refusal codes unless an
+additive code is necessary, complete focused and full validation, updated ADR/guide/explanation/
+critique/roadmap documents, and logical commits.
+
+#### B1c multi-agent working method
+
+Use a hub-and-spoke model during the design turn:
+
+- one read-only sub-agent audits PDF/Markdown extraction and deterministic anchor alternatives;
+- one read-only sub-agent audits source-role completeness, schema evolution, and V2/V3 compatibility;
+- one read-only sub-agent inventories missing tests, CLI/refusal behavior, cleanup, and fixture needs;
+- the primary agent reads the authoritative files itself, reconciles contradictions, chooses one
+  coherent recommendation, and presents the complete design for approval.
+
+Sub-agents must not edit files during the design turn. After approval, implementation may be
+parallelized only with exclusive file ownership or separate worktrees: one owner for schemas/runtime,
+one for offline fixtures/tests, and one for documentation. The primary agent owns integration,
+artifact compatibility, full validation, diff review, roadmap truth, and commits. Do not allow two
+agents to edit `python/pmm_product_terms.py`, `python/tests/test_product_terms.py`, or the living
+roadmap concurrently in the shared worktree.
+
 ### B2. Broader observed-market coverage and recovery — planned
 
 The current single-observed-market replay foundation must expand to evidence that the pipeline
@@ -968,6 +1019,10 @@ exact, enforce required/optional role profiles for future V3 packages, define an
 classes, and add schema/runtime and one-defect mutation matrices while preserving existing package
 bytes and hashes. B2 remains next after that gate; B1b-2's two-entry metadata catalog proves product
 selection generalizes, but it is not multi-market replay or reconnect recovery.
+
+Use the multi-agent method defined in the B1c section: three bounded read-only discovery agents in
+parallel, followed by one primary-agent synthesis. No sub-agent may implement, acquire evidence, or
+edit the shared worktree before the user approves that synthesized design.
 
 Track A is closed by `4e6336b` for A1 and `ecca209` for A2, with their documentation packages.
 Deferred A3 hardening remains available only when evidence raises its impact or its containing
