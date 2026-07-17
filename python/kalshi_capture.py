@@ -11,22 +11,25 @@ import argparse
 import asyncio
 import base64
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import importlib.metadata
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
-from typing import Any, Iterable
+from typing import Any, Awaitable, Callable, Iterable
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 WEBSOCKET_URL = "wss://external-api-ws.kalshi.com/trade-api/ws/v2"
 WEBSOCKET_PATH = "/trade-api/ws/v2"
 CAPTURE_SCHEMA = "pmm.kalshi.raw_capture.v1"
+CAPTURE_V2_SCHEMA = "pmm.kalshi.raw_capture.v2"
+CAPTURE_V2_RECORD_SCHEMA = "pmm.kalshi.raw_capture_record.v2"
 FRAMES_FILE = "frames.jsonl"
 METADATA_FILE = "metadata.json"
 
@@ -36,6 +39,24 @@ class CaptureConfig:
     ticker: str
     duration_seconds: int
     output: Path
+
+
+@dataclass(frozen=True)
+class CaptureV2Config:
+    tickers: tuple[str, ...]
+    duration_seconds: int
+    output: Path
+    connection_strategy: str = "single_connection_v1"
+
+
+class CaptureV2Error(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(f"{code}: {message}")
+        self.code = code
+
+
+class ReconnectRequired(Exception):
+    """Expected transport/protocol condition that closes one connection segment."""
 
 
 def utc_now_ns() -> int:
@@ -81,6 +102,32 @@ def parse_capture_config(args: argparse.Namespace) -> CaptureConfig:
     if output.exists():
         raise ValueError(f"--output already exists: {output}")
     return CaptureConfig(ticker=ticker, duration_seconds=args.duration, output=output)
+
+
+def parse_capture_v2_config(args: argparse.Namespace) -> CaptureV2Config:
+    supplied = [str(value).strip() for value in args.ticker]
+    if not supplied or any(not ticker for ticker in supplied):
+        raise CaptureV2Error("CaptureConfigInvalid", "--ticker must be supplied and non-empty")
+    if len(supplied) != len(set(supplied)):
+        raise CaptureV2Error("CaptureConfigInvalid", "--ticker values must be unique")
+    tickers = tuple(sorted(supplied))
+    if args.duration <= 0:
+        raise CaptureV2Error("CaptureConfigInvalid", "--duration must be positive")
+    strategy = str(args.connection_strategy)
+    if strategy != "single_connection_v1":
+        raise CaptureV2Error(
+            "CaptureConfigInvalid", f"unsupported connection strategy {strategy!r}"
+        )
+    output = args.output.resolve()
+    try:
+        output.relative_to(REPOSITORY_ROOT)
+    except ValueError as error:
+        raise CaptureV2Error(
+            "CaptureConfigInvalid", "--output must be within the repository"
+        ) from error
+    if output.exists():
+        raise CaptureV2Error("CaptureOutputExists", f"--output already exists: {output}")
+    return CaptureV2Config(tickers, args.duration, output, strategy)
 
 
 def require_environment() -> tuple[str, Path]:
@@ -139,6 +186,67 @@ def subscription_payload(ticker: str, request_id: int) -> dict[str, Any]:
             "use_yes_price": True,
         },
     }
+
+
+def subscription_payload_v2(tickers: tuple[str, ...], request_id: int) -> dict[str, Any]:
+    return {
+        "id": request_id,
+        "cmd": "subscribe",
+        "params": {
+            "channels": ["orderbook_delta", "trade"],
+            "market_tickers": list(tickers),
+            "use_yes_price": True,
+        },
+    }
+
+
+@dataclass
+class SubscriptionBinding:
+    connection_segment_id: int
+    request_id: int
+    requested_channels: tuple[str, ...]
+    requested_tickers: tuple[str, ...]
+    channel_sids: dict[str, str] = field(default_factory=dict)
+
+    def observe_acknowledgement(self, message: dict[str, Any]) -> tuple[str, str]:
+        if message.get("id") != self.request_id:
+            raise CaptureV2Error(
+                "SubscriptionAckMismatch",
+                f"acknowledgement request id {message.get('id')!r} does not match {self.request_id}",
+            )
+        payload = message.get("msg")
+        if not isinstance(payload, dict):
+            raise CaptureV2Error("SubscriptionAckMismatch", "acknowledgement has no msg object")
+        channel = payload.get("channel")
+        sid = payload.get("sid")
+        if channel not in self.requested_channels:
+            raise CaptureV2Error(
+                "SubscriptionAckMismatch", f"unexpected acknowledgement channel {channel!r}"
+            )
+        if sid is None:
+            raise CaptureV2Error("SubscriptionAckMismatch", "acknowledgement has no sid")
+        sid_text = str(sid)
+        if channel in self.channel_sids:
+            raise CaptureV2Error(
+                "SubscriptionAckMismatch", f"duplicate acknowledgement for channel {channel}"
+            )
+        if sid_text in self.channel_sids.values():
+            raise CaptureV2Error(
+                "SubscriptionAckMismatch", f"sid {sid_text} is bound to more than one channel"
+            )
+        self.channel_sids[str(channel)] = sid_text
+        return str(channel), sid_text
+
+    @property
+    def complete(self) -> bool:
+        return set(self.channel_sids) == set(self.requested_channels)
+
+    def channel_for_sid(self, sid: Any) -> str | None:
+        sid_text = str(sid)
+        for channel, bound_sid in self.channel_sids.items():
+            if bound_sid == sid_text:
+                return channel
+        return None
 
 
 class SequenceTracker:
@@ -218,6 +326,65 @@ class JsonlCapture:
             }
         )
         return message_type
+
+    def close(self) -> None:
+        if not self._file.closed:
+            self._file.flush()
+            os.fsync(self._file.fileno())
+            self._file.close()
+
+
+class JsonlCaptureV2:
+    """Single-writer V2 raw recorder with an explicit capture-global ingress ordinal."""
+
+    def __init__(self, path: Path, *, utc_clock: Callable[[], int] = utc_now_ns) -> None:
+        self._file = path.open("x", encoding="utf-8", buffering=1)
+        self._utc_clock = utc_clock
+        self._next_ordinal = 1
+        self.message_counts: Counter[str] = Counter()
+        self.market_message_counts: dict[str, Counter[str]] = {}
+        self.sequence_tracker = SequenceTracker()
+
+    def write_record(self, kind: str, **values: Any) -> dict[str, Any]:
+        record = {
+            "schema": CAPTURE_V2_RECORD_SCHEMA,
+            "kind": kind,
+            "raw_ingress_ordinal": self._next_ordinal,
+            "received_at_utc_ns": self._utc_clock(),
+            **values,
+        }
+        self._next_ordinal += 1
+        self._file.write(json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\n")
+        return record
+
+    def inbound_frame(
+        self, connection_segment_id: int, raw_frame: str
+    ) -> tuple[str, Any, Any, dict[str, Any] | None]:
+        message_type, sid, sequence, decoded = decode_frame(raw_frame)
+        self.message_counts[message_type] += 1
+        self.sequence_tracker.observe(connection_segment_id, sid, sequence)
+        ticker = None
+        market_id = None
+        if decoded is not None and isinstance(decoded.get("msg"), dict):
+            ticker = decoded["msg"].get("market_ticker")
+            market_id = decoded["msg"].get("market_id")
+            if isinstance(ticker, str):
+                self.market_message_counts.setdefault(ticker, Counter())[message_type] += 1
+        self.write_record(
+            "inbound_frame",
+            connection_segment_id=connection_segment_id,
+            message_type=message_type,
+            subscription_id=sid,
+            source_sequence=sequence,
+            market_ticker=ticker,
+            venue_market_id=market_id,
+            raw_frame_utf8=raw_frame,
+        )
+        return message_type, sid, sequence, decoded
+
+    @property
+    def record_count(self) -> int:
+        return self._next_ordinal - 1
 
     def close(self) -> None:
         if not self._file.closed:
@@ -307,6 +474,199 @@ async def run_capture(
     return connection_id, disconnects
 
 
+async def run_capture_v2(
+    config: CaptureV2Config,
+    api_key_id: str,
+    private_key_path: Path,
+    recorder: JsonlCaptureV2,
+    *,
+    transport_factory: Callable[[dict[str, str]], Any] | None = None,
+    monotonic_clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> dict[str, Any]:
+    websockets, hashes, serialization, padding = load_runtime_dependencies()
+    private_key = serialization.load_pem_private_key(private_key_path.read_bytes(), password=None)
+    recoverable_types: tuple[type[BaseException], ...] = (OSError, TimeoutError, ConnectionError)
+    websocket_error = getattr(getattr(websockets, "exceptions", None), "WebSocketException", None)
+    if isinstance(websocket_error, type):
+        recoverable_types += (websocket_error,)
+
+    if transport_factory is None:
+        def transport_factory(headers: dict[str, str]) -> Any:
+            return websockets.connect(
+                WEBSOCKET_URL,
+                additional_headers=headers,
+                ping_interval=20,
+                ping_timeout=20,
+                max_size=None,
+            )
+
+    deadline = monotonic_clock() + config.duration_seconds
+    connection_segment_id = 0
+    reconnect_delay_seconds = 1
+    connection_summaries: list[dict[str, Any]] = []
+
+    while monotonic_clock() < deadline:
+        connection_segment_id += 1
+        request_id = connection_segment_id
+        payload = subscription_payload_v2(config.tickers, request_id)
+        binding = SubscriptionBinding(
+            connection_segment_id,
+            request_id,
+            tuple(payload["params"]["channels"]),
+            config.tickers,
+        )
+        summary: dict[str, Any] = {
+            "connection_segment_id": connection_segment_id,
+            "status": "attempting",
+            "request_id": request_id,
+            "channel_sids": {},
+            "snapshots_by_ticker": {ticker: 0 for ticker in config.tickers},
+        }
+        connection_summaries.append(summary)
+        phase = "connect"
+        recorder.write_record(
+            "connection_attempt",
+            connection_segment_id=connection_segment_id,
+            websocket_url=WEBSOCKET_URL,
+        )
+        try:
+            headers = signed_headers(api_key_id, private_key, hashes, padding, WEBSOCKET_PATH)
+            async with transport_factory(headers) as websocket:
+                summary["status"] = "connected"
+                recorder.write_record(
+                    "connection_opened",
+                    connection_segment_id=connection_segment_id,
+                    websocket_url=WEBSOCKET_URL,
+                )
+                phase = "subscribe"
+                await websocket.send(json.dumps(payload, separators=(",", ":")))
+                recorder.write_record(
+                    "subscription_sent",
+                    connection_segment_id=connection_segment_id,
+                    subscription_request_id=f"c{connection_segment_id}:r1",
+                    wire_request_id=request_id,
+                    subscription=payload,
+                )
+                reconnect_delay_seconds = 1
+                phase = "receive"
+                while True:
+                    remaining = deadline - monotonic_clock()
+                    if remaining <= 0:
+                        summary["status"] = (
+                            "completed" if binding.complete else "incomplete_acknowledgements"
+                        )
+                        summary["channel_sids"] = dict(sorted(binding.channel_sids.items()))
+                        recorder.write_record(
+                            "connection_closed",
+                            connection_segment_id=connection_segment_id,
+                            close_reason="capture_deadline",
+                            clean=True,
+                        )
+                        return {
+                            "connections": connection_segment_id,
+                            "disconnects": sum(
+                                item["status"] == "disconnected" for item in connection_summaries
+                            ),
+                            "connection_segments": connection_summaries,
+                        }
+                    try:
+                        raw = await asyncio.wait_for(websocket.recv(), timeout=min(remaining, 30))
+                    except TimeoutError:
+                        continue
+                    if not isinstance(raw, str):
+                        recorder.write_record(
+                            "binary_frame_rejected",
+                            connection_segment_id=connection_segment_id,
+                            byte_length=len(raw),
+                        )
+                        raise CaptureV2Error(
+                            "UnsupportedBinaryFrame", "binary WebSocket frames are not supported"
+                        )
+                    message_type, sid, _, decoded = recorder.inbound_frame(
+                        connection_segment_id, raw
+                    )
+                    if decoded is None:
+                        raise CaptureV2Error("MalformedSourceFrame", "inbound frame is not JSON object")
+                    if message_type == "subscribed":
+                        channel, acknowledged_sid = binding.observe_acknowledgement(decoded)
+                        summary["channel_sids"] = dict(sorted(binding.channel_sids.items()))
+                        recorder.write_record(
+                            "subscription_acknowledged",
+                            connection_segment_id=connection_segment_id,
+                            subscription_request_id=f"c{connection_segment_id}:r1",
+                            wire_request_id=request_id,
+                            channel=channel,
+                            venue_subscription_id=acknowledged_sid,
+                            requested_market_tickers=list(config.tickers),
+                            membership_claim="request_bound_not_echoed_by_acknowledgement",
+                        )
+                        continue
+                    if message_type == "error" and decoded.get("id") == request_id:
+                        raise CaptureV2Error(
+                            "SubscriptionRefused", "venue refused the subscription request"
+                        )
+                    if message_type not in {
+                        "orderbook_snapshot",
+                        "orderbook_delta",
+                        "trade",
+                    }:
+                        continue
+                    channel = binding.channel_for_sid(sid)
+                    expected_channel = (
+                        "trade" if message_type == "trade" else "orderbook_delta"
+                    )
+                    if channel != expected_channel:
+                        raise CaptureV2Error(
+                            "UnboundSourceScope",
+                            f"{message_type} sid {sid!r} is not bound to {expected_channel}",
+                        )
+                    source_payload = decoded.get("msg")
+                    ticker = source_payload.get("market_ticker") if isinstance(source_payload, dict) else None
+                    if ticker not in config.tickers:
+                        raise CaptureV2Error(
+                            "MarketMembershipMismatch",
+                            f"observed ticker {ticker!r} was not requested",
+                        )
+                    if message_type == "orderbook_snapshot":
+                        summary["snapshots_by_ticker"][str(ticker)] += 1
+        except asyncio.CancelledError:
+            raise
+        except CaptureV2Error as error:
+            summary["status"] = "disconnected"
+            summary["failure_code"] = error.code
+            recorder.write_record(
+                "connection_gap",
+                connection_segment_id=connection_segment_id,
+                failure_phase=phase,
+                error_type=type(error).__name__,
+                error_code=error.code,
+                reconnect_delay_seconds=reconnect_delay_seconds,
+            )
+        except Exception as error:
+            if not isinstance(error, recoverable_types):
+                raise
+            summary["status"] = "disconnected"
+            recorder.write_record(
+                "connection_gap",
+                connection_segment_id=connection_segment_id,
+                failure_phase=phase,
+                error_type=type(error).__name__,
+                error_code="TransportDisconnected",
+                reconnect_delay_seconds=reconnect_delay_seconds,
+            )
+        remaining = deadline - monotonic_clock()
+        if remaining > 0:
+            await sleep(min(reconnect_delay_seconds, remaining))
+            reconnect_delay_seconds = min(reconnect_delay_seconds * 2, 30)
+
+    return {
+        "connections": connection_segment_id,
+        "disconnects": sum(item["status"] == "disconnected" for item in connection_summaries),
+        "connection_segments": connection_summaries,
+    }
+
+
 def capture_metadata(config: CaptureConfig, started_at: int) -> dict[str, Any]:
     payload = subscription_payload(config.ticker, request_id=1)
     return {
@@ -327,6 +687,72 @@ def capture_metadata(config: CaptureConfig, started_at: int) -> dict[str, Any]:
         "non_monotonic_sequences": [],
         "shutdown": {"status": "running", "clean": False},
     }
+
+
+def capture_metadata_v2(config: CaptureV2Config, started_at: int) -> dict[str, Any]:
+    return {
+        "schema": CAPTURE_V2_SCHEMA,
+        "source": "kalshi",
+        "environment": "production",
+        "truth_category": "Observed",
+        "source_fidelity": "level_2",
+        "market_tickers": list(config.tickers),
+        "capture_started_at_utc_ns": started_at,
+        "requested_duration_seconds": config.duration_seconds,
+        "connection_strategy": config.connection_strategy,
+        "websocket_endpoint": WEBSOCKET_URL,
+        "subscription_template": subscription_payload_v2(config.tickers, request_id=1),
+        "sequence_domain": {
+            "status": "unknown",
+            "components": [],
+            "mechanical_validation_key": ["connection_segment_id", "venue_subscription_id"],
+            "limitation": "Venue sequence-domain scope is not established by retained evidence.",
+        },
+        "credential_environment_variables": ["KALSHI_API_KEY_ID", "KALSHI_PRIVATE_KEY_PATH"],
+        "credential_values_persisted": False,
+        "git_revision": safe_git_revision(),
+        "package_versions": package_versions(),
+        "message_counts_by_type": {},
+        "message_counts_by_market": {},
+        "connections": 0,
+        "disconnects": 0,
+        "connection_segments": [],
+        "sequence_gaps": [],
+        "non_monotonic_sequences": [],
+        "capture_continuity": "incomplete",
+        "shutdown": {"status": "running", "clean": False},
+    }
+
+
+def finalize_capture_v2_metadata(
+    metadata: dict[str, Any], recorder: JsonlCaptureV2, summary: dict[str, Any] | None
+) -> None:
+    metadata["capture_ended_at_utc_ns"] = utc_now_ns()
+    metadata["raw_record_count"] = recorder.record_count
+    metadata["message_counts_by_type"] = dict(sorted(recorder.message_counts.items()))
+    metadata["message_counts_by_market"] = {
+        ticker: dict(sorted(counts.items()))
+        for ticker, counts in sorted(recorder.market_message_counts.items())
+    }
+    metadata["sequence_gaps"] = recorder.sequence_tracker.gaps
+    metadata["non_monotonic_sequences"] = recorder.sequence_tracker.non_monotonic
+    if summary is not None:
+        metadata.update(summary)
+    segments = metadata.get("connection_segments", [])
+    requested = metadata["market_tickers"]
+    every_segment_ready = bool(segments) and all(
+        segment.get("status") in {"completed", "disconnected"}
+        and set(segment.get("channel_sids", {})) == {"orderbook_delta", "trade"}
+        and all(segment.get("snapshots_by_ticker", {}).get(ticker) == 1 for ticker in requested)
+        for segment in segments
+    )
+    sequence_clean = not metadata["sequence_gaps"] and not metadata["non_monotonic_sequences"]
+    if metadata["shutdown"].get("status") != "completed" or not every_segment_ready or not sequence_clean:
+        metadata["capture_continuity"] = "incomplete"
+    elif metadata.get("disconnects", 0):
+        metadata["capture_continuity"] = "observed_discontinuous"
+    else:
+        metadata["capture_continuity"] = "continuous_within_recorded_mechanical_scopes"
 
 
 def run_capture_command(args: argparse.Namespace) -> int:
@@ -361,6 +787,50 @@ def run_capture_command(args: argparse.Namespace) -> int:
         write_json(config.output / METADATA_FILE, metadata)
     if exit_code == 0:
         print("Capture completed cleanly.", flush=True)
+    return exit_code
+
+
+def run_capture_v2_command(args: argparse.Namespace) -> int:
+    config = parse_capture_v2_config(args)
+    api_key_id, private_key_path = require_environment()
+    config.output.mkdir(parents=True, exist_ok=False)
+    metadata = capture_metadata_v2(config, utc_now_ns())
+    write_json(config.output / METADATA_FILE, metadata)
+    recorder: JsonlCaptureV2 | None = None
+    summary: dict[str, Any] | None = None
+    exit_code = 0
+    try:
+        recorder = JsonlCaptureV2(config.output / FRAMES_FILE)
+        print(
+            f"Passive V2 capture started for {', '.join(config.tickers)}.",
+            file=sys.stderr,
+            flush=True,
+        )
+        summary = asyncio.run(
+            run_capture_v2(config, api_key_id, private_key_path, recorder)
+        )
+        metadata["shutdown"] = {"status": "completed", "clean": True}
+    except KeyboardInterrupt:
+        metadata["shutdown"] = {"status": "interrupted", "clean": True}
+        exit_code = 130
+        print("capture-v2 interrupted; retained raw bytes were finalized", file=sys.stderr)
+    except Exception as error:
+        metadata["shutdown"] = {
+            "status": "failed",
+            "clean": False,
+            "error_type": type(error).__name__,
+        }
+        exit_code = 1
+        print(f"CaptureProgrammingFailure: {type(error).__name__}", file=sys.stderr)
+    finally:
+        if recorder is None:
+            shutil.rmtree(config.output, ignore_errors=True)
+        else:
+            recorder.close()
+            finalize_capture_v2_metadata(metadata, recorder, summary)
+            write_json(config.output / METADATA_FILE, metadata)
+    if exit_code == 0:
+        print(json.dumps(metadata, indent=2, sort_keys=True))
     return exit_code
 
 
@@ -523,6 +993,18 @@ def build_parser() -> argparse.ArgumentParser:
     capture.add_argument("--duration", required=True, type=int, help="Capture duration in seconds.")
     capture.add_argument("--output", required=True, type=Path, help="New output directory beneath this repository.")
     capture.set_defaults(handler=run_capture_command)
+    capture_v2 = subcommands.add_parser(
+        "capture-v2", help="Passively capture multiple markets with explicit source scopes."
+    )
+    capture_v2.add_argument("--ticker", required=True, action="append")
+    capture_v2.add_argument("--duration", required=True, type=int, help="Capture duration in seconds.")
+    capture_v2.add_argument(
+        "--output", required=True, type=Path, help="New output directory beneath this repository."
+    )
+    capture_v2.add_argument(
+        "--connection-strategy", default="single_connection_v1"
+    )
+    capture_v2.set_defaults(handler=run_capture_v2_command)
     inspect = subcommands.add_parser("inspect", help="Inspect and replay recorded observed L2 frames.")
     inspect.add_argument("--input", required=True, type=Path)
     inspect.add_argument("--require-subscription", action="store_true")
@@ -540,6 +1022,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = parser.parse_args(argv)
         return args.handler(args)
+    except CaptureV2Error as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     except (RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

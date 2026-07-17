@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.kalshi.capture_config.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "market_tickers", "channels", "connection_strategy", "use_yes_price", "duration_seconds"],
+  "properties": {
+    "schema": {"const": "pmm.kalshi.capture_config.v2"},
+    "market_tickers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "channels": {"const": ["orderbook_delta", "trade"]},
+    "connection_strategy": {"const": "single_connection_v1"},
+    "use_yes_price": {"const": true},
+    "duration_seconds": {"type": "integer", "minimum": 1}
+  }
+}
