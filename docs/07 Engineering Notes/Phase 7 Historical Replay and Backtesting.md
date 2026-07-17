@@ -106,5 +106,6 @@ empty secondary-rules value.
 
 The catalog now selects between two reviewed markets while the B1a package and existing normalized,
 feature, configuration, result, lifecycle, checkpoint, and risk artifacts remain unchanged. The
-new focused tests remain entirely offline. B2 broader observed-market coverage and recovery is next;
-this metadata package does not implement multi-market replay or reconnect handling.
+new focused tests remain entirely offline. B1c document-anchor truth and generic source completeness
+is the next hardening gate; B2 broader observed-market coverage and recovery follows it. This
+metadata package does not implement multi-market replay or reconnect handling.

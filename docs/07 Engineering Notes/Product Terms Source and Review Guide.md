@@ -117,10 +117,12 @@ or invalid acquisition ordering and combines the endpoint evidence. Product-term
 because the official HMONTH market record contains an empty secondary-rules string that V1 cannot
 represent honestly.
 
-Evidence-map V1 anchors mechanically projected JSON values by RFC 6901 pointer and records
-human-reviewed Markdown headings and PDF pages/section text. Review V2 binds those anchors, the
-policy, both observations, the terms, a repository-declared reviewer, responsibilities, and accepted
-checklist items. This identity is accountability metadata in version control, not a signature.
+Evidence-map V1 anchors mechanically projected JSON values by RFC 6901 pointer, checks Markdown
+text occurrence, and records hash-bound PDF page/section addresses for human review. Runtime does
+not yet extract the named PDF page or confirm the section text. Review V2 binds those anchors, the
+policy, both observations, the terms, a repository-declared reviewer, responsibilities, and
+accepted checklist items. This identity is accountability metadata in version control, not a
+signature.
 
 Approval is all-or-nothing. A missing, mutable between endpoints, unretainable, redirected outside
 policy, wrong-media, structurally invalid, or semantically insufficient required source refuses the
@@ -134,7 +136,8 @@ retrospective conclusion rather than a contemporaneous pre-capture snapshot. The
 record names official contract-terms and certification PDFs, but their bytes are not in this first
 package. Only one market/product family is reviewed.
 
-B1b-2 closes those linked-document and second-family gaps. The next observed-data package is B2,
-which must design broader multi-market/reconnect/gap-recovery evidence separately. Metadata work
-remains outside runtime and does not establish accounting, settlement, calibrated execution,
-multi-market replay, or live trading.
+B1b-2 closes those linked-document and second-family gaps. Before B2, B1c must make PDF/Markdown
+anchor claims and the generic required-source profile match runtime enforcement. B2 then designs
+broader multi-market/reconnect/gap-recovery evidence separately. Metadata work remains outside
+runtime and does not establish accounting, settlement, calibrated execution, multi-market replay,
+or live trading.

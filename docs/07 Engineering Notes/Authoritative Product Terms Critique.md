@@ -146,10 +146,11 @@ corpora. Those remain separate packages with separate evidence gates.
 
 ### Scope and interpretation
 
-This section is the current critique of commits `dbd6fd8` and `6d489e3`. The B1a tables above are
-retained as chronological evidence of why B1b-1 existed; findings shown as closed below are not
-current defects. The same 1-to-5 impact scale applies. Ease remains 1 for a large or evidence-heavy
-change and 5 for a small bounded change.
+This section records the critique current after commits `dbd6fd8` and `6d489e3`. The B1a tables
+above and B1b-1 recommendations below are retained as chronological evidence; later B1b-2 work
+closed several of them. The B1b-2 section at the end is authoritative for current product-term
+debt. The same 1-to-5 impact scale applies. Ease remains 1 for a large or evidence-heavy change and
+5 for a small bounded change.
 
 B1b-1 is a successful integrity package. It closes the highest-risk ambiguity in temporal
 selection, prevents redirect-based escape from the approved source boundary, bounds network input,
@@ -267,19 +268,118 @@ multi-market replay, paper/live behavior, ML, or readiness/profitability claims.
 
 ## B1b-2 post-implementation critique
 
-B1b-2 supplies the missing real generality evidence: a climate product, complete linked PDFs, two
-endpoint observations, field anchors, explicit policy identity, and named review responsibility.
-It also correctly introduced product-terms V2 when live evidence contradicted V1's nonempty
-secondary-rules assumption instead of hiding the mismatch.
+### Scope and current evidence
 
-| Finding | Impact | Ease | Recommendation |
+This is the current critique of commits `b3da27e`, `b28a3ad`, `4ba99a6`, and `ff9dbe6`. It reviews
+the code and checked-in HMONTH package, not the design proposal. The validated closeout baseline is
+78 CTest tests, 81 Python tests, and 22 focused product-term tests.
+
+B1b-2 is a meaningful improvement. It demonstrates that the boundary can represent a climate
+product rather than another sports ticker, retain the linked contract and certification documents,
+bind acquisition policy by immutable identity, bracket an interval with two complete acquisitions,
+and preserve old V1 artifacts. The decision to add product-terms V2 when the real source contained
+an empty secondary-rule value was especially sound: evidence changed the schema instead of the
+schema distorting the evidence.
+
+The strongest guarantees remain exact bytes, hashes, selected JSON projections, interval equality,
+and offline lineage. The weakest guarantees are legal-document semantics, completeness as a generic
+runtime rule, review governance, and scale. The following tables use the repository-wide impact
+scale defined at the top of this document. Ease remains 1 for a large or evidence-heavy change and
+5 for a small bounded change.
+
+### Unnecessary complexity
+
+| Finding | Impact | Ease | Evidence and tradeoff | Recommendation |
+|---|---:|---:|---|---|
+| `pmm_product_terms.py` is now 2,284 lines and owns transport, policy, three manifest versions, two terms versions, two review versions, evidence anchors, catalog, conversion, compatibility, copying, and CLI dispatch. | 4 | 2 | Keeping one audit surface helped B1a, but B1b-2 proved real seams. A change to PDF review should not risk acquisition or catalog selection. | Before B2 implementation, make a behavior-preserving split into canonical/errors, acquisition, package/evidence, Kalshi projection, catalog/lineage, and CLI modules. Keep one public refusal registry. |
+| Schema and runtime validation are parallel handwritten systems, while several new schemas intentionally use generic nested objects. | 4 | 2 | Runtime is stricter than `source-manifest-v3` redirect/header shapes and much stricter than evidence-map anchor objects or acquisition-policy role policies. “Schema valid” therefore does not mean “runtime valid.” | Make runtime acceptance normative and add a shared positive/one-defect parity corpus. Tighten the schemas or generate only the structural portions from shared typed definitions. |
+| The immutable policy repeats values that remain global Python constants, and acquisition executes through those constants rather than through a policy object. | 3 | 3 | Exact hash and payload checks make the current policy safe, but a successor requires coordinated changes in the artifact, constants, loader, fetcher, and tests. | Pass a validated policy object into URL, redirect, media, size, chunk, and timeout enforcement. Preserve a frozen adapter for legacy V2. |
+| Opening and closing observations duplicate static Markdown/PDF bytes and duplicate most anchor declarations. | 2 | 2 | The repetition makes endpoint evidence self-contained and auditable, but it is verbose and already produces a 484 KiB package from roughly half that unique content. | Keep the simple layout until several packages establish measured cost; then consider hash-addressed shared bytes with a deterministic self-contained export. |
+| Version behavior is increasingly expressed through conditionals inside common loaders. | 3 | 2 | V1/V2/V3 compatibility is correct today, but another venue or V4 can turn local branches into a combinatorial validation matrix. | Dispatch once by schema to version-specific parsers that return a common immutable internal view. Do not weaken old semantics to reduce branch count. |
+
+### Future technical debt and correctness risks
+
+| Finding | Impact | Ease | Evidence and risk | Recommendation |
+|---|---:|---:|---|---|
+| PDF locators are not mechanically resolved. | 5 | 3 | Runtime checks `%PDF-`, a positive page number, and a nonempty section string. It does not prove the page exists or that the section occurs on that page. The locator is currently a hash-bound human review address, not machine verification. | Extract text with a pinned offline tool or library, verify page bounds and a stable section fingerprint, and retain extraction-tool identity. Until then, document PDF support as human-reviewed only. |
+| V3 does not require a complete semantic role set. | 5 | 4 | The HMONTH package has all eight required roles, but generic runtime only requires a nonempty source list, matching membership across endpoints, and whatever anchors/term projection happen to reference. A future review could omit a contract or certification document and still pass if its payload is internally consistent. | Put the required-role profile in the immutable acquisition policy and require exact or explicitly optional role coverage before assembly and review. Add missing-role tests for every required role. |
+| Evidence-map coverage is selective, not leaf-complete. | 4 | 3 | HMONTH has 30 term pointers, but fields such as payout bounds/contingency, price and quantity representation metadata, several fee/settlement status fields, `source_refs`, venue/environment, and revision label do not each have anchors. Some remain protected by other runtime checks, but the map alone is not a complete field ledger. | Define which fields require direct anchors, which are local policy/constants, and which are derived. Enforce that coverage profile mechanically. |
+| Markdown anchors use substring presence rather than heading structure or section boundaries. | 3 | 4 | A heading phrase in body text can satisfy the check, and the claimed section contents are not fingerprinted. | Parse Markdown headings deterministically and optionally bind a normalized section hash. Keep quoted prose out of control documents unless copyright and stability are handled. |
+| The temporal bracket proves two endpoint observations, not continuous immutability. | 4 | 2 | A mutable JSON endpoint could change and revert during the 81-second gap. Static sources were byte-equal, but no event history proves absence of an intermediate change. | Keep the narrow claim. Use shorter brackets, more observations, or an official event/history feed only when a later use requires stronger temporal evidence. |
+| Review V2 records identity and responsibility but has no append-only supersession/revocation model. | 4 | 2 | Git history shows who committed bytes, but runtime cannot say that a once-reviewed package was later withdrawn or superseded, nor warn existing results. | Design versioned append-only governance records only when a real review workflow exists; do not imply signatures or institutional approval. |
+| Observation assembly flattens each retained path to its basename. | 4 | 4 | Two distinct source paths in one observation can share a basename. Assembly would target the same destination and can overwrite before final verification, despite unique original paths. The current package happens to use unique basenames. | Preserve the full safe relative path below each observation or reject duplicate destination paths before copying. Add a collision and cleanup test. |
+| Legacy source-manifest V2 still derives policy semantics from frozen code constants. | 4 | 3 | V3 has an explicit hash; V2 does not. Changing host, role, media, byte, redirect, or timeout constants in place could reinterpret an old V2 package. | Freeze legacy constants behind a named V2 adapter and regression fixture. Any changed policy must use a new policy identity and, where semantics change, a successor schema. |
+| Kalshi projection still depends on venue-specific response shapes and source-role conventions inside the generic loader. | 3 | 2 | A third product family may work, but a second venue or non-binary product will add conditionals around assumptions that are currently implicit. | Introduce an explicit, versioned projection-adapter identity after B2 requirements are known. Keep product-terms V1/V2 frozen. |
+| No observed market-data capture falls inside the short HMONTH evidence interval. | 3 | 1 | Synthetic captures prove selection and lineage mechanics, not that an actual HMONTH recording was normalized under contemporaneous terms. | Treat this as an evidence limitation, not a code failure. Acquire a real capture only in a separately approved observed-data package. |
+
+### Missing tests
+
+| Missing test | Impact | Ease | Acceptance condition |
 |---|---:|---:|---|
-| Two byte-identical observations bracket the interval but do not prove continuous immutability. | 4 | 2 | Keep the claim narrow; use evented source history or more observations only when a later use needs stronger temporal evidence. |
-| Review identity is repository-declared and has no signature, independent approval, revocation log, or organization-backed role. | 4 | 2 | Preserve the honest boundary. Add append-only supersession/revocation only when a real governance workflow exists. |
-| Evidence anchors verify structure and selected values, not the full semantics of legal prose. | 4 | 2 | Retain human review for legal meaning and add mechanically projected anchors only where source structure supports them. |
-| Policy identity is frozen, but the legacy V2 policy remains an implicit compatibility contract in code. | 3 | 3 | Never change legacy constants in place; introduce a new policy/schema for changed semantics and retain regression fixtures for V2. |
-| The main module is larger after adding version dispatch and evidence validation. | 3 | 2 | Split transport, package/evidence models, venue projection, and CLI only as a behavior-preserving package before B2 creates more coupling. |
-| The second package duplicates documentation bytes across endpoint observations. | 2 | 2 | Measure growth across more revisions before considering content-addressed storage. |
+| PDF page/section mutation and nonexistent-page cases | 5 | 3 | A wrong page, absent section, replaced PDF, or changed extraction identity refuses with `EvidenceAnchorMismatch`. |
+| Exact required-role completeness for V3 | 5 | 4 | Removing each contract, certification, fee, settlement, JSON, or representation role causes `EvidenceIncomplete`, even after all reachable hashes are recomputed. |
+| New-schema/runtime negative parity matrix | 4 | 3 | Acquisition-policy V1, acquisition-spec V2, source-manifest V3, evidence-map V1, terms V2, and review V2 share named positive and one-defect negatives across schema and runtime. |
+| Markdown structural anchor mutations | 3 | 4 | Body-text lookalikes, missing headings, duplicate headings, and changed section text have explicit behavior. |
+| Assembly destination collision and interruption cleanup | 4 | 4 | Same-basename inputs, copy interruption, stale partial directories, and destination reuse refuse without a final or ambiguous partial package. |
+| Policy-field mutation and legacy V2 immutability | 4 | 3 | Each role/media/byte/redirect/timeout policy mutation either selects a supported new identity or refuses; an old V2 fixture verifies identically before and after new-policy support. |
+| Review V2 governance mutation matrix | 4 | 4 | Missing/duplicate responsibilities, duplicate checklist items, unaccepted status, wrong identity kind, stale evidence/policy hashes, and endpoint disagreement each produce the intended code. |
+| HMONTH through complete V3 configuration and result artifacts | 4 | 3 | The second product reaches configuration, result manifest, orders, fills, ledger, and risk trace entirely offline; each single mutation refuses. Current HMONTH coverage stops after normalization/feature lineage while the older market covers the full V3 chain. |
+| New public CLI command matrix | 3 | 4 | `assemble-observations`, `build-evidence`, V2 `build`, and V2 `review` have subprocess success/refusal, exit 2, empty stdout, stderr code, overwrite, and cleanup tests. |
+| Endpoint-specific source and anchor mutations | 4 | 4 | Opening-only and closing-only JSON, Markdown, PDF, source hash, observation ID, and acquisition-time changes cannot be hidden by recomputing outer hashes. |
+| Repeated HMONTH offline verification byte identity | 3 | 5 | Package, catalog, normalization, features, and any V3 result verify repeatedly without modifying files or producing nondeterministic output. |
 
-The recommended next step is B2 design, not more metadata abstraction. B2 must not mistake a
-two-market catalog for multi-market replay, reconnect recovery, or broader observed-data validity.
+### Missing documentation
+
+| Gap | Impact | Ease | Needed documentation |
+|---|---:|---:|---|
+| PDF and Markdown anchor guarantees are overstated. | 5 | 5 | State that JSON mechanical anchors compare values, Markdown checks a text occurrence, and PDF currently validates only a hash-bound human review address plus PDF signature/locator shape. |
+| No complete two-observation operator walkthrough exists. | 4 | 4 | Show acquisition-spec V2 creation, opening fetch, closing fetch, assembly, terms V2 build, evidence-map build, review V2, package inspection, catalog addition, and offline verification, including failure recovery. |
+| Required versus optional source roles are not defined as a reusable profile. | 4 | 3 | Document the exact completeness profile, why each role is required, and what a future product may explicitly mark not applicable. Runtime should ultimately own the same profile. |
+| Policy evolution is described conceptually but lacks a compatibility playbook. | 4 | 3 | Explain when a new policy hash is enough, when a schema successor is required, how V2 remains frozen, and how old packages/results are verified after runtime upgrades. |
+| Review supersession/revocation has no incident procedure. | 4 | 2 | Define append-only withdrawal/supersession semantics and dependent-result warnings only after the actual governance owner and approval process exist. |
+| Evidence-map coverage classes are not enumerated. | 3 | 4 | List mechanically projected, human-reviewed, local-policy, derived, and unsupported fields so “anchored” is not mistaken for “all semantics machine-proven.” |
+| No external known-answer verifier example exists for the new formats. | 2 | 3 | Provide language-neutral canonical bytes and expected hashes for policy, V3 manifest, evidence map, terms V2, and review V2. |
+| Crash-only recovery and stale partial-directory handling are undocumented. | 2 | 3 | Explain ordinary exception cleanup versus process kill/power loss, operator inspection, and safe retry with a new immutable output path. |
+
+### Possible optimizations
+
+| Optimization | Impact | Ease | When and how |
+|---|---:|---:|---|
+| Split the 2,284-line module along proven boundaries. | 4 | 2 | Do as a behavior-preserving package before B2 implementation, with import/API/refusal compatibility tests. This is maintainability work, not a redesign. |
+| Cache verified immutable packages and source hashes within one process. | 2 | 4 | Add only after profiling repeated catalog/normalization loads. Key by complete control-file identity and never trust path alone. |
+| Index catalog entries by market and interval. | 2 | 4 | Linear selection is clearest for two entries. Add a deterministic index before hundreds of revisions. |
+| Reuse identical endpoint document bytes by content hash. | 2 | 2 | The first measured package is only 484 KiB. Defer until storage or transfer profiles justify the complexity, and preserve self-contained export. |
+| Add bounded concurrent source acquisition. | 2 | 2 | Useful for large batches, but it must preserve aggregate limits, deterministic manifest ordering, timeout semantics, and atomic publication. |
+| Parse each retained JSON source once per verification pass. | 2 | 4 | A small in-memory cache can remove repeated reads while remaining bounded by the 2 MiB role limit. Profile first. |
+| Share typed definitions for schema-addressable structure. | 3 | 2 | Use after the negative parity corpus exists. Do not generate away cross-file, hash, arithmetic, URL, or filesystem rules that JSON Schema cannot express. |
+
+### Future scalability concerns
+
+| Concern | Impact | Ease | Scaling failure mode and direction |
+|---|---:|---:|---|
+| Manual semantic review is one package at a time. | 5 | 1 | Frequent revisions become a bottleneck or rubber stamp. Automate diffs and projections while retaining risk-ranked human review for legal meaning. |
+| V3 lineage is scalar and single-product. | 5 | 1 | B2 multi-market replay needs an ordered set of selected product revisions and unambiguous per-event binding. Design a successor; do not overload scalar fields. |
+| Complete evidence is copied into every endpoint and normalized dataset. | 4 | 2 | Many markets/revisions can multiply shared series documents and PDFs. Measure first, then consider content-addressed storage plus deterministic materialization. |
+| Verification rehashes every package and large result artifact. | 3 | 3 | Startup and audit time grow linearly with catalog and corpus size. Use immutable in-process caches, indexes, or tree manifests only after profiles justify them. |
+| Kalshi-specific acquisition and projection assumptions do not form a venue adapter contract. | 4 | 1 | More venues or non-binary products create nested version and venue conditionals. Introduce versioned adapters from real evidence rather than a universal schema. |
+| Review identity does not scale into team governance. | 4 | 1 | Repository strings cannot express independent approval, delegation, revocation, or responsibility changes. Define the real human process before encoding it. |
+| Synchronous all-or-nothing acquisition restarts after any source failure. | 3 | 2 | Large evidence sets are slow and fragile. Bounded concurrency or resumable staging needs explicit ownership and cannot weaken final atomicity. |
+| Temporal confidence does not automatically improve with catalog size. | 4 | 1 | Thousands of short two-point brackets still do not prove continuous source history. Match acquisition frequency and evidence strength to the claims each research use requires. |
+
+### Ranked recommendation
+
+| Priority | Next action | Impact | Ease | Why |
+|---:|---|---:|---:|---|
+| P0 | Make document-anchor and source-completeness guarantees true in runtime and tests. | 5 | 3 | These are the two places where documentation can currently be read more strongly than code. |
+| P1 | Add the V3/V2 schema-runtime, policy, assembly, review, and CLI negative matrices. | 4 | 3 | The happy path is strong; successor-format refusal evidence is still too narrow. |
+| P2 | Define an honest policy-evolution and append-only review-governance boundary. | 4 | 2 | Old evidence must remain interpretable, and bad reviews eventually need explicit historical handling. |
+| P3 | Split `pmm_product_terms.py` without changing behavior before B2 implementation. | 4 | 2 | B1b-2 has now proved the seams; B2 would otherwise deepen coupling. |
+| P4 | Prove the HMONTH package through the complete V3 result chain when a suitable approved capture/fixture exists. | 4 | 3 | This closes the gap between second-product metadata selection and complete second-product research lineage. |
+| P5 | Design B2 multi-product lineage and recovery separately. | 5 | 1 | A two-market catalog is not multi-market replay; B2 needs a versioned ordered product set and observed-data recovery rules. |
+| P6 | Optimize hashing, indexing, concurrency, or storage only after measurement. | 2–3 | 2–4 | The current evidence volume does not justify content-addressed or distributed complexity. |
+
+The recommended immediate package is P0: tighten document-anchor truth and generic source
+completeness before B2 builds on this boundary. This does not reopen the reviewed HMONTH package;
+it strengthens what future packages must prove. None of these findings authorizes fees, accounting,
+settlement processing, calibrated fills, multi-market replay, paper/live behavior, ML, or any
+readiness/profitability claim.

@@ -69,7 +69,9 @@ See [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage]]
 - Product-terms V2 preserves an official empty secondary-rules value without weakening V1.
 - The two-market catalog and downstream normalization/feature V2 lineage verify entirely offline.
 
-The next bounded package is B2 broader observed-market coverage and recovery, beginning with design.
+The B1b-2 critique found one bounded hardening gate first: B1c must make document-anchor claims and
+generic required-source completeness match runtime enforcement. B2 broader observed-market coverage
+and recovery follows that design-and-implementation gate.
 
 ## Explicitly deferred
 
