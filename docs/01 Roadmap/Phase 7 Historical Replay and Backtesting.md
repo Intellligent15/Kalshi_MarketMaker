@@ -69,9 +69,29 @@ See [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage]]
 - Product-terms V2 preserves an official empty secondary-rules value without weakening V1.
 - The two-market catalog and downstream normalization/feature V2 lineage verify entirely offline.
 
-The B1b-2 critique found one bounded hardening gate first: B1c must make document-anchor claims and
-generic required-source completeness match runtime enforcement. B2 broader observed-market coverage
-and recovery follows that design-and-implementation gate.
+## Document-anchor and generic completeness hardening implemented
+
+- ADR-012 freezes the accepted V1/V2/V3 adapters and adds a profile-bound successor chain for new
+  packages: evidence-profile V1, acquisition-spec V3, source-manifest V4, evidence-map V2, and
+  review V3.
+- Poppler extraction is an offline, Nix-pinned dependency. PDF page/section and Markdown heading
+  locators now have explicit structural, normalization, ambiguity, and SHA-256 fingerprint rules;
+  scanned/image-only PDFs remain unsupported without an existing text layer.
+- The immutable evidence profile owns required, optional, and explicitly not-applicable roles,
+  per-endpoint cardinality, static/mutable behavior, linked-document relationships, and complete
+  product-field coverage classes.
+- `EvidenceProfileMismatch` is additive and limited to profile identity defects. Existing missing-
+  evidence, document-anchor, source-hash, source-projection, and acquisition codes keep their prior
+  meanings.
+- The accepted HMONTH and WNBA packages retain their exact bytes, hashes, catalog identities, and
+  meanings. HMONTH's V1 PDF locators remain human-review addresses; WNBA remains retrospective and
+  does not acquire evidence it never retained.
+
+B2 broader observed-market coverage and recovery follows this bounded hardening gate. B1c does not
+make the short HMONTH bracket continuous source history or add OCR, fee/settlement processing,
+accounting, execution calibration, or multi-market replay.
+
+See [[02 Architecture/ADR-012 Deterministic Document Evidence and Completeness Profiles]].
 
 ## Explicitly deferred
 

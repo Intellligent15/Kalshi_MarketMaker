@@ -24,22 +24,23 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-17 |
-| Baseline commit before B1c handoff | `61a2188` (`docs(phase7): clarify remaining anchor guidance`) |
-| Branch state before this tracking update | `main` three commits ahead of `origin/main` |
+| Baseline commit before B1c implementation | `cea28fc` (`docs: define B1c multi-agent design gate`) |
+| Branch state after B1c closure | `main` seven commits ahead of `origin/main` |
+| B1c implementation commits | `f826fae` and `8262c2c` |
 | Recent B1b-2 implementation commits | `b3da27e`, `b28a3ad`, `4ba99a6`, and `ff9dbe6` |
 | Recent B1b-2 review commits | `73dc566`, `6e22b27`, and `61a2188` |
 | Recent B1b-1 commits | `902a2df`, `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
 | C++/CTest validation | 78 tests passing |
-| Python validation | 81 tests passing |
-| Focused product-term validation | 22 tests passing |
+| Python validation | 100 tests passing |
+| Focused product-term validation | 41 tests passing |
 | Focused checkpoint-reader validation | 17 tests passing |
 | Focused fixture-integrity validation | 17 tests passing |
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | B1c document-anchor truth and generic source-completeness hardening |
-| Immediate next action | B1c design review; do not begin implementation before approval |
+| Next bounded package | B2 broader observed-market coverage and recovery |
+| Immediate next action | B2 design review; do not mix implementation into its first design gate |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -73,6 +74,7 @@ Use these documents to verify or deepen a claim in this roadmap:
 - [[02 Architecture/ADR-009 Canonical Risk Conformance and Research Oracle Migration|Canonical C++ risk migration]]
 - [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage|Authoritative product terms and lineage]]
 - [[02 Architecture/ADR-011 Bracketed Product Evidence and Review Responsibility|Bracketed evidence and review responsibility]]
+- [[02 Architecture/ADR-012 Deterministic Document Evidence and Completeness Profiles|Deterministic document evidence and completeness profiles]]
 - [[07 Engineering Notes/Phase 7 Critique|Original Phase 7 critique]]
 - [[07 Engineering Notes/Product Terms Source and Review Guide|Product-term source and review guide]]
 - [[07 Engineering Notes/Product Terms Refusal Codes|Product-term refusal-code compatibility reference]]
@@ -102,6 +104,8 @@ The repository has a strong deterministic systems foundation:
 - Product-term acquisition now has exact three-way time consistency, bounded first-party redirect
   validation, observed source-manifest V2 provenance, schema/runtime parity, stable refusal codes,
   and deeper offline lineage mutation evidence.
+- Future reviewed packages now have profile-bound source completeness and deterministic structural
+  document anchors without changing the bytes or meaning of either accepted package.
 - Lifecycle and checkpoint conformance evidence is broad and reviewed.
 
 The repository is not yet a credible profitability, paper-trading, or live-trading system. Its
@@ -538,70 +542,34 @@ PnL, add calibrated fills, broaden replay/reconnect behavior, change core numeri
 paper/live/readiness/profitability claims. The bracket proves two complete endpoint observations,
 not continuous source immutability between them.
 
-### B1c. Document-anchor truth and generic source completeness — next bounded package
+### B1c. Document-anchor truth and generic source completeness — complete
 
-The B1b-2 post-implementation critique found two gaps that should be closed before B2 builds on the
-product boundary:
+Completion evidence:
 
-- PDF page/section locators are exact-byte-bound human review addresses, but runtime does not yet
-  prove that a page exists or that the named section occurs on it; and
-- the HMONTH package contains all eight required roles, but source-manifest V3 runtime does not yet
-  enforce that completeness profile for every future reviewed package.
+- ADR-012 freezes acquisition-policy V1, acquisition-spec V1/V2, source-manifest V1/V2/V3,
+  evidence-map V1, and review V1/V2, then introduces evidence-profile V1, acquisition-spec V3,
+  source-manifest V4, evidence-map V2, and review V3 for stronger future claims;
+- evidence-profile V1 classifies all eight semantic roles as required, optional, or explicitly
+  not applicable, fixes per-observation cardinality/media/content/mutability/link rules, and
+  classifies every product-term leaf by its evidence-coverage class;
+- evidence-map V2 verifies exact Markdown heading paths and bounded contents, plus one-based PDF
+  page bounds and exact section markers, under normalized SHA-256 fingerprints;
+- PDF extraction is pinned to nixpkgs revision
+  `59682e0069f0ed0a452e2179a7f4c1f247027b9e` and Poppler `26.06.0`; malformed, encrypted,
+  scanned/image-only, textless, ambiguous, or out-of-range evidence refuses without OCR fallback;
+- source-manifest V4 enforces complete endpoint membership, static-document equality, optional
+  symmetry, linked-source co-presence, full retained paths, and collision-safe assembly;
+- `EvidenceProfileMismatch` is the only additive public refusal code; existing codes and CLI
+  success/refusal/programming-failure stream contracts retain their meanings;
+- commits `f826fae` and `8262c2c` implement the successor runtime/schemas, Nix lock, synthetic
+  fixtures, and one-defect offline compatibility/anchor/completeness tests; and
+- validation passes 78 CTest tests, 100 Python tests, 41 focused product-term tests, 17 focused
+  checkpoint-reader tests, and 17 focused fixture-integrity tests.
 
-The first B1c turn is design only. It should define pinned offline PDF extraction/fingerprinting,
-Markdown section semantics, required/optional role profiles, complete anchor-coverage classes,
-schema/runtime parity, one-defect mutation fixtures, and compatibility for the existing reviewed
-package. It must not reacquire or rewrite HMONTH merely to change validation implementation, and it
-must preserve every B1/B2 non-goal and old package/result identity.
-
-#### B1c design questions and acceptance boundary
-
-Before implementation, compare and recommend among:
-
-- tightening evidence-map V1/source-manifest V3 runtime semantics in place;
-- preserving those formats and adding versioned evidence-map, policy/profile, manifest, or review
-  successors only where the stronger guarantee changes meaning; and
-- retaining V1/V3 as an explicit compatibility adapter while requiring successors for new
-  packages.
-
-The design must answer:
-
-1. Which pinned offline PDF parser/extractor is authoritative, how its version becomes part of
-   evidence identity, how page bounds and section fingerprints are canonicalized, and how malformed,
-   scanned, encrypted, or textless PDFs refuse.
-2. Whether Markdown anchors mean exact headings, bounded sections, normalized section hashes, or a
-   narrower rule, including duplicate headings and Unicode/newline behavior.
-3. How an immutable acquisition policy declares required, optional, and not-applicable semantic
-   source roles without silently reinterpreting old V2/V3 manifests.
-4. Which product-term leaves are mechanically projected, human-reviewed, derived, local policy, or
-   unsupported, and which coverage classes are mandatory before review.
-5. How the existing HMONTH and retrospective WNBA packages continue to verify byte-identically and
-   retain their original claims when stronger successor semantics land.
-6. The exact schema/runtime parity, one-defect mutation, CLI, cleanup, and offline reproduction
-   matrix, including PDF/Markdown mutations, missing roles, same-basename assembly collisions,
-   review mutations, and legacy-policy compatibility.
-
-Implementation acceptance, after separate approval, requires deterministic offline verification,
-no live-network tests, no rewriting of accepted packages, stable existing refusal codes unless an
-additive code is necessary, complete focused and full validation, updated ADR/guide/explanation/
-critique/roadmap documents, and logical commits.
-
-#### B1c multi-agent working method
-
-Use a hub-and-spoke model during the design turn:
-
-- one read-only sub-agent audits PDF/Markdown extraction and deterministic anchor alternatives;
-- one read-only sub-agent audits source-role completeness, schema evolution, and V2/V3 compatibility;
-- one read-only sub-agent inventories missing tests, CLI/refusal behavior, cleanup, and fixture needs;
-- the primary agent reads the authoritative files itself, reconciles contradictions, chooses one
-  coherent recommendation, and presents the complete design for approval.
-
-Sub-agents must not edit files during the design turn. After approval, implementation may be
-parallelized only with exclusive file ownership or separate worktrees: one owner for schemas/runtime,
-one for offline fixtures/tests, and one for documentation. The primary agent owns integration,
-artifact compatibility, full validation, diff review, roadmap truth, and commits. Do not allow two
-agents to edit `python/pmm_product_terms.py`, `python/tests/test_product_terms.py`, or the living
-roadmap concurrently in the shared worktree.
+The accepted HMONTH and WNBA packages, catalog, and downstream artifacts remain byte-identical and
+retain their original narrower meanings. HMONTH evidence-map V1 PDF locators remain human-review
+addresses; neither package is silently upgraded. B1c adds no OCR, continuous-source-history proof,
+fees, settlement, accounting, execution calibration, reconnect recovery, or multi-market replay.
 
 ### B2. Broader observed-market coverage and recovery — planned
 
@@ -994,35 +962,34 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | B1c document-anchor and source-completeness hardening | Makes the documented evidence guarantee match generic runtime enforcement. |
-| 2 | Multi-market/reconnect/gap-recovery design and fixtures | Establishes broader observed-data validity after B1 completion. |
-| 3 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
-| 4 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
-| 5 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
-| 6 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
-| 7 | Durable full-run continuation | Required for long and operationally reliable experiments. |
-| 8 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
-| 9 | Predictive models and model registry | Follows held-out baseline evidence. |
-| 10 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
-| 11 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
-| 12 | Demo exchange integration | Follows stable paper operations and reconciliation. |
-| 13 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
+| 1 | Multi-market/reconnect/gap-recovery design and fixtures | Establishes broader observed-data validity after B1 completion. |
+| 2 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
+| 3 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
+| 4 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
+| 5 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
+| 6 | Durable full-run continuation | Required for long and operationally reliable experiments. |
+| 7 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
+| 8 | Predictive models and model registry | Follows held-out baseline evidence. |
+| 9 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
+| 10 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
+| 11 | Demo exchange integration | Follows stable paper operations and reconciliation. |
+| 12 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
 
 This order is a default, not a prohibition on discovery work. A prototype may explore a later idea,
 but it must remain labelled experimental and must not bypass its promotion gates.
 
 ## Current next package
 
-The next agent should design **B1c document-anchor truth and generic source-completeness hardening**
-and wait for approval before implementation. The design should make PDF/Markdown locator claims
-exact, enforce required/optional role profiles for future V3 packages, define anchor-coverage
-classes, and add schema/runtime and one-defect mutation matrices while preserving existing package
-bytes and hashes. B2 remains next after that gate; B1b-2's two-entry metadata catalog proves product
-selection generalizes, but it is not multi-market replay or reconnect recovery.
+The next bounded package is **B2 broader observed-market coverage and recovery**. Its first turn
+should be a design gate that defines retained multi-market and reconnect fixtures, source-scope and
+ordering semantics, explicit sequence-gap recovery or incompleteness propagation, conflicting and
+out-of-order input behavior, source-schema migration, and the exact acceptance corpus. It should
+wait for approval before implementation and must not combine B3 reporting, execution calibration,
+accounting, settlement, ML, or operational gateway work into the package.
 
-Use the multi-agent method defined in the B1c section: three bounded read-only discovery agents in
-parallel, followed by one primary-agent synthesis. No sub-agent may implement, acquire evidence, or
-edit the shared worktree before the user approves that synthesized design.
+B1b-2's two-entry metadata catalog and B1c's generic evidence profile prove product metadata
+selection and evidence validation generalize; they do not prove multi-market observed replay,
+reconnect recovery, or continuous market-data completeness.
 
 Track A is closed by `4e6336b` for A1 and `ecca209` for A2, with their documentation packages.
 Deferred A3 hardening remains available only when evidence raises its impact or its containing

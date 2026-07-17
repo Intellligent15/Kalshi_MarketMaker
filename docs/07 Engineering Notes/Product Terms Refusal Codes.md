@@ -58,6 +58,7 @@ artifact must produce the same refusal.
 | `EffectiveWindowOverlap` | Two revisions for one market overlap. |
 | `EvidenceAnchorMismatch` | A JSON pointer, Markdown heading, PDF page/section, source hash, or endpoint binding does not resolve to the retained evidence. |
 | `EvidenceIncomplete` | Required sources, both observations, anchors, responsibilities, or review checklist coverage are incomplete. |
+| `EvidenceProfileMismatch` | A successor package names a missing, stale, unsupported, or cross-artifact-inconsistent immutable evidence-profile identity. |
 | `CaptureOutsideEffectiveWindow` | Capture time is reversed or outside the selected exact interval. |
 | `SeriesTickerMismatch` | Catalog and reviewed series identity differ. |
 | `EventTickerMismatch` | Catalog and reviewed event identity differ. |
@@ -89,3 +90,9 @@ artifact must produce the same refusal.
 The registry does not claim that every ordinary Phase 7 `ValueError` is a product-term refusal.
 Only product package, acquisition, exact conversion, and authoritative V3 lineage failures belong
 to this compatibility surface.
+
+`EvidenceProfileMismatch` is deliberately narrow. Missing, duplicate, asymmetric, or
+not-applicable-but-present roles remain `EvidenceIncomplete`; document extraction, page, section,
+ambiguity, normalization, or fingerprint defects remain `EvidenceAnchorMismatch`; and acquisition
+media/content failures retain their existing acquisition codes. The new profile code must not be
+used as a generic replacement for those categories.

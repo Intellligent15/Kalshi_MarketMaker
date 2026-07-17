@@ -129,6 +129,121 @@ policy, wrong-media, structurally invalid, or semantically insufficient required
 package. A URL alone is never evidence. Refreshes create adjacent or otherwise non-overlapping
 immutable revisions; they do not edit this package.
 
+## B1c successor package workflow
+
+New packages that claim generic source completeness and mechanically fingerprinted document
+sections use this complete chain:
+
+1. select immutable acquisition-policy V1 and product-evidence-profile V1 identities;
+2. author one acquisition-spec V3 for `opening` and one for `closing`;
+3. acquire each observation into source-manifest V4 without network access in later verification;
+4. assemble only after both observations exactly satisfy the profile;
+5. build product-terms V1 or V2 according to the observed market value;
+6. build evidence-map V2 with complete field coverage and document-section fingerprints;
+7. create review V3 binding policy, profile, sources, terms, evidence, interval, responsibilities,
+   and checklist; and
+8. verify offline before adding a non-overlapping catalog V1 entry.
+
+The retained filenames are `evidence_profile.json`, `source_manifest.json`,
+`evidence_anchors.json`, and `review.json`. Existing package filenames are not renamed. Catalog V1
+and downstream normalization/product-map V2, feature V2, and configuration/result V3 continue to
+bind exact package hashes and do not need successors.
+
+### Required, optional, and not-applicable roles
+
+The profile, not an operator's omission, decides applicability:
+
+- a required logical source appears exactly once at opening and exactly once at closing;
+- an optional logical source is absent at both endpoints or appears exactly once at both;
+- a not-applicable source appears at neither endpoint and carries a nonempty reason.
+
+Opening and closing must independently equal the declared profile. Equal but incomplete endpoint
+sets are invalid. IDs are deterministically derived from observation plus logical source key, and
+paths are safe and unique while preserving the complete relative path below the observation
+directory. Assembly must not flatten basenames.
+
+Static Markdown and PDF documents are byte-identical at both endpoints. Mutable JSON sources may
+change, but every mechanically projected term must agree at both endpoints. Contract and
+certification roles declare their required co-presence with the series record through
+`linked_source_keys`. That relationship does not itself compare a URL inside series JSON; a package
+that claims exact linked-document identity needs a separate mechanically projected anchor or an
+explicit review limitation. A source with the expected role and media type is still insufficient
+when its declared co-presence or required field coverage cannot be established.
+
+The initial Kalshi binary profile requires the same eight roles retained by HMONTH: market, event
+metadata, series, fixed-point representation, fee rounding, settlement guidance, contract terms,
+and certification. A real product-family exception requires a new immutable profile identity; it
+does not weaken the accepted profile.
+
+### Document anchors
+
+Run document verification inside the repository Nix environment. Extractor policy
+`poppler_page_text.v1` uses `pdfinfo` for page count and invokes exactly
+`pdftotext -f {page} -l {page} -enc UTF-8 -nopgbrk {source} -`. The locked Nixpkgs revision owns
+both Poppler executables, and evidence-map V2 records both executable names and exact reported
+versions plus normalization policy `pmm.document_text_normalization.v1` and its policy SHA-256.
+Verification does not fall back to another host extractor or OCR.
+
+The normalization-policy SHA-256 is
+`72399c0afa2e001111d26de14503ab817507fa4800a5497636d0e5fe20660d5f`.
+
+The accepted lock is Nixpkgs revision `59682e0069f0ed0a452e2179a7f4c1f247027b9e` with
+`poppler-utils` 26.06.0. Verification requires the complete first version lines
+`pdfinfo version 26.06.0` and `pdftotext version 26.06.0`; another Poppler release is not treated as
+equivalent merely because the source PDF is unchanged.
+
+PDF pages are one-based. The selected page must exist and contain extractable text. Its exact
+normalized start marker must occur once; an optional end marker must occur once after it. The
+bounded section includes the start line and excludes the end line, or continues to the page boundary.
+The exact locator fields are `kind`, `page`, `section_start`, `section_end`, and `section_sha256`.
+Malformed, extraction-blocked encrypted, scanned/image-only, textless, out-of-range, missing-marker,
+duplicate-marker, or fingerprint-mismatched PDFs refuse. A scanned PDF is valid only when the
+selected page already has a usable text layer; B1c never synthesizes one.
+
+Markdown locators name the complete ancestor path of exact ATX heading levels and NFC text. ATX
+headings allow at most three leading spaces and are ignored inside fenced code blocks. A body-text
+phrase is not a heading. The body begins after the selected heading and ends before the next heading
+of the same or shallower level. Missing, duplicate-path, renamed, re-leveled, or changed sections
+refuse. The exact locator fields are `kind`, `heading_path`, and `section_sha256`; every heading-path
+member contains exactly `level` and `text`.
+
+Canonical text is strict UTF-8 with Unicode NFC, LF line endings, NBSP-to-space conversion, collapsed
+tab/vertical-tab/space runs, trimmed line edges, collapsed blank-line runs, and no leading or
+trailing blank line. PDF text additionally maps the common `ff`, `fi`, `fl`, `ffi`, and `ffl`
+presentation ligatures to ASCII sequences. The fingerprint hashes canonical JSON containing the
+locator kind, normalization-policy identity, exact boundary object, and normalized text; the map
+does not copy prose. Exact source hashes still bind the complete retained document. Poppler's
+remaining font decoding and reading order belong to the pinned extractor identity.
+
+### Product-field coverage
+
+Every product-term leaf is classified exactly once:
+
+| Class | Requires source anchor | Examples |
+|---|---:|---|
+| Mechanically projected | yes, both endpoints | source-backed identity, grid, notional, rules, lifecycle, settlement sources, series fee type/multiplier |
+| Human-reviewed | yes, both endpoints | contract meaning, representation/precision, quantity increment, payout semantics, maker/waiver conclusions |
+| Derived | complete named dependencies | bracket endpoints, repository contract IDs, provenance links, sorted source references |
+| Repository/local policy | no | venue/environment restriction, revision identity, canonical ordering/representation |
+| Unsupported | no; explicit status | fee and settlement application and other deliberately unimplemented economics |
+| Not applicable | explicit profile/coverage reason | package-specific absent fact or role; never inferred from omission |
+
+Mechanically projected anchors require exact source/term equality. Human-reviewed anchors prove that
+the cited exact section exists and is unchanged; they do not automate legal interpretation.
+Derived fields are recomputed from covered inputs. The remaining classes are checked against exact
+profile/schema rules rather than disguised as venue facts.
+
+### Compatibility and refresh
+
+Source-manifest V1, frozen acquisition/source-manifest V2, source-manifest V3, evidence-map V1, and
+review V1/V2 retain their original meanings. The accepted HMONTH package may be exercised against
+the new role profile as compatibility evidence, but its PDF addresses do not become V2 fingerprints.
+The WNBA package remains an honest six-source retrospective package. Neither directory is edited.
+
+A changed host, redirect, timeout, media, role, completeness, extraction, or fingerprint policy
+creates a new immutable identity and, when meaning changes, a versioned successor. Old verification
+dispatches through its frozen adapter and never consults the new policy implicitly.
+
 ## Known limitations and next evidence package
 
 The first market record was retrieved after settlement, so its effective coverage is a reviewed
@@ -136,8 +251,8 @@ retrospective conclusion rather than a contemporaneous pre-capture snapshot. The
 record names official contract-terms and certification PDFs, but their bytes are not in this first
 package. Only one market/product family is reviewed.
 
-B1b-2 closes those linked-document and second-family gaps. Before B2, B1c must make PDF/Markdown
-anchor claims and the generic required-source profile match runtime enforcement. B2 then designs
-broader multi-market/reconnect/gap-recovery evidence separately. Metadata work remains outside
+B1b-2 closes those linked-document and second-family gaps. B1c adds successor formats for exact
+PDF/Markdown anchors and generic required-source enforcement without upgrading accepted artifacts.
+B2 then designs broader multi-market/reconnect/gap-recovery evidence separately. Metadata work remains outside
 runtime and does not establish accounting, settlement, calibrated execution, multi-market replay,
 or live trading.

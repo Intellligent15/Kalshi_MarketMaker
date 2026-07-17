@@ -39,6 +39,7 @@ fees, collateral, settlement, durable persistence, and gateways remain intention
 - [[02 Architecture/ADR-009 Canonical Risk Conformance and Research Oracle Migration|Canonical risk conformance decision]]
 - [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage|Authoritative product terms and lineage decision]]
 - [[02 Architecture/ADR-011 Bracketed Product Evidence and Review Responsibility|Bracketed product evidence and review responsibility]]
+- [[02 Architecture/ADR-012 Deterministic Document Evidence and Completeness Profiles|Deterministic document evidence and completeness-profile decision]]
 - [[07 Engineering Notes/Phase 7 Historical Replay and Backtesting|Phase 7 implementation record]]
 - [[07 Engineering Notes/Phase 7 Explained|Phase 7 plain-language walkthrough]]
 - [[07 Engineering Notes/Phase 7 Critique|Phase 7 critique and prioritized debt]]

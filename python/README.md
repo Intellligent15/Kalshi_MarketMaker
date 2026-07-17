@@ -117,11 +117,18 @@ completion and ends at closing start. `build-evidence` adds field-level JSON, Ma
 anchors before review V2 can be created. Review V2 requires a repository-declared reviewer,
 responsibilities, and an accepted checklist; it is not a signature.
 
-Focused B1b-1 validation commands are:
+Future packages that claim generic completeness use evidence-profile V1, acquisition-spec V3,
+source-manifest V4, evidence-map V2, and review V3. Run their offline document verification inside
+`nix develop`: the evidence map pins nixpkgs revision
+`59682e0069f0ed0a452e2179a7f4c1f247027b9e` and Poppler `26.06.0`, including the exact `pdfinfo`
+and `pdftotext` version lines. Evidence-map V1 remains a hash-bound human-review address format;
+it is not reinterpreted through the V2 extractor.
+
+Focused product-term validation commands are:
 
 ```sh
 UV_CACHE_DIR=/tmp/pmm-uv-cache \
-  uv run python -m unittest python.tests.test_product_terms
+  nix develop --command uv run python -m unittest python.tests.test_product_terms
 
 UV_CACHE_DIR=/tmp/pmm-uv-cache \
   uv run python -m unittest \

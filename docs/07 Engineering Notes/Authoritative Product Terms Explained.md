@@ -817,9 +817,113 @@ replay scheduler or reconnect protocol. We did not add content-addressed storage
 indexes, signatures, or universal venue adapters because the present scale and governance process
 do not justify those abstractions yet.
 
-The recommended immediate hardening is document-anchor truth and generic required-source
-completeness. B2 should then begin as a separate design review for multi-market observed-data
-ordering and recovery.
+## B1c: why stronger evidence needs successor formats
+
+The B1b-2 package used honest but deliberately narrow evidence-map V1 semantics. A JSON pointer was
+mechanical, a Markdown heading was a text occurrence, and a PDF page and section were an address for
+the human reviewer. Source-manifest V3 also proved that opening and closing had equal membership,
+but it did not know which roles the product family required. Two equally incomplete observations
+could therefore agree with each other.
+
+Changing those rules under the same schema names would make old evidence appear stronger than it
+was. B1c instead freezes the old paths and adds a complete successor chain:
+
+```text
+evidence-profile V1
+        |
+        +--> acquisition-spec V3 --> source-manifest V4
+        |                                  |
+        +--> evidence-map V2 --------------+
+        |                                  |
+        +--> review V3 ---------------------+
+                                           |
+                              product-terms V1 or V2
+```
+
+The profile answers “what must exist and how is every term classified?” The manifest answers “what
+did the acquisition tool actually retain?” The evidence map answers “where is the exact support?”
+The review answers “which repository identity accepted these exact inputs and limitations?” Keeping
+those questions separate prevents a role label, URL, or human checklist sentence from masquerading
+as generic runtime enforcement.
+
+### How PDF verification becomes deterministic
+
+Extractor policy `poppler_page_text.v1` uses Poppler `pdfinfo` and `pdftotext` from the locked Nix
+development environment. `pdfinfo` supplies page count; page extraction is exactly
+`pdftotext -f {page} -l {page} -enc UTF-8 -nopgbrk {source} -`. The lock chooses the Nixpkgs
+revision and Poppler build, and evidence-map V2 records both exact executable/version identities
+plus normalization policy `pmm.document_text_normalization.v1` and its policy hash. Verification
+fails if that identity is unavailable or different; it does not silently use Homebrew, a browser,
+a Python PDF package, or OCR.
+
+The first accepted lock selects Nixpkgs revision
+`59682e0069f0ed0a452e2179a7f4c1f247027b9e` and `poppler-utils` 26.06.0. Runtime compares the
+complete first version line from each tool's `-v` output, not a loose compatible-version range.
+
+Human-facing PDF page numbers stay one-based. Runtime checks that the page exists, extracts only
+that page, normalizes its text, finds one exact start marker and an optional unique later end marker,
+and hashes canonical JSON containing the locator kind, normalization-policy identity, boundary, and
+bounded text. The section includes its start line and excludes its end line. The full PDF still has
+its independent source hash. Consequently, changing a page number, boundary, section contents,
+source PDF, or extractor identity cannot preserve the old claim after outer hashes are recomputed.
+
+This is still not legal reasoning. A matching fingerprint proves that the retained page contains
+the reviewed exact section under the pinned extractor. The repository-declared reviewer remains
+responsible for the meaning assigned to that section.
+
+Malformed or extraction-blocked encrypted PDFs refuse. Scanned/image-only and textless pages refuse
+because B1c has no OCR design. Normalization uses strict UTF-8, Unicode NFC, LF (including form-feed
+conversion), NBSP-to-space conversion, collapsed horizontal whitespace and blank runs, trimmed line
+edges, no surrounding blank line, and explicit mappings for the common `ff`, `fi`, `fl`, `ffi`, and
+`ffl` Unicode presentation ligatures. Poppler's remaining font decoding and reading order belong to
+the extractor identity.
+
+### How Markdown verification differs from substring search
+
+Evidence-map V2 recognizes only ATX headings outside fenced code blocks: at most three leading
+spaces, one through six `#` characters, then whitespace. A locator contains the complete ancestor
+path of exact level/NFC-text pairs. That path must be unique, and its body continues through child
+headings until the next heading of the same or shallower level. A body-text lookalike, duplicate
+path, changed level, renamed heading, or changed bounded contents refuses.
+
+Markdown and PDF use the same common normalization policy, with the PDF ligature mappings added for
+extracted text. The control artifact stores a SHA-256 fingerprint rather than copying source prose,
+which avoids turning an evidence map into a second copyrighted document corpus.
+
+### How generic completeness works
+
+Each profile lists stable logical source keys. Required means one per endpoint. Optional means zero
+at both or one at both. Not applicable means zero at both plus an explicit reason. Runtime compares
+each endpoint with the profile, so equal-but-incomplete observations fail. Static documents must be
+byte-identical. Mutable JSON may change, but projected values must still equal the reviewed terms at
+both endpoints.
+
+The profile ties linked contract and certification roles to series-record co-presence. It does not
+silently parse and compare document URLs; that stronger identity claim needs a mechanically
+projected evidence entry or a review limitation. Source IDs and full relative paths remain unique;
+preserving the complete path below each observation removes the old same-basename assembly hazard.
+
+Every product-term leaf is then classified as mechanically projected, human-reviewed, derived,
+repository/local policy, unsupported, or not applicable. Only the first two need source anchors.
+Derived facts need complete named inputs. Local and unsupported facts must remain visibly repository
+policy or non-claims. Not applicable must be declared, never guessed from absence.
+
+### Why existing artifacts still verify
+
+HMONTH remains source-manifest V3, evidence-map V1, and review V2. Its bytes already contain all
+eight roles, so a compatibility test can compare that observed set with the new profile, but the
+test does not rewrite the package or upgrade its PDF semantics. WNBA remains retrospective V1 with
+six retained sources and explicit missing-linked-document limitations. Catalog V1 and downstream
+V2/V3 artifacts keep working because they bind exact package hashes rather than assuming one
+internal package version.
+
+`EvidenceProfileMismatch` is added only for profile identity failures. Missing roles remain
+`EvidenceIncomplete`; document extraction or fingerprint failures remain `EvidenceAnchorMismatch`.
+Keeping those categories distinct gives callers stable recovery guidance.
+
+B2 should begin separately with multi-market observed-data ordering and recovery. Stronger metadata
+does not itself provide broader observed data, continuous source history, execution calibration, or
+economic accounting.
 
 ## Non-claims
 

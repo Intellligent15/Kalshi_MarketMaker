@@ -383,3 +383,65 @@ completeness before B2 builds on this boundary. This does not reopen the reviewe
 it strengthens what future packages must prove. None of these findings authorizes fees, accounting,
 settlement processing, calibrated fills, multi-market replay, paper/live behavior, ML, or any
 readiness/profitability claim.
+
+## B1c post-implementation critique
+
+### Scope and what improved
+
+B1c closes the two highest-impact mismatches identified above without rewriting accepted product
+packages. New packages have an immutable evidence profile, complete per-endpoint role enforcement,
+linked-document relationships, leaf-complete field classifications, structurally bounded Markdown
+sections, and Nix-pinned Poppler PDF fingerprints. The V1/V2/V3 compatibility paths remain frozen,
+so HMONTH and WNBA retain their original bytes and claims.
+
+The strongest new property is not simply “more validation.” It is version honesty: machine-resolved
+document sections and generic completeness begin only at evidence-map V2/source-manifest V4/review
+V3. The additive `EvidenceProfileMismatch` code is similarly narrow, while existing incomplete,
+anchor, hash, projection, media, and content categories retain their recovery meaning.
+
+### Remaining correctness and maintenance risks
+
+| Finding | Impact | Ease | Evidence and tradeoff | Recommendation |
+|---|---:|---:|---|---|
+| Deterministic PDF truth now depends on the locked Poppler build. | 4 | 3 | This is more auditable than ambient extraction, but a lock refresh can change font decoding, ligatures, reading order, or section fingerprints even when source bytes do not change. | Treat lock/extractor changes as evidence-policy migrations. Diff all retained known-answer extracts and require a new extractor/profile identity when output changes. |
+| Heading-based PDF section boundaries remain a document-family convention. | 4 | 2 | PDFs have no universal heading structure. A visually obvious heading can be split into drawing operators or extracted out of reading order. | Keep fail-closed behavior and package-specific human review. Add new bounded locator forms only from retained counterexamples, not heuristic guessing. |
+| Scanned/image-only evidence remains unsupported. | 4 | 1 | Refusal is honest, but a future product may publish only scanned official terms. | Design OCR separately with pinned models/languages and retained derived evidence only when a required real package forces the need. Do not add ambient OCR fallback. |
+| The successor chain adds five interdependent formats. | 3 | 2 | Separate ownership prevents semantic overloading, but profile, manifest, evidence, review, schemas, and runtime can drift. | Keep the one-defect schema/runtime corpus and dispatch once into a normalized immutable internal view. Avoid another successor unless a real value is unrepresentable. |
+| Human-reviewed fingerprints still do not prove interpretation. | 5 | 1 | Runtime proves section identity and stability, not the legal/economic conclusion drawn from it. | Preserve reviewer responsibility, limitations, and unsupported classes. Do not describe a fingerprint as automated legal validation. |
+| The initial eight-role profile is Kalshi-binary specific. | 4 | 2 | It is correct for HMONTH but may be wrong for another product family or venue. | Create a new immutable profile for a genuine optional/N-A role. Do not weaken the accepted profile or infer applicability from absence. |
+| `linked_source_keys` proves co-presence, not URL identity inside a retained series response. | 4 | 3 | The relationship closes missing-document membership but cannot detect a correctly typed wrong PDF unless another anchor covers the advertised URL. | Require mechanically projected linked-identity entries when the source exposes stable URL fields; otherwise preserve the review limitation. |
+| Compatibility creates intentional long-lived branches. | 3 | 2 | V1, V2, V3, and V4 meanings must remain available for old normalized/results artifacts. | Isolate frozen adapters and known-answer fixtures. Do not route V2 through mutable current policy or V1 anchors through the V2 extractor. |
+
+### Test and operational risks to keep visible
+
+| Risk | Required continuing evidence |
+|---|---|
+| Schema/runtime drift | Positive and one-defect negative parity for profile V1, spec V3, manifest V4, evidence-map V2, and review V3. |
+| Extractor drift | Minimal PDF known answers for page count, normalized section bytes, fingerprint, malformed/encrypted/textless/scanned refusals, Unicode, whitespace, and repeated headings. |
+| Completeness drift | One missing-role test per required role; optional absent/present positives; optional asymmetry, duplicate, and N-A-present negatives. |
+| Endpoint drift | Opening-only and closing-only role, source, JSON, Markdown, PDF, acquisition-time, and anchor mutations after complete rehash. |
+| Assembly safety | Same-basename/full-path collision, destination reuse, exception, interruption, and cleanup cases with no final publication. |
+| Compatibility | Byte snapshots and repeated read-only verification for WNBA, HMONTH, legacy source-manifest V2, and complete downstream V2/V3 lineage. |
+| CLI stability | Success 0/JSON/empty stderr; expected refusal 2/empty stdout/coded stderr; unexpected programming failure 1. |
+
+The retained synthetic PDF currently gives deterministic page-bound, malformed, textless, and
+repetition coverage. A genuinely encrypted fixture should remain an explicit gap until one is
+retained with stable redistribution provenance. Likewise, complete successor-package
+V4/evidence-map-V2/review-V3 propagation through a full backtest-result V3 chain remains separate
+evidence if the current package builder tests stop at package/CLI verification. Neither gap weakens
+the fail-closed runtime rule, but neither should be described as directly fixture-proven.
+
+### Ranked follow-up after B1c
+
+| Priority | Next action | Why |
+|---:|---|---|
+| P0 | Keep the successor schema/runtime and extractor known-answer matrix mandatory. | A weak fixture corpus would let the documented guarantee drift before another product reveals it. |
+| P1 | Begin B2 multi-market/reconnect/gap-recovery as a separate design gate. | Metadata completeness does not provide broader or recoverable observed-market data. |
+| P2 | Split the product-term module along the now-proven acquisition, evidence, projection, catalog, and CLI boundaries. | The successor chain increases collision risk inside the existing large module; the split should preserve public behavior. |
+| P3 | Add governance supersession/revocation only after the real human approval process exists. | Repository identity remains accountability metadata, not a signature or institutional workflow. |
+| P4 | Measure evidence duplication and verification cost before storage/index optimization. | One 484 KiB package and minimal synthetic documents do not justify content-addressed storage. |
+
+B1c improves metadata truth, not market-data truth or economic realism. It does not prove continuous
+source immutability between endpoint observations, make a legal interpretation objective, add OCR,
+charge fees, process settlement, calculate PnL, model collateral/margin, calibrate execution, recover
+multi-market feeds, or support paper/live trading.

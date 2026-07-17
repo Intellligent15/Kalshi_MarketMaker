@@ -58,10 +58,23 @@ immutable policy hash fixes the acquisition rules, field-level anchors bind JSON
 evidence, and review V2 records repository-declared human responsibility without claiming a
 signature. Product-terms V2 preserves the official empty secondary rule; V1 remains unchanged.
 
+B1c keeps those accepted packages byte-identical and introduces successor formats for future
+packages. An immutable evidence profile enforces semantic-source completeness at both observation
+endpoints, while evidence-map V2 verifies bounded Markdown sections and one-based PDF pages with a
+Nix-pinned Poppler extractor and normalized section fingerprints. The older manifest, evidence,
+and review versions retain their original narrower meanings.
+
 ## Quick start
 
 Prerequisites: CMake 3.24+, a C++20 compiler, Git (to fetch GoogleTest for test builds),
 and `clang-format` for formatting checks.
+
+The checked-in Nix flake supplies those tools plus uv and the exact Poppler build required to
+verify evidence-map V2 document anchors:
+
+```sh
+nix develop
+```
 
 ```sh
 ./scripts/build.sh
