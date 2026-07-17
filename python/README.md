@@ -69,7 +69,8 @@ uv run python python/pmm_phase7.py normalize-v3 \
 
 Default normalization refuses discontinuous or incomplete input. `--continuity-policy record`
 retains explicit evidence for audit, but current feature and backtest commands deliberately refuse
-normalization V3 until B2b implements segment-aware multi-market projection.
+normalization V3. B2a-1 must first close the reviewed shared-scope and schema/runtime truth-boundary
+defects; B2b may then implement segment-aware multi-market projection.
 
 ## Phase 7 local historical pipeline
 

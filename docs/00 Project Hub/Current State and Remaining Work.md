@@ -26,7 +26,8 @@ complete, this current-state document wins; the older note remains useful histor
 | Last reviewed | 2026-07-17 |
 | Last completed package | B2a multi-scope capture and reconnect-aware normalization |
 | B2a implementation commits | `520d0a0`, `399e500`, `48f2a25`, and `a04b0c1` |
-| Branch state before the B2a post-implementation review | `main` thirteen commits ahead of `origin/main` |
+| B2a documentation and review commits | `8036eb9`, `17e15bc`, and `0c1da77` |
+| Branch state before the B2a-1 handoff update | `main` fifteen commits ahead of `origin/main` |
 | Recent B1c closure commits | `f826fae`, `8262c2c`, and `4825aa5` |
 | Recent B1b-2 implementation commits | `b3da27e`, `b28a3ad`, `4ba99a6`, and `ff9dbe6` |
 | Recent B1b-2 review commits | `73dc566`, `6e22b27`, and `61a2188` |
@@ -650,6 +651,35 @@ B2a-1 must remain smaller than projection or backtesting. Its design gate should
 Implementation, after approval, should use only offline synthetic fixtures and preserve every
 accepted legacy byte and meaning. It should not add projection, features, backtesting, a live
 capture, multi-connection operation, or performance redesign.
+
+B2a-1 is complete only when all of the following are true:
+
+- a sequence gap in an unknown/shared scope invalidates or marks incomplete every market that the
+  missing event could have affected, without pretending the missing ticker is known;
+- every published product-map V3 artifact satisfies its schema when identity is complete, while a
+  requested market with no stable market ID follows one explicit refusal or incomplete-identity
+  contract shared by runtime and schema;
+- required source-sequence evidence is defined per message type and missing evidence has a named,
+  deterministic outcome;
+- normalization proves exactly one acknowledgement for each expected channel and validates both
+  logical and wire request identities, SID uniqueness, and declared membership;
+- disconnects before connect, acknowledgement, first snapshot, and after only a subset of market
+  snapshots have explicit completeness semantics;
+- every successor schema has generated positive coverage and one-defect runtime/schema negative
+  parity, including record-mode incomplete outputs;
+- `capture-v2` exit status, shutdown status, continuity status, stdout, stderr, retained partial
+  evidence, and cleanup behavior are unambiguous and tested;
+- repeated offline normalization remains byte-identical and accepted legacy artifacts remain
+  byte-identical with their original meanings;
+- the full validation baseline is rerun without making deterministic tests network-dependent; and
+- ADR-013, the operator guide, explanation, critique, README surfaces, and this roadmap are updated
+  to distinguish closed B2a-1 findings from deferred B2b/B2c debt.
+
+The post-review findings intentionally deferred beyond B2a-1 remain tracked: a V2 inspector and
+format/refusal reference, metadata/directory durability, binary-frame retention, path-independent
+manifest identity, bounded duplicate memory, deterministic subscription batching, and retained
+long-capture evidence. They should not be pulled into B2a-1 unless a concrete correctness
+dependency is demonstrated.
 
 #### B2b. Multi-market projection, features, and replay — planned after B2a-1
 
