@@ -10,7 +10,7 @@ import tempfile
 import unittest
 import uuid
 
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft202012Validator, FormatChecker, RefResolver
 
 from python import pmm_phase7 as phase7
 from python import pmm_product_terms as terms
@@ -23,6 +23,10 @@ PACKAGE_RELATIVE = Path(
     "2026-07-16-reviewed-retrospective"
 )
 TICKER = "KXWNBASPREAD-26JUL14WSHTOR-WSH2"
+HMONTH_RELATIVE = Path(
+    "kalshi/production/markets/KXHMONTH-26JUL/"
+    "2026-07-17T150716Z-150837Z-contemporaneous-bracketed"
+)
 
 
 class FakeResponse:
@@ -90,17 +94,19 @@ class ProductTermsTests(unittest.TestCase):
         }
 
     @staticmethod
-    def message(message_type: str, sequence: int) -> dict[str, object]:
+    def message(
+        message_type: str, sequence: int, ticker: str = TICKER
+    ) -> dict[str, object]:
         if message_type == "orderbook_snapshot":
             payload: dict[str, object] = {
-                "market_ticker": TICKER,
+                "market_ticker": ticker,
                 "market_id": "d94606bd-2027-4ab9-bee7-05cfe97c9fb2",
                 "yes_dollars_fp": [["0.5000", "3.25"]],
                 "no_dollars_fp": [["0.5100", "4.00"]],
             }
         else:
             payload = {
-                "market_ticker": TICKER,
+                "market_ticker": ticker,
                 "market_id": "d94606bd-2027-4ab9-bee7-05cfe97c9fb2",
                 "trade_id": "trade-1",
                 "yes_price_dollars": "0.5000",
@@ -111,20 +117,37 @@ class ProductTermsTests(unittest.TestCase):
         return {"type": message_type, "sid": 1 if message_type == "orderbook_snapshot" else 2,
                 "seq": sequence, "msg": payload}
 
-    def make_capture(self, *, ticker: str = TICKER, off_grid: bool = False) -> Path:
+    def make_capture(
+        self,
+        *,
+        ticker: str = TICKER,
+        off_grid: bool = False,
+        capture_started_ns: int | None = None,
+    ) -> Path:
         capture = self.generated_root / f"capture-{uuid.uuid4()}"
         capture.mkdir()
+        metadata = self.metadata(ticker)
+        if capture_started_ns is not None:
+            metadata["capture_started_at_utc_ns"] = capture_started_ns
+            metadata["capture_ended_at_utc_ns"] = capture_started_ns + 1_000_000_000
         (capture / "metadata.json").write_text(
-            json.dumps(self.metadata(ticker), sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(metadata, sort_keys=True) + "\n", encoding="utf-8"
         )
-        messages = [self.message("orderbook_snapshot", 1), self.message("trade", 1)]
+        messages = [
+            self.message("orderbook_snapshot", 1, ticker),
+            self.message("trade", 1, ticker),
+        ]
         if off_grid:
             messages[0]["msg"]["yes_dollars_fp"][0][0] = "0.5050"  # type: ignore[index]
         with (capture / "frames.jsonl").open("w", encoding="utf-8") as destination:
             for line_number, message in enumerate(messages, start=1):
                 destination.write(json.dumps({
                     "kind": "inbound_frame",
-                    "received_at_utc_ns": 1_784_047_974_100_000_000 + line_number,
+                    "received_at_utc_ns": (
+                        capture_started_ns
+                        if capture_started_ns is not None
+                        else 1_784_047_974_100_000_000
+                    ) + line_number,
                     "connection_id": 1,
                     "message_type": message["type"],
                     "subscription_id": message["sid"],
@@ -161,26 +184,111 @@ class ProductTermsTests(unittest.TestCase):
         }), encoding="utf-8")
         return path
 
+    def acquisition_spec_v2(self, observation_id: str) -> Path:
+        policy = CATALOG_ROOT / "acquisition_policies" / "kalshi_first_party_v1.json"
+        shutil.copyfile(policy, self.generated_root / "acquisition-policy.json")
+        loaded_policy = terms.AcquisitionPolicy.load(policy)
+        path = self.generated_root / f"acquisition-{observation_id}.json"
+        path.write_text(json.dumps({
+            "schema": terms.ACQUISITION_SPEC_V2_SCHEMA,
+            "venue": "kalshi",
+            "environment": "production",
+            "observation_id": observation_id,
+            "acquisition_policy": "acquisition-policy.json",
+            "acquisition_policy_sha256": loaded_policy.payload_sha256,
+            "sources": [{
+                "id": "market_record",
+                "role": "market_record",
+                "url": "https://external-api.kalshi.com/market",
+                "path": "sources/market.response.json",
+            }],
+        }), encoding="utf-8")
+        return path
+
+    @staticmethod
+    def advancing_clock(start_second: int) -> object:
+        current = start_second
+
+        def now() -> datetime:
+            nonlocal current
+            value = datetime(2026, 7, 17, 12, 0, current, tzinfo=timezone.utc)
+            current += 1
+            return value
+
+        return now
+
     @staticmethod
     def fixed_clock() -> datetime:
         return datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 
     @staticmethod
     def schema_validator(name: str) -> Draft202012Validator:
-        schema = json.loads(
-            (phase7.REPOSITORY_ROOT / "schemas" / "product_terms" / name).read_text()
+        path = phase7.REPOSITORY_ROOT / "schemas" / "product_terms" / name
+        schema = json.loads(path.read_text())
+        return Draft202012Validator(
+            schema,
+            format_checker=FormatChecker(),
+            resolver=RefResolver(base_uri=path.parent.as_uri() + "/", referrer=schema),
         )
-        return Draft202012Validator(schema, format_checker=FormatChecker())
 
     def test_reviewed_catalog_and_conversion_policy_are_canonical(self) -> None:
         catalog, policy, package = self.load()
-        self.assertEqual(len(catalog.payload["entries"]), 1)
+        self.assertEqual(len(catalog.payload["entries"]), 2)
         self.assertEqual(package.terms.market_ticker, TICKER)
         self.assertEqual(package.review.payload["effective_time_basis"], "reviewed_retrospective")
         self.assertEqual(policy.convert_price_to_cents(package.terms.validate_price("0.5000", "price"), "price"), 50)
         self.assertEqual(policy.convert_quantity_to_contracts(terms.Decimal("2.00"), "quantity"), 2)
         with self.assertRaisesRegex(terms.ProductTermsError, "CoreQuantityNotRepresentable"):
             policy.convert_quantity_to_contracts(terms.Decimal("0.25"), "quantity")
+
+    def test_hmonth_bracketed_package_has_v2_reviewed_evidence(self) -> None:
+        catalog = terms.ProductCatalog.load(CATALOG_ROOT)
+        package = terms.ProductPackage.load(CATALOG_ROOT / HMONTH_RELATIVE)
+        policy = terms.ConversionPolicy.load(POLICY_PATH)
+        self.assertEqual(package.terms.market_ticker, "KXHMONTH-26JUL")
+        self.assertEqual(package.review.schema, terms.PRODUCT_REVIEW_V2_SCHEMA)
+        self.assertEqual(package.review.payload["reviewer"]["identity"], "ronit")
+        self.assertEqual(package.evidence.schema, terms.SOURCE_MANIFEST_V3_SCHEMA)
+        self.assertIsNotNone(package.review.evidence_map)
+        self.assertEqual(
+            package.terms.payload["rules"]["secondary"], ""
+        )
+        policy.require_core_compatible(package.terms)
+        with self.assertRaisesRegex(terms.ProductTermsError, "CoreQuantityNotRepresentable"):
+            policy.convert_quantity_to_contracts(terms.Decimal("0.01"), "quantity")
+        capture_start = datetime(2026, 7, 17, 15, 7, 30, tzinfo=timezone.utc)
+        metadata = {
+            "ticker": "KXHMONTH-26JUL",
+            "capture_started_at_utc_ns": int(capture_start.timestamp() * 1_000_000_000),
+            "capture_ended_at_utc_ns": int(capture_start.timestamp() * 1_000_000_000) + 1_000_000_000,
+        }
+        self.assertEqual(catalog.resolve(metadata).path, package.path)
+
+    def test_hmonth_field_anchor_mutation_refuses_after_complete_rehash(self) -> None:
+        copied = self.generated_root / "hmonth-anchor-mutation"
+        shutil.copytree(CATALOG_ROOT / HMONTH_RELATIVE, copied)
+        evidence_path = copied / "evidence_anchors.json"
+        evidence = json.loads(evidence_path.read_text())
+        title_entry = next(
+            item for item in evidence["payload"]["entries"]
+            if item["term_pointer"] == "/payload/identity/title"
+        )
+        title_entry["anchors"][0]["locator"]["pointer"] = "/market/ticker"
+        self.write_envelope(evidence_path, evidence)
+        review_path = copied / "review.json"
+        review = json.loads(review_path.read_text())
+        review["payload"]["evidence_map_sha256"] = evidence["payload_sha256"]
+        self.write_envelope(review_path, review)
+        snapshot = {
+            path.relative_to(copied): path.read_bytes()
+            for path in copied.rglob("*") if path.is_file()
+        }
+        with self.assertRaisesRegex(terms.ProductTermsError, "EvidenceAnchorMismatch"):
+            terms.ProductPackage.load(copied)
+        self.assertEqual(snapshot, {
+            path.relative_to(copied): path.read_bytes()
+            for path in copied.rglob("*") if path.is_file()
+        })
 
     def test_source_mutation_is_specific_and_verification_is_read_only(self) -> None:
         copied_catalog = self.generated_root / "catalog"
@@ -264,9 +372,11 @@ class ProductTermsTests(unittest.TestCase):
                 else:
                     path = copied_catalog / "manifest.json"
                     document = json.loads(path.read_text())
-                    document["payload"]["entries"][0]["effective_from_utc"] = (
-                        "2026-07-12T23:31:00Z"
+                    entry = next(
+                        item for item in document["payload"]["entries"]
+                        if item["market_ticker"] == TICKER
                     )
+                    entry["effective_from_utc"] = "2026-07-12T23:31:00Z"
                 self.write_envelope(path, document)
                 with self.assertRaisesRegex(terms.ProductTermsError, "EffectiveWindowMismatch"):
                     terms.ProductCatalog.load(copied_catalog)
@@ -296,7 +406,10 @@ class ProductTermsTests(unittest.TestCase):
 
         manifest_path = copied_catalog / "manifest.json"
         manifest = json.loads(manifest_path.read_text())
-        second_entry = dict(manifest["payload"]["entries"][0])
+        second_entry = dict(next(
+            item for item in manifest["payload"]["entries"]
+            if item["market_ticker"] == TICKER
+        ))
         second_entry.update({
             "effective_from_utc": boundary,
             "effective_until_utc": second_end,
@@ -305,6 +418,9 @@ class ProductTermsTests(unittest.TestCase):
             "review_sha256": review_document["payload_sha256"],
         })
         manifest["payload"]["entries"].append(second_entry)
+        manifest["payload"]["entries"].sort(
+            key=lambda item: (item["market_ticker"], item["effective_from_utc"])
+        )
         self.write_envelope(manifest_path, manifest)
         catalog = terms.ProductCatalog.load(copied_catalog)
         second_metadata = self.metadata()
@@ -331,9 +447,16 @@ class ProductTermsTests(unittest.TestCase):
                 self.write_envelope(changed_review_path, changed_review)
                 changed_manifest_path = changed / "manifest.json"
                 changed_manifest = json.loads(changed_manifest_path.read_text())
-                changed_manifest["payload"]["entries"][1]["effective_from_utc"] = changed_start
-                changed_manifest["payload"]["entries"][1]["product_terms_sha256"] = changed_terms["payload_sha256"]
-                changed_manifest["payload"]["entries"][1]["review_sha256"] = changed_review["payload_sha256"]
+                changed_entry = next(
+                    item for item in changed_manifest["payload"]["entries"]
+                    if item["package"] == second_relative.as_posix()
+                )
+                changed_entry["effective_from_utc"] = changed_start
+                changed_entry["product_terms_sha256"] = changed_terms["payload_sha256"]
+                changed_entry["review_sha256"] = changed_review["payload_sha256"]
+                changed_manifest["payload"]["entries"].sort(
+                    key=lambda item: (item["market_ticker"], item["effective_from_utc"])
+                )
                 self.write_envelope(changed_manifest_path, changed_manifest)
                 if label == "overlap":
                     with self.assertRaisesRegex(terms.ProductTermsError, expected):
@@ -377,6 +500,55 @@ class ProductTermsTests(unittest.TestCase):
         self.assertEqual(source["byte_length"], len(b'{"market":{}}'))
         self.assertEqual(len(session.requests), 2)
         self.assertTrue(all(request["allow_redirects"] is False for request in session.requests))
+
+    def test_v3_policy_observations_assemble_into_exact_time_bracket(self) -> None:
+        opening = self.generated_root / "opening"
+        closing = self.generated_root / "closing"
+        body = b'{"market":{"ticker":"KXTEST"}}'
+        terms.fetch_sources(
+            self.acquisition_spec_v2("opening"),
+            opening,
+            session=FakeSession([
+                FakeResponse(url="https://external-api.kalshi.com/market", body=body)
+            ]),
+            now=self.advancing_clock(0),  # type: ignore[arg-type]
+            monotonic=lambda: 0.0,
+        )
+        terms.fetch_sources(
+            self.acquisition_spec_v2("closing"),
+            closing,
+            session=FakeSession([
+                FakeResponse(url="https://external-api.kalshi.com/market", body=body)
+            ]),
+            now=self.advancing_clock(20),  # type: ignore[arg-type]
+            monotonic=lambda: 0.0,
+        )
+        output = self.generated_root / "assembled"
+        terms.assemble_observations(opening, closing, output)
+        evidence = terms.SourceEvidence.load(output)
+        self.assertEqual(evidence.schema, terms.SOURCE_MANIFEST_V3_SCHEMA)
+        self.assertEqual(
+            [item["observation_id"] for item in evidence.payload["acquisitions"]],
+            ["opening", "closing"],
+        )
+        self.assertEqual(
+            [item["id"] for item in evidence.payload["sources"]],
+            ["closing_market_record", "opening_market_record"],
+        )
+        self.assertLess(
+            terms.parse_utc(
+                evidence.payload["acquisitions"][0]["completed_at_utc"], "opening"
+            ),
+            terms.parse_utc(
+                evidence.payload["acquisitions"][1]["started_at_utc"], "closing"
+            ),
+        )
+
+        changed_policy = json.loads((output / "acquisition_policy.json").read_text())
+        changed_policy["payload"]["maximum_redirects"] = 4
+        self.write_envelope(output / "acquisition_policy.json", changed_policy)
+        with self.assertRaisesRegex(terms.ProductTermsError, "AcquisitionPolicyMismatch"):
+            terms.SourceEvidence.load(output)
 
     def test_acquisition_refuses_redirect_size_media_and_interruption_without_partial_output(self) -> None:
         cases = (
@@ -515,11 +687,18 @@ class ProductTermsTests(unittest.TestCase):
 
     def test_reviewed_schema_runtime_parity_matrix(self) -> None:
         _, policy, package = self.load()
+        hmonth = terms.ProductPackage.load(CATALOG_ROOT / HMONTH_RELATIVE)
         positive_documents = {
             "acquisition-spec-v1.schema.json": CATALOG_ROOT / "acquisition_spec.example.json",
+            "acquisition-policy-v1.schema.json": CATALOG_ROOT / "acquisition_policies" / "kalshi_first_party_v1.json",
+            "acquisition-spec-v2.schema.json": self.acquisition_spec_v2("opening"),
             "source-manifest-v1.schema.json": package.path / "source_manifest.json",
+            "source-manifest-v3.schema.json": hmonth.path / "source_manifest.json",
             "product-terms-v1.schema.json": package.path / "product_terms.json",
+            "product-terms-v2.schema.json": hmonth.path / "product_terms.json",
             "review-v1.schema.json": package.path / "review.json",
+            "review-v2.schema.json": hmonth.path / "review.json",
+            "evidence-map-v1.schema.json": hmonth.path / "evidence_anchors.json",
             "catalog-v1.schema.json": CATALOG_ROOT / "manifest.json",
             "conversion-policy-v1.schema.json": policy.path,
         }
@@ -611,6 +790,35 @@ class ProductTermsTests(unittest.TestCase):
         )
         self.assertEqual(feature_manifest["schema"], "pmm.historical.feature_manifest.v2")
         self.assertEqual(feature_manifest["product_terms_sha256"], package.terms.payload_sha256)
+
+    def test_hmonth_two_market_selection_normalizes_and_features_offline(self) -> None:
+        catalog = terms.ProductCatalog.load(CATALOG_ROOT)
+        policy = terms.ConversionPolicy.load(POLICY_PATH)
+        package = terms.ProductPackage.load(CATALOG_ROOT / HMONTH_RELATIVE)
+        capture_start = datetime(2026, 7, 17, 15, 7, 30, tzinfo=timezone.utc)
+        capture = self.make_capture(
+            ticker="KXHMONTH-26JUL",
+            capture_started_ns=int(capture_start.timestamp() * 1_000_000_000),
+        )
+        normalized = self.generated_root / "hmonth-normalized"
+        manifest = phase7.normalize_capture(
+            capture,
+            normalized,
+            product_catalog=catalog,
+            conversion_policy=policy,
+        )
+        self.assertEqual(manifest["product_terms_sha256"], package.terms.payload_sha256)
+        copied_review = json.loads(
+            (normalized / "product_terms" / "review.json").read_text()
+        )
+        self.assertEqual(copied_review["schema"], terms.PRODUCT_REVIEW_V2_SCHEMA)
+        features = self.generated_root / "hmonth-features"
+        feature_manifest = phase7.materialize_features(normalized, features)
+        self.assertEqual(feature_manifest["product_terms_sha256"], package.terms.payload_sha256)
+        self.assertEqual(
+            (normalized / "product_terms" / "evidence_anchors.json").read_bytes(),
+            (package.path / "evidence_anchors.json").read_bytes(),
+        )
 
     def test_normalization_v2_refuses_off_grid_price_without_output(self) -> None:
         catalog, policy, _ = self.load()
