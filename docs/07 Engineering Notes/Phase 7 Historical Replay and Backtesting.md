@@ -115,8 +115,9 @@ metadata package does not implement multi-market replay or reconnect handling.
 Commits `520d0a0`, `399e500`, `48f2a25`, and `a04b0c1` add the versioned capture, normalization,
 offline fixture, and product-lineage compatibility boundaries. Raw capture V2 records explicit
 ingress, connection, request, acknowledgement, channel, SID, membership, and sequence-domain
-facts. Normalization V3 keeps discontinuities in the ordered record stream and invalidates every
-affected book across a gap.
+facts. Normalization V3 keeps discontinuities in the ordered record stream and invalidates books
+across connection gaps. The post-implementation review found that sequence gaps in a shared or
+unknown scope currently under-invalidate possible market members; B2a-1 must close that defect.
 
 One later snapshot can start a new valid observed segment; it never proves the missing interval.
 Default normalization refuses discontinuous/incomplete input, record mode preserves it honestly,
@@ -124,5 +125,6 @@ and feature generation refuses V3 until B2b. Existing V1/V2 normalized and featu
 V1/V2/V3 configuration/result artifacts are unchanged.
 
 Focused validation passes 11 capture tests, 26 Phase 7 tests, and 42 product-term tests. The full
-Python suite passes 118 tests; all tests remain offline. B2b multi-market segment-aware projection,
-features, and replay is next. B2c owns the retained full-capture regression.
+Python suite passes 118 tests; all tests remain offline. B2a-1 truth-boundary hardening is next,
+then B2b multi-market segment-aware projection, features, and replay. B2c owns the retained
+full-capture regression.

@@ -29,6 +29,18 @@ uv run python python/pmm_phase7.py normalize-v3 \
 
 That output is not accepted by current feature or backtest consumers.
 
+## Current review warning
+
+Capture and normalization V2/V3 remain research successors pending B2a-1 hardening. The
+post-implementation review found that a shared/unknown-scope sequence gap can under-invalidate
+affected markets and that record mode can publish a product map outside its schema if a requested
+market never establishes `market_id`. Do not build projection or backtest consumers on V3 until
+those impact-5 findings are closed.
+
+Also interpret `capture-v2` exit 0 narrowly: it currently means the requested capture loop ended
+and retained raw evidence was finalized. Inspect `shutdown` and `capture_continuity`; exit 0 does
+not by itself mean strict normalization will accept the capture.
+
 ## Artifact layout
 
 Raw V2 contains `metadata.json` and `frames.jsonl`. Every raw record carries an explicit ingress

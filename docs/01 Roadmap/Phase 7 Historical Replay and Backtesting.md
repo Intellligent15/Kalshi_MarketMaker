@@ -101,12 +101,16 @@ See [[02 Architecture/ADR-012 Deterministic Document Evidence and Completeness P
   causality from timestamps.
 - Normalized record V2 keeps market events, connection/sequence discontinuities, and segment starts
   in one ordered stream, with product-map V3 and source-scope-map V1 side artifacts.
-- A gap invalidates prior book state. A later snapshot starts a new valid observed segment but does
-  not recover the missing interval.
+- A connection gap invalidates prior book state. The post-implementation review found that a
+  sequence gap on a shared/unknown scope currently under-propagates invalidation and must be fixed
+  in B2a-1. A later snapshot starts a new valid observed segment but does not recover the missing
+  interval.
 - Normalization manifest V3 distinguishes complete observed intervals, observed discontinuity, and
   incomplete evidence. Current feature/backtest consumers refuse it pending B2b.
-- Formal schemas and offline fake-transport tests cover scope, acknowledgement, duplicate, gap,
-  recovery, ordering, cleanup, determinism, legacy compatibility, and product lineage.
+- Formal schemas and offline fake-transport tests cover the main scope, acknowledgement, duplicate,
+  gap, recovery, ordering, cleanup, determinism, legacy compatibility, and product-lineage paths.
+  B2a-1 must complete the one-defect schema/runtime matrix and missing identity/scope edges before
+  projection consumes V3.
 
 See [[02 Architecture/ADR-013 Multi-Scope Capture and Reconnect-Aware Normalization]].
 
@@ -117,7 +121,7 @@ See [[02 Architecture/ADR-013 Multi-Scope Capture and Reconnect-Aware Normalizat
   model.
 - Portfolio risk, account sharing, live gateways, fanout backpressure, retention compaction,
   sharding, and machine-learning models.
-- Multi-market projection/features/backtests and retained long-capture regression evidence; these
-  remain B2b and B2c respectively.
+- Multi-market truth-boundary hardening remains B2a-1. Projection/features/backtests and retained
+  long-capture regression evidence remain B2b and B2c respectively.
 
 See [[02 Architecture/ADR-007 Deterministic Historical Replay and Backtesting]].
