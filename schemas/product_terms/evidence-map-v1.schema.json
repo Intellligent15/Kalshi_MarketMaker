@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.product_evidence_map.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "payload", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "pmm.product_evidence_map.v1"},
+    "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effective_interval_evidence", "entries"],
+      "properties": {
+        "effective_interval_evidence": {
+          "type": "object", "additionalProperties": false,
+          "required": ["opening_observation_id", "closing_observation_id"],
+          "properties": {"opening_observation_id": {"const": "opening"}, "closing_observation_id": {"const": "closing"}}
+        },
+        "entries": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["term_pointer", "support_mode", "anchors"],
+            "properties": {
+              "term_pointer": {"type": "string", "pattern": "^/"},
+              "support_mode": {"enum": ["mechanically_projected", "human_reviewed"]},
+              "anchors": {"type": "array", "minItems": 1, "items": {"type": "object"}}
+            }
+          }
+        }
+      }
+    }
+  }
+}

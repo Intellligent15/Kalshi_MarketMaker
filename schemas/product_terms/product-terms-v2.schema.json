@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.venue_product_terms.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "payload", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "pmm.venue_product_terms.v2"},
+    "payload_sha256": {"$ref": "product-terms-v1.schema.json#/$defs/hash"},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["venue", "environment", "revision_label", "effective", "identity", "price", "quantity", "payout", "rules", "lifecycle", "settlement", "fees", "source_refs"],
+      "properties": {
+        "venue": {"const": "kalshi"},
+        "environment": {"const": "production"},
+        "revision_label": {"type": "string", "minLength": 1},
+        "effective": {"$ref": "product-terms-v1.schema.json#/$defs/effective"},
+        "identity": {"$ref": "product-terms-v1.schema.json#/$defs/identity"},
+        "price": {"$ref": "product-terms-v1.schema.json#/$defs/price"},
+        "quantity": {"$ref": "product-terms-v1.schema.json#/$defs/quantity"},
+        "payout": {"$ref": "product-terms-v1.schema.json#/$defs/payout"},
+        "rules": {
+          "type": "object", "additionalProperties": false,
+          "required": ["primary", "secondary", "contract_terms_source"],
+          "properties": {
+            "primary": {"type": "string", "minLength": 1},
+            "secondary": {"type": "string"},
+            "contract_terms_source": {"type": "string", "minLength": 1}
+          }
+        },
+        "lifecycle": {"$ref": "product-terms-v1.schema.json#/$defs/lifecycle"},
+        "settlement": {"$ref": "product-terms-v1.schema.json#/$defs/settlement"},
+        "fees": {"$ref": "product-terms-v1.schema.json#/$defs/fees"},
+        "source_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

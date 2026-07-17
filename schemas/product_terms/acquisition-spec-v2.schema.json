@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.product_acquisition_spec.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "venue", "environment", "observation_id", "acquisition_policy", "acquisition_policy_sha256", "sources"],
+  "properties": {
+    "schema": {"const": "pmm.product_acquisition_spec.v2"},
+    "venue": {"const": "kalshi"},
+    "environment": {"const": "production"},
+    "observation_id": {"enum": ["opening", "closing"]},
+    "acquisition_policy": {"type": "string", "minLength": 1},
+    "acquisition_policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sources": {"type": "array", "minItems": 1, "items": {"$ref": "acquisition-spec-v1.schema.json#/properties/sources/items"}}
+  }
+}

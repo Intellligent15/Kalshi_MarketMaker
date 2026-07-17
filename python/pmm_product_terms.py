@@ -28,9 +28,18 @@ import requests
 
 SOURCE_MANIFEST_SCHEMA = "pmm.product_terms_source_manifest.v1"
 SOURCE_MANIFEST_V2_SCHEMA = "pmm.product_terms_source_manifest.v2"
+SOURCE_MANIFEST_V3_SCHEMA = "pmm.product_terms_source_manifest.v3"
 ACQUISITION_SPEC_SCHEMA = "pmm.product_acquisition_spec.v1"
+ACQUISITION_SPEC_V2_SCHEMA = "pmm.product_acquisition_spec.v2"
+ACQUISITION_POLICY_SCHEMA = "pmm.product_acquisition_policy.v1"
+SUPPORTED_ACQUISITION_POLICY_SHA256 = (
+    "583204c3d5a177d6247c20d1c3b12543aab6b454c8066bb3ee4943d974d3792b"
+)
 PRODUCT_TERMS_SCHEMA = "pmm.venue_product_terms.v1"
+PRODUCT_TERMS_V2_SCHEMA = "pmm.venue_product_terms.v2"
 PRODUCT_REVIEW_SCHEMA = "pmm.product_terms_review.v1"
+PRODUCT_REVIEW_V2_SCHEMA = "pmm.product_terms_review.v2"
+EVIDENCE_MAP_SCHEMA = "pmm.product_evidence_map.v1"
 PRODUCT_CATALOG_SCHEMA = "pmm.product_catalog.v1"
 CONVERSION_POLICY_SCHEMA = "pmm.product_conversion_policy.v1"
 COMPATIBILITY_REPORT_SCHEMA = "pmm.product_compatibility_report.v1"
@@ -38,6 +47,7 @@ COMPATIBILITY_REPORT_SCHEMA = "pmm.product_compatibility_report.v1"
 SHA256_LENGTH = 64
 ACQUISITION_TOOL_NAME = "pmm_product_terms"
 ACQUISITION_TOOL_VERSION = "product-acquisition.v2"
+ACQUISITION_TOOL_V3_VERSION = "product-acquisition.v3"
 STREAM_CHUNK_BYTES = 64 * 1024
 MAX_PACKAGE_BYTES = 64 * 1024 * 1024
 MAX_REDIRECTS = 5
@@ -96,6 +106,7 @@ REFUSAL_CODES = frozenset({
     "AcquisitionContentInvalid",
     "AcquisitionHttpStatusRejected",
     "AcquisitionMediaTypeMismatch",
+    "AcquisitionPolicyMismatch",
     "AcquisitionPackageTooLarge",
     "AcquisitionRedirectLimit",
     "AcquisitionRedirectRejected",
@@ -113,6 +124,8 @@ REFUSAL_CODES = frozenset({
     "EffectiveWindowGap",
     "EffectiveWindowMismatch",
     "EffectiveWindowOverlap",
+    "EvidenceAnchorMismatch",
+    "EvidenceIncomplete",
     "EventTickerMismatch",
     "FeePolicyUnsupported",
     "FeeTermsMissing",
@@ -333,13 +346,62 @@ def validate_envelope(path: Path, schema: str, mismatch_code: str) -> tuple[dict
     return payload, declared
 
 
+def _historical_acquisition_policy_payload() -> dict[str, Any]:
+    return {
+        "venue": "kalshi",
+        "environment": "production",
+        "allowed_hosts": sorted(ALLOWED_SOURCE_HOSTS),
+        "allowed_redirect_statuses": sorted(REDIRECT_STATUSES),
+        "maximum_redirects": MAX_REDIRECTS,
+        "stream_chunk_bytes": STREAM_CHUNK_BYTES,
+        "maximum_package_bytes": MAX_PACKAGE_BYTES,
+        "connect_timeout_seconds": CONNECT_TIMEOUT_SECONDS,
+        "read_timeout_seconds": READ_TIMEOUT_SECONDS,
+        "source_deadline_seconds": SOURCE_DEADLINE_SECONDS,
+        "package_deadline_seconds": PACKAGE_DEADLINE_SECONDS,
+        "role_policies": {
+            role: {
+                "maximum_bytes": maximum_bytes,
+                "media_types": sorted(media_types),
+                "content_kind": content_kind,
+            }
+            for role, (maximum_bytes, media_types, content_kind) in sorted(ROLE_POLICIES.items())
+        },
+    }
+
+
+@dataclass(frozen=True)
+class AcquisitionPolicy:
+    path: Path
+    payload: dict[str, Any]
+    payload_sha256: str
+    file_sha256: str
+
+    @classmethod
+    def load(cls, path: Path) -> "AcquisitionPolicy":
+        payload, payload_hash = validate_envelope(
+            path, ACQUISITION_POLICY_SCHEMA, "AcquisitionPolicyMismatch"
+        )
+        if payload_hash != SUPPORTED_ACQUISITION_POLICY_SHA256:
+            fail(
+                "AcquisitionPolicyMismatch",
+                "acquisition policy identity is not the frozen supported policy",
+            )
+        if payload != _historical_acquisition_policy_payload():
+            fail(
+                "AcquisitionPolicyMismatch",
+                "acquisition policy is not the supported immutable Kalshi first-party policy",
+            )
+        return cls(path, payload, payload_hash, sha256_file(path))
+
+
 def _validate_acquisition_summary(value: Any) -> None:
     if not isinstance(value, dict):
         fail("TermsNoncanonical", "source acquisition summary must be an object")
     require_keys(
         value,
         {"started_at_utc", "completed_at_utc", "tool_name", "tool_version"},
-        set(),
+        {"observation_id"},
         "source acquisition",
     )
     started = parse_utc(value["started_at_utc"], "source acquisition.started_at_utc")
@@ -421,6 +483,7 @@ class SourceEvidence:
     file_sha256: str
     source_hashes: dict[str, str]
     schema: str
+    acquisition_policy: AcquisitionPolicy | None
 
     @classmethod
     def load(cls, package: Path) -> "SourceEvidence":
@@ -429,7 +492,11 @@ class SourceEvidence:
             fail("SourceMissing", f"{path} is missing")
         document = read_object(path)
         schema = document.get("schema")
-        if schema not in {SOURCE_MANIFEST_SCHEMA, SOURCE_MANIFEST_V2_SCHEMA}:
+        if schema not in {
+            SOURCE_MANIFEST_SCHEMA,
+            SOURCE_MANIFEST_V2_SCHEMA,
+            SOURCE_MANIFEST_V3_SCHEMA,
+        }:
             fail("UnsupportedTermsSchema", f"{path} uses unsupported source schema {schema!r}")
         payload, payload_hash = validate_envelope(path, schema, "SourceHashMismatch")
         if schema == SOURCE_MANIFEST_SCHEMA:
@@ -440,7 +507,7 @@ class SourceEvidence:
                 "source payload",
             )
             parse_utc(payload["retrieved_at_utc"], "source.retrieved_at_utc")
-        else:
+        elif schema == SOURCE_MANIFEST_V2_SCHEMA:
             require_keys(
                 payload,
                 {"venue", "environment", "acquisition", "sources"},
@@ -448,6 +515,19 @@ class SourceEvidence:
                 "source payload",
             )
             _validate_acquisition_summary(payload["acquisition"])
+        else:
+            require_keys(
+                payload,
+                {
+                    "venue",
+                    "environment",
+                    "acquisition_policy_sha256",
+                    "acquisitions",
+                    "sources",
+                },
+                set(),
+                "source payload",
+            )
         if payload["venue"] != "kalshi" or payload["environment"] != "production":
             fail("TermsNoncanonical", "source venue/environment must be kalshi/production")
         sources = payload["sources"]
@@ -467,15 +547,18 @@ class SourceEvidence:
                     context,
                 )
             else:
+                required = {
+                    "id", "role", "requested_url", "final_url", "redirect_history",
+                    "http_status", "media_type", "retrieval_started_at_utc",
+                    "retrieval_completed_at_utc", "elapsed_milliseconds", "path",
+                    "byte_length", "sha256", "tool_name", "tool_version",
+                    "response_headers",
+                }
+                if schema == SOURCE_MANIFEST_V3_SCHEMA:
+                    required.add("observation_id")
                 require_keys(
                     source,
-                    {
-                        "id", "role", "requested_url", "final_url", "redirect_history",
-                        "http_status", "media_type", "retrieval_started_at_utc",
-                        "retrieval_completed_at_utc", "elapsed_milliseconds", "path",
-                        "byte_length", "sha256", "tool_name", "tool_version",
-                        "response_headers",
-                    },
+                    required,
                     {"venue_updated_at"},
                     context,
                 )
@@ -510,6 +593,7 @@ class SourceEvidence:
             hashes[identity] = expected
         if identities != sorted(identities) or len(identities) != len(set(identities)):
             fail("TermsNoncanonical", "source identifiers must be unique and sorted")
+        acquisition_policy: AcquisitionPolicy | None = None
         if schema == SOURCE_MANIFEST_V2_SCHEMA:
             acquisition = payload["acquisition"]
             acquisition_started = parse_utc(
@@ -535,7 +619,70 @@ class SourceEvidence:
                 total_bytes += source["byte_length"]
             if total_bytes > MAX_PACKAGE_BYTES:
                 fail("TermsNoncanonical", "retained package exceeds its byte limit")
-        return cls(payload, payload_hash, sha256_file(path), hashes, schema)
+        elif schema == SOURCE_MANIFEST_V3_SCHEMA:
+            acquisition_policy = AcquisitionPolicy.load(package / "acquisition_policy.json")
+            if acquisition_policy.payload_sha256 != require_hash(
+                payload["acquisition_policy_sha256"], "source acquisition policy hash"
+            ):
+                fail("AcquisitionPolicyMismatch", "source manifest names a different policy")
+            acquisitions = payload["acquisitions"]
+            if not isinstance(acquisitions, list) or not acquisitions:
+                fail("EvidenceIncomplete", "source manifest has no acquisitions")
+            observation_ids: list[str] = []
+            acquisition_by_id: dict[str, tuple[datetime, datetime]] = {}
+            for acquisition in acquisitions:
+                _validate_acquisition_summary(acquisition)
+                observation_id = require_string(
+                    acquisition.get("observation_id"), "source acquisition observation_id"
+                )
+                if observation_id not in {"opening", "closing"}:
+                    fail("EvidenceIncomplete", "acquisition observation must be opening or closing")
+                if acquisition["tool_version"] != ACQUISITION_TOOL_V3_VERSION:
+                    fail("AcquisitionPolicyMismatch", "V3 acquisition tool version is unsupported")
+                observation_ids.append(observation_id)
+                acquisition_by_id[observation_id] = (
+                    parse_utc(acquisition["started_at_utc"], "acquisition start"),
+                    parse_utc(acquisition["completed_at_utc"], "acquisition completion"),
+                )
+            valid_observations = (
+                observation_ids in (["opening"], ["closing"])
+                if len(acquisitions) == 1
+                else observation_ids == ["opening", "closing"]
+            )
+            if not valid_observations or len(set(observation_ids)) != len(observation_ids):
+                fail("EvidenceIncomplete", "acquisitions must be ordered opening then closing")
+            total_bytes = 0
+            for index, source in enumerate(sources):
+                observation_id = require_string(
+                    source.get("observation_id"),
+                    f"source.sources[{index}].observation_id",
+                )
+                if observation_id not in acquisition_by_id:
+                    fail("EvidenceIncomplete", "source names an unknown observation")
+                started, completed = acquisition_by_id[observation_id]
+                source_started = parse_utc(
+                    source["retrieval_started_at_utc"],
+                    f"source.sources[{index}].retrieval_started_at_utc",
+                )
+                source_completed = parse_utc(
+                    source["retrieval_completed_at_utc"],
+                    f"source.sources[{index}].retrieval_completed_at_utc",
+                )
+                if source_started < started or source_completed > completed:
+                    fail("TermsNoncanonical", "source retrieval lies outside its acquisition")
+                if source["tool_version"] != ACQUISITION_TOOL_V3_VERSION:
+                    fail("AcquisitionPolicyMismatch", "source tool version differs from V3 policy")
+                total_bytes += source["byte_length"]
+            if total_bytes > acquisition_policy.payload["maximum_package_bytes"]:
+                fail("TermsNoncanonical", "retained package exceeds its policy byte limit")
+        return cls(
+            payload,
+            payload_hash,
+            sha256_file(path),
+            hashes,
+            schema,
+            acquisition_policy,
+        )
 
 
 @dataclass(frozen=True)
@@ -557,8 +704,12 @@ class ProductTerms:
         path = package / "product_terms.json"
         if not path.is_file():
             fail("SourceMissing", f"{path} is missing")
-        payload, payload_hash = validate_envelope(path, PRODUCT_TERMS_SCHEMA, "TermsHashMismatch")
-        _validate_terms_payload(payload, evidence)
+        document = read_object(path)
+        schema = document.get("schema")
+        if schema not in {PRODUCT_TERMS_SCHEMA, PRODUCT_TERMS_V2_SCHEMA}:
+            fail("UnsupportedTermsSchema", f"{path} uses unsupported terms schema {schema!r}")
+        payload, payload_hash = validate_envelope(path, schema, "TermsHashMismatch")
+        _validate_terms_payload(payload, evidence, schema)
         _validate_terms_against_retained_sources(package, payload, evidence)
         return cls(payload, payload_hash, sha256_file(path))
 
@@ -582,7 +733,9 @@ class ProductTerms:
         return quantity
 
 
-def _validate_terms_payload(payload: dict[str, Any], evidence: SourceEvidence) -> None:
+def _validate_terms_payload(
+    payload: dict[str, Any], evidence: SourceEvidence, schema: str = PRODUCT_TERMS_SCHEMA
+) -> None:
     require_keys(
         payload,
         {"venue", "environment", "revision_label", "effective", "identity", "price", "quantity", "payout", "rules", "lifecycle", "settlement", "fees", "source_refs"},
@@ -620,7 +773,9 @@ def _validate_terms_payload(payload: dict[str, Any], evidence: SourceEvidence) -
     _validate_price_terms(payload["price"])
     _validate_quantity_terms(payload["quantity"])
     _validate_payout_terms(payload["payout"])
-    _validate_rules_lifecycle_settlement_fees(payload)
+    _validate_rules_lifecycle_settlement_fees(
+        payload, allow_empty_secondary=schema == PRODUCT_TERMS_V2_SCHEMA
+    )
     refs = payload["source_refs"]
     if (
         not isinstance(refs, list)
@@ -668,65 +823,116 @@ def _validate_terms_against_retained_sources(
     exactly; changing either side therefore requires a new review revision.
     """
 
-    market_document = _retained_json(package, evidence, "market_record")
-    series_document = _retained_json(package, evidence, "series_record")
-    metadata = _retained_json(package, evidence, "event_metadata")
-    market = market_document.get("market")
-    series = series_document.get("series")
-    if not isinstance(market, dict) or not isinstance(series, dict):
-        fail("SourceTermsMismatch", "retained market or series response has an unexpected shape")
+    observations = [None]
+    if evidence.schema == SOURCE_MANIFEST_V3_SCHEMA:
+        observations = ["opening", "closing"]
+    for observation in observations:
+        prefix = "" if observation is None else f"{observation}_"
+        market_document = _retained_json(package, evidence, f"{prefix}market_record")
+        series_document = _retained_json(package, evidence, f"{prefix}series_record")
+        metadata = _retained_json(package, evidence, f"{prefix}event_metadata")
+        market = market_document.get("market")
+        series = series_document.get("series")
+        if not isinstance(market, dict) or not isinstance(series, dict):
+            fail(
+                "SourceTermsMismatch",
+                "retained market or series response has an unexpected shape",
+            )
 
-    identity = payload["identity"]
-    identity_fields = {
-        "market_ticker": "ticker",
-        "event_ticker": "event_ticker",
-        "market_type": "market_type",
-        "title": "title",
-        "yes_sub_title": "yes_sub_title",
-        "no_sub_title": "no_sub_title",
-    }
-    for term_field, source_field in identity_fields.items():
-        _require_source_equal(identity[term_field], market.get(source_field), f"identity.{term_field}")
-    _require_source_equal(identity["series_ticker"], series.get("ticker"), "identity.series_ticker")
+        identity = payload["identity"]
+        identity_fields = {
+            "market_ticker": "ticker",
+            "event_ticker": "event_ticker",
+            "market_type": "market_type",
+            "title": "title",
+            "yes_sub_title": "yes_sub_title",
+            "no_sub_title": "no_sub_title",
+        }
+        for term_field, source_field in identity_fields.items():
+            _require_source_equal(
+                identity[term_field],
+                market.get(source_field),
+                f"{observation or 'single'}.identity.{term_field}",
+            )
+        _require_source_equal(
+            identity["series_ticker"],
+            series.get("ticker"),
+            f"{observation or 'single'}.identity.series_ticker",
+        )
 
-    price = payload["price"]
-    _require_source_equal(price["level_structure"], market.get("price_level_structure"), "price.level_structure")
-    source_ranges = market.get("price_ranges")
-    projected_ranges = [
-        {"start": item["start_dollars"], "end": item["end_dollars"], "step": item["step_dollars"]}
-        for item in price["ranges"]
-    ]
-    _require_source_equal(projected_ranges, source_ranges, "price.ranges")
-
-    payout = payload["payout"]
-    _require_source_equal(
-        payout["notional_value_dollars"], market.get("notional_value_dollars"),
-        "payout.notional_value_dollars",
-    )
-    rules = payload["rules"]
-    _require_source_equal(rules["primary"], market.get("rules_primary"), "rules.primary")
-    _require_source_equal(rules["secondary"], market.get("rules_secondary"), "rules.secondary")
-    lifecycle_fields = {
-        "open_time": "open_time",
-        "close_time": "close_time",
-        "expected_expiration_time": "expected_expiration_time",
-        "latest_expiration_time": "latest_expiration_time",
-        "can_close_early": "can_close_early",
-        "early_close_condition": "early_close_condition",
-        "settlement_timer_seconds": "settlement_timer_seconds",
-    }
-    for term_field, source_field in lifecycle_fields.items():
-        _require_source_equal(payload["lifecycle"][term_field], market.get(source_field), f"lifecycle.{term_field}")
-
-    _require_source_equal(payload["settlement"]["sources"], metadata.get("settlement_sources"), "settlement.sources")
-    _require_source_equal(payload["settlement"]["sources"], series.get("settlement_sources"), "settlement.sources")
-    _require_source_equal(payload["fees"]["series_fee_type"], series.get("fee_type"), "fees.series_fee_type")
-    try:
-        source_multiplier = Decimal(str(series.get("fee_multiplier")))
-    except InvalidOperation:
-        fail("SourceTermsMismatch", "retained series fee multiplier is invalid")
-    if Decimal(payload["fees"]["series_fee_multiplier"]) != source_multiplier:
-        fail("SourceTermsMismatch", "reviewed terms fees.series_fee_multiplier differs from retained source evidence")
+        price = payload["price"]
+        _require_source_equal(
+            price["level_structure"],
+            market.get("price_level_structure"),
+            f"{observation or 'single'}.price.level_structure",
+        )
+        projected_ranges = [
+            {
+                "start": item["start_dollars"],
+                "end": item["end_dollars"],
+                "step": item["step_dollars"],
+            }
+            for item in price["ranges"]
+        ]
+        _require_source_equal(
+            projected_ranges,
+            market.get("price_ranges"),
+            f"{observation or 'single'}.price.ranges",
+        )
+        _require_source_equal(
+            payload["payout"]["notional_value_dollars"],
+            market.get("notional_value_dollars"),
+            f"{observation or 'single'}.payout.notional_value_dollars",
+        )
+        _require_source_equal(
+            payload["rules"]["primary"],
+            market.get("rules_primary"),
+            f"{observation or 'single'}.rules.primary",
+        )
+        _require_source_equal(
+            payload["rules"]["secondary"],
+            market.get("rules_secondary"),
+            f"{observation or 'single'}.rules.secondary",
+        )
+        lifecycle_fields = {
+            "open_time": "open_time",
+            "close_time": "close_time",
+            "expected_expiration_time": "expected_expiration_time",
+            "latest_expiration_time": "latest_expiration_time",
+            "can_close_early": "can_close_early",
+            "early_close_condition": "early_close_condition",
+            "settlement_timer_seconds": "settlement_timer_seconds",
+        }
+        for term_field, source_field in lifecycle_fields.items():
+            _require_source_equal(
+                payload["lifecycle"][term_field],
+                market.get(source_field),
+                f"{observation or 'single'}.lifecycle.{term_field}",
+            )
+        _require_source_equal(
+            payload["settlement"]["sources"],
+            metadata.get("settlement_sources"),
+            f"{observation or 'single'}.settlement.sources",
+        )
+        _require_source_equal(
+            payload["settlement"]["sources"],
+            series.get("settlement_sources"),
+            f"{observation or 'single'}.series.settlement_sources",
+        )
+        _require_source_equal(
+            payload["fees"]["series_fee_type"],
+            series.get("fee_type"),
+            f"{observation or 'single'}.fees.series_fee_type",
+        )
+        try:
+            source_multiplier = Decimal(str(series.get("fee_multiplier")))
+        except InvalidOperation:
+            fail("SourceTermsMismatch", "retained series fee multiplier is invalid")
+        if Decimal(payload["fees"]["series_fee_multiplier"]) != source_multiplier:
+            fail(
+                "SourceTermsMismatch",
+                f"{observation or 'single'} series fee multiplier differs from terms",
+            )
 
 
 def _validate_price_terms(price: Any) -> None:
@@ -780,13 +986,18 @@ def _validate_payout_terms(payout: Any) -> None:
         fail("UnsupportedPayout", "B1a supports only one-dollar binary payout bounds")
 
 
-def _validate_rules_lifecycle_settlement_fees(payload: dict[str, Any]) -> None:
+def _validate_rules_lifecycle_settlement_fees(
+    payload: dict[str, Any], *, allow_empty_secondary: bool = False
+) -> None:
     rules = payload["rules"]
     if not isinstance(rules, dict):
         fail("TermsNoncanonical", "terms.rules must be an object")
     require_keys(rules, {"primary", "secondary", "contract_terms_source"}, set(), "terms.rules")
     require_string(rules["primary"], "terms.rules.primary")
-    require_string(rules["secondary"], "terms.rules.secondary")
+    if allow_empty_secondary and rules["secondary"] == "":
+        pass
+    else:
+        require_string(rules["secondary"], "terms.rules.secondary")
     require_string(rules["contract_terms_source"], "terms.rules.contract_terms_source")
     lifecycle = payload["lifecycle"]
     if not isinstance(lifecycle, dict):
@@ -830,19 +1041,168 @@ def _validate_rules_lifecycle_settlement_fees(payload: dict[str, Any]) -> None:
         fail("FeePolicyUnsupported", "fees must remain unsupported_not_applied")
 
 
+def _json_pointer(value: Any, pointer: Any, context: str) -> Any:
+    text = require_string(pointer, context)
+    if text == "":
+        return value
+    if not text.startswith("/"):
+        fail("EvidenceAnchorMismatch", f"{context} must be an RFC 6901 JSON pointer")
+    current = value
+    for raw_part in text[1:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        elif isinstance(current, list) and part.isdigit() and int(part) < len(current):
+            current = current[int(part)]
+        else:
+            fail("EvidenceAnchorMismatch", f"{context} does not resolve at {part!r}")
+    return current
+
+
+@dataclass(frozen=True)
+class EvidenceMap:
+    payload: dict[str, Any]
+    payload_sha256: str
+    file_sha256: str
+
+    @classmethod
+    def load(
+        cls, package: Path, terms: ProductTerms, evidence: SourceEvidence
+    ) -> "EvidenceMap":
+        path = package / "evidence_anchors.json"
+        if not path.is_file():
+            fail("EvidenceIncomplete", f"{path} is missing")
+        payload, payload_hash = validate_envelope(
+            path, EVIDENCE_MAP_SCHEMA, "EvidenceAnchorMismatch"
+        )
+        require_keys(
+            payload,
+            {"effective_interval_evidence", "entries"},
+            set(),
+            "evidence map payload",
+        )
+        interval = payload["effective_interval_evidence"]
+        if interval != {
+            "opening_observation_id": "opening",
+            "closing_observation_id": "closing",
+        }:
+            fail("EvidenceIncomplete", "evidence map must bracket opening and closing")
+        entries = payload["entries"]
+        if not isinstance(entries, list) or not entries:
+            fail("EvidenceIncomplete", "evidence map must contain field anchors")
+        pointers: list[str] = []
+        source_by_id = {item["id"]: item for item in evidence.payload["sources"]}
+        for index, entry in enumerate(entries):
+            context = f"evidence.entries[{index}]"
+            if not isinstance(entry, dict):
+                fail("EvidenceAnchorMismatch", f"{context} must be an object")
+            require_keys(
+                entry,
+                {"term_pointer", "support_mode", "anchors"},
+                set(),
+                context,
+            )
+            pointer = require_string(entry["term_pointer"], f"{context}.term_pointer")
+            term_value = _json_pointer(
+                {"payload": terms.payload}, pointer, f"{context}.term_pointer"
+            )
+            pointers.append(pointer)
+            if entry["support_mode"] not in {"mechanically_projected", "human_reviewed"}:
+                fail("EvidenceAnchorMismatch", f"{context}.support_mode is unsupported")
+            anchors = entry["anchors"]
+            if not isinstance(anchors, list) or not anchors:
+                fail("EvidenceIncomplete", f"{context} has no anchors")
+            observations: set[str] = set()
+            for anchor_index, anchor in enumerate(anchors):
+                anchor_context = f"{context}.anchors[{anchor_index}]"
+                if not isinstance(anchor, dict):
+                    fail("EvidenceAnchorMismatch", f"{anchor_context} must be an object")
+                require_keys(
+                    anchor,
+                    {"source_id", "source_sha256", "locator"},
+                    {"claim"},
+                    anchor_context,
+                )
+                source_id = require_string(anchor["source_id"], f"{anchor_context}.source_id")
+                source = source_by_id.get(source_id)
+                if source is None:
+                    fail("EvidenceIncomplete", f"{anchor_context} names a missing source")
+                if require_hash(anchor["source_sha256"], f"{anchor_context}.source_sha256") != source["sha256"]:
+                    fail("EvidenceAnchorMismatch", f"{anchor_context} source hash is stale")
+                observation = source.get("observation_id")
+                if observation in {"opening", "closing"}:
+                    observations.add(observation)
+                locator = anchor["locator"]
+                if not isinstance(locator, dict):
+                    fail("EvidenceAnchorMismatch", f"{anchor_context}.locator must be an object")
+                kind = locator.get("kind")
+                retained_path = safe_member(
+                    package, source["path"], f"{anchor_context}.source path"
+                )
+                if kind == "json_pointer":
+                    require_keys(locator, {"kind", "pointer"}, set(), f"{anchor_context}.locator")
+                    source_value = _json_pointer(
+                        read_object(retained_path),
+                        locator["pointer"],
+                        f"{anchor_context}.locator.pointer",
+                    )
+                    if (
+                        entry["support_mode"] == "mechanically_projected"
+                        and source_value != term_value
+                    ):
+                        fail("EvidenceAnchorMismatch", f"{anchor_context} value differs from terms")
+                elif kind == "markdown_section":
+                    require_keys(locator, {"kind", "heading"}, set(), f"{anchor_context}.locator")
+                    heading = require_string(locator["heading"], f"{anchor_context}.heading")
+                    text = retained_path.read_text(encoding="utf-8")
+                    if heading not in text:
+                        fail("EvidenceAnchorMismatch", f"{anchor_context} heading is absent")
+                elif kind == "pdf_section":
+                    require_keys(locator, {"kind", "page", "section"}, set(), f"{anchor_context}.locator")
+                    require_integer(locator["page"], f"{anchor_context}.page", minimum=1)
+                    require_string(locator["section"], f"{anchor_context}.section")
+                    if retained_path.read_bytes()[:5] != b"%PDF-":
+                        fail("EvidenceAnchorMismatch", f"{anchor_context} source is not a PDF")
+                else:
+                    fail("EvidenceAnchorMismatch", f"{anchor_context} locator kind is unsupported")
+                if anchor.get("claim") is not None:
+                    require_string(anchor["claim"], f"{anchor_context}.claim")
+            if observations != {"opening", "closing"}:
+                fail("EvidenceIncomplete", f"{context} is not supported at both interval endpoints")
+        if pointers != sorted(pointers) or len(pointers) != len(set(pointers)):
+            fail("EvidenceAnchorMismatch", "term pointers must be unique and sorted")
+        return cls(payload, payload_hash, sha256_file(path))
+
+
 @dataclass(frozen=True)
 class ProductReview:
     payload: dict[str, Any]
     payload_sha256: str
     file_sha256: str
+    schema: str
+    evidence_map: EvidenceMap | None
 
     @classmethod
     def load(cls, package: Path, terms: ProductTerms, evidence: SourceEvidence) -> "ProductReview":
         path = package / "review.json"
         if not path.is_file():
             fail("ReviewMissing", f"{path} is missing")
-        payload, payload_hash = validate_envelope(path, PRODUCT_REVIEW_SCHEMA, "ReviewHashMismatch")
-        require_keys(payload, {"status", "reviewed_at_utc", "product_terms_sha256", "source_manifest_sha256", "effective_from_utc", "effective_until_utc", "effective_time_basis", "limitations"}, set(), "review payload")
+        document = read_object(path)
+        schema = document.get("schema")
+        if schema not in {PRODUCT_REVIEW_SCHEMA, PRODUCT_REVIEW_V2_SCHEMA}:
+            fail("UnsupportedTermsSchema", f"{path} uses unsupported review schema {schema!r}")
+        payload, payload_hash = validate_envelope(path, schema, "ReviewHashMismatch")
+        required = {
+            "status", "reviewed_at_utc", "product_terms_sha256",
+            "source_manifest_sha256", "effective_from_utc", "effective_until_utc",
+            "effective_time_basis", "limitations",
+        }
+        if schema == PRODUCT_REVIEW_V2_SCHEMA:
+            required.update({
+                "reviewer", "responsibilities", "checklist",
+                "acquisition_policy_sha256", "evidence_map_sha256",
+            })
+        require_keys(payload, required, set(), "review payload")
         if payload["status"] != "reviewed":
             fail("ReviewNotApproved", f"review status is {payload['status']!r}")
         parse_utc(payload["reviewed_at_utc"], "review.reviewed_at_utc")
@@ -864,7 +1224,54 @@ class ProductReview:
             fail("EffectiveWindowMismatch", "review and terms effective intervals differ")
         if not isinstance(payload["limitations"], list) or any(not isinstance(item, str) for item in payload["limitations"]):
             fail("TermsNoncanonical", "review limitations must be strings")
-        return cls(payload, payload_hash, sha256_file(path))
+        evidence_map: EvidenceMap | None = None
+        if schema == PRODUCT_REVIEW_V2_SCHEMA:
+            if evidence.schema != SOURCE_MANIFEST_V3_SCHEMA or evidence.acquisition_policy is None:
+                fail("AcquisitionPolicyMismatch", "review V2 requires source manifest V3")
+            reviewer = payload["reviewer"]
+            if not isinstance(reviewer, dict):
+                fail("TermsNoncanonical", "reviewer must be an object")
+            require_keys(reviewer, {"identity", "identity_kind"}, set(), "review reviewer")
+            require_string(reviewer["identity"], "review reviewer identity")
+            if reviewer["identity_kind"] != "repository_declared":
+                fail("TermsNoncanonical", "review identity kind must be repository_declared")
+            responsibilities = payload["responsibilities"]
+            if (
+                not isinstance(responsibilities, list)
+                or not responsibilities
+                or any(not isinstance(item, str) or not item for item in responsibilities)
+                or responsibilities != sorted(set(responsibilities))
+            ):
+                fail("TermsNoncanonical", "review responsibilities must be sorted and unique")
+            checklist = payload["checklist"]
+            if not isinstance(checklist, list) or not checklist:
+                fail("TermsNoncanonical", "review checklist must not be empty")
+            for item in checklist:
+                if not isinstance(item, dict):
+                    fail("TermsNoncanonical", "review checklist item must be an object")
+                require_keys(item, {"item", "status"}, set(), "review checklist item")
+                require_string(item["item"], "review checklist item")
+                if item["status"] != "accepted":
+                    fail("ReviewNotApproved", "review checklist contains an unaccepted item")
+            if require_hash(
+                payload["acquisition_policy_sha256"], "review acquisition policy hash"
+            ) != evidence.acquisition_policy.payload_sha256:
+                fail("AcquisitionPolicyMismatch", "review names a different acquisition policy")
+            evidence_map = EvidenceMap.load(package, terms, evidence)
+            if require_hash(payload["evidence_map_sha256"], "review evidence map hash") != evidence_map.payload_sha256:
+                fail("ReviewHashMismatch", "review names a different evidence map")
+            acquisitions = evidence.payload["acquisitions"]
+            if len(acquisitions) != 2:
+                fail("EvidenceIncomplete", "review V2 requires opening and closing observations")
+            bracket_from = acquisitions[0]["completed_at_utc"]
+            bracket_until = acquisitions[1]["started_at_utc"]
+            if payload["effective_from_utc"] != bracket_from or payload["effective_until_utc"] != bracket_until:
+                fail("EffectiveWindowMismatch", "review interval does not equal the observed bracket")
+            if parse_utc(bracket_until, "closing acquisition start") <= parse_utc(
+                bracket_from, "opening acquisition completion"
+            ):
+                fail("EffectiveWindowGap", "opening and closing acquisitions do not bracket time")
+        return cls(payload, payload_hash, sha256_file(path), schema, evidence_map)
 
     def covers(self, started: datetime, ended: datetime) -> bool:
         start = parse_utc(self.payload["effective_from_utc"], "review.effective_from_utc")
@@ -932,6 +1339,12 @@ class ProductPackage:
             fail("SourceMissing", f"{path} is not a regular package directory")
         evidence = SourceEvidence.load(resolved)
         expected_files = {"source_manifest.json", "product_terms.json", "review.json"}
+        review_document = read_object(resolved / "review.json")
+        review_schema = review_document.get("schema")
+        if evidence.schema == SOURCE_MANIFEST_V3_SCHEMA:
+            expected_files.add("acquisition_policy.json")
+        if review_schema == PRODUCT_REVIEW_V2_SCHEMA:
+            expected_files.add("evidence_anchors.json")
         expected_files.update(source["path"] for source in evidence.payload["sources"])
         actual_files: set[str] = set()
         for member in resolved.rglob("*"):
@@ -1158,6 +1571,8 @@ def _request_source(
     package_started: float,
     now: Callable[[], datetime],
     monotonic: Callable[[], float],
+    observation_id: str | None = None,
+    tool_version: str = ACQUISITION_TOOL_VERSION,
 ) -> tuple[dict[str, Any], int]:
     role = require_string(item["role"], "fetch source role")
     if role not in ROLE_POLICIES:
@@ -1307,9 +1722,11 @@ def _request_source(
             "byte_length": byte_count,
             "sha256": digest.hexdigest(),
             "tool_name": ACQUISITION_TOOL_NAME,
-            "tool_version": ACQUISITION_TOOL_VERSION,
+            "tool_version": tool_version,
             "response_headers": _selected_headers(response.headers),
         }
+        if observation_id is not None:
+            retained["observation_id"] = observation_id
         return retained, byte_count
     finally:
         if response is not None:
@@ -1325,9 +1742,41 @@ def fetch_sources(
     monotonic: Callable[[], float] | None = None,
 ) -> None:
     spec = read_object(spec_path)
-    require_keys(spec, {"schema", "venue", "environment", "sources"}, set(), "fetch spec")
-    if spec["schema"] != ACQUISITION_SPEC_SCHEMA:
-        fail("UnsupportedTermsSchema", f"fetch spec must use {ACQUISITION_SPEC_SCHEMA}")
+    schema = spec.get("schema")
+    if schema == ACQUISITION_SPEC_SCHEMA:
+        require_keys(
+            spec,
+            {"schema", "venue", "environment", "sources"},
+            set(),
+            "fetch spec",
+        )
+        observation_id: str | None = None
+        acquisition_policy: AcquisitionPolicy | None = None
+        tool_version = ACQUISITION_TOOL_VERSION
+    elif schema == ACQUISITION_SPEC_V2_SCHEMA:
+        require_keys(
+            spec,
+            {
+                "schema", "venue", "environment", "observation_id",
+                "acquisition_policy", "acquisition_policy_sha256", "sources",
+            },
+            set(),
+            "fetch spec",
+        )
+        observation_id = require_string(spec["observation_id"], "fetch observation_id")
+        if observation_id not in {"opening", "closing"}:
+            fail("EvidenceIncomplete", "fetch observation must be opening or closing")
+        policy_relative = Path(require_string(spec["acquisition_policy"], "fetch policy path"))
+        if policy_relative.is_absolute() or ".." in policy_relative.parts:
+            fail("AcquisitionPolicyMismatch", "fetch policy path must be relative to its spec")
+        acquisition_policy = AcquisitionPolicy.load(spec_path.parent / policy_relative)
+        if acquisition_policy.payload_sha256 != require_hash(
+            spec["acquisition_policy_sha256"], "fetch policy hash"
+        ):
+            fail("AcquisitionPolicyMismatch", "fetch spec names a different policy")
+        tool_version = ACQUISITION_TOOL_V3_VERSION
+    else:
+        fail("UnsupportedTermsSchema", f"fetch spec uses unsupported schema {schema!r}")
     if spec["venue"] != "kalshi" or spec["environment"] != "production":
         fail("SourceMissing", "fetch supports only kalshi production sources")
     sources = spec["sources"]
@@ -1379,24 +1828,43 @@ def fetch_sources(
                 package_started=package_started,
                 now=clock,
                 monotonic=timer,
+                observation_id=observation_id,
+                tool_version=tool_version,
             )
             total_bytes += added_bytes
             retained.append(source_record)
         retained.sort(key=lambda value: value["id"])
-        payload = {
-            "venue": "kalshi",
-            "environment": "production",
-            "acquisition": {
-                "started_at_utc": format_utc(acquisition_started_utc),
-                "completed_at_utc": format_utc(clock()),
-                "tool_name": ACQUISITION_TOOL_NAME,
-                "tool_version": ACQUISITION_TOOL_VERSION,
-            },
-            "sources": retained,
+        acquisition = {
+            "started_at_utc": format_utc(acquisition_started_utc),
+            "completed_at_utc": format_utc(clock()),
+            "tool_name": ACQUISITION_TOOL_NAME,
+            "tool_version": tool_version,
         }
+        if observation_id is None:
+            payload = {
+                "venue": "kalshi",
+                "environment": "production",
+                "acquisition": acquisition,
+                "sources": retained,
+            }
+            manifest_schema = SOURCE_MANIFEST_V2_SCHEMA
+        else:
+            assert acquisition_policy is not None
+            acquisition["observation_id"] = observation_id
+            payload = {
+                "venue": "kalshi",
+                "environment": "production",
+                "acquisition_policy_sha256": acquisition_policy.payload_sha256,
+                "acquisitions": [acquisition],
+                "sources": retained,
+            }
+            manifest_schema = SOURCE_MANIFEST_V3_SCHEMA
+            shutil.copyfile(
+                acquisition_policy.path, partial / "acquisition_policy.json"
+            )
         _write_new_canonical(
             partial / "source_manifest.json",
-            build_envelope(SOURCE_MANIFEST_V2_SCHEMA, payload),
+            build_envelope(manifest_schema, payload),
         )
         retained_package_bytes = sum(
             member.stat().st_size for member in partial.rglob("*") if member.is_file()
@@ -1419,13 +1887,127 @@ def fetch_sources(
             request_session.close()
 
 
-def build_terms(payload_path: Path, package: Path) -> None:
+def assemble_observations(opening: Path, closing: Path, output: Path) -> None:
+    opening_evidence = SourceEvidence.load(opening)
+    closing_evidence = SourceEvidence.load(closing)
+    if (
+        opening_evidence.schema != SOURCE_MANIFEST_V3_SCHEMA
+        or closing_evidence.schema != SOURCE_MANIFEST_V3_SCHEMA
+        or [item["observation_id"] for item in opening_evidence.payload["acquisitions"]]
+        != ["opening"]
+        or [item["observation_id"] for item in closing_evidence.payload["acquisitions"]]
+        != ["closing"]
+    ):
+        fail("EvidenceIncomplete", "assembly requires one opening and one closing V3 observation")
+    opening_policy = opening_evidence.acquisition_policy
+    closing_policy = closing_evidence.acquisition_policy
+    assert opening_policy is not None and closing_policy is not None
+    if opening_policy.payload_sha256 != closing_policy.payload_sha256:
+        fail("AcquisitionPolicyMismatch", "opening and closing use different policies")
+    opening_completed = parse_utc(
+        opening_evidence.payload["acquisitions"][0]["completed_at_utc"],
+        "opening acquisition completion",
+    )
+    closing_started = parse_utc(
+        closing_evidence.payload["acquisitions"][0]["started_at_utc"],
+        "closing acquisition start",
+    )
+    if closing_started <= opening_completed:
+        fail("EffectiveWindowGap", "opening and closing observations do not bracket time")
+    opening_sources = {item["id"]: item for item in opening_evidence.payload["sources"]}
+    closing_sources = {item["id"]: item for item in closing_evidence.payload["sources"]}
+    if opening_sources.keys() != closing_sources.keys():
+        fail("EvidenceIncomplete", "opening and closing source membership differs")
+    for source_id in sorted(opening_sources):
+        left = opening_sources[source_id]
+        right = closing_sources[source_id]
+        for field in ("role", "requested_url", "media_type"):
+            if left[field] != right[field]:
+                fail("EvidenceIncomplete", f"{source_id} {field} differs across observations")
+        if left["role"] not in {
+            "event_metadata_record",
+            "market_record",
+            "series_record_and_contract_document_identity",
+        } and left["sha256"] != right["sha256"]:
+            fail("EvidenceAnchorMismatch", f"static source {source_id} changed across observations")
+    if output.exists():
+        fail("SourceMissing", f"assembly output already exists: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    partial = Path(tempfile.mkdtemp(
+        prefix=f".{output.name}.", suffix=".partial", dir=output.parent
+    ))
+    try:
+        shutil.copyfile(opening_policy.path, partial / "acquisition_policy.json")
+        assembled_sources: list[dict[str, Any]] = []
+        for observation_id, root, source_map in (
+            ("opening", opening, opening_sources),
+            ("closing", closing, closing_sources),
+        ):
+            for source_id, source in sorted(source_map.items()):
+                source_path = safe_member(root, source["path"], f"{observation_id} source path")
+                relative = Path("sources") / observation_id / Path(source["path"]).name
+                destination = partial / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source_path, destination)
+                assembled = dict(source)
+                assembled["id"] = f"{observation_id}_{source_id}"
+                assembled["path"] = relative.as_posix()
+                assembled_sources.append(assembled)
+        payload = {
+            "venue": "kalshi",
+            "environment": "production",
+            "acquisition_policy_sha256": opening_policy.payload_sha256,
+            "acquisitions": [
+                opening_evidence.payload["acquisitions"][0],
+                closing_evidence.payload["acquisitions"][0],
+            ],
+            "sources": sorted(assembled_sources, key=lambda item: item["id"]),
+        }
+        _write_new_canonical(
+            partial / "source_manifest.json",
+            build_envelope(SOURCE_MANIFEST_V3_SCHEMA, payload),
+        )
+        SourceEvidence.load(partial)
+        partial.rename(output)
+    except BaseException as original:
+        try:
+            shutil.rmtree(partial)
+        except OSError as cleanup_error:
+            raise ProductTermsError(
+                "AcquisitionCleanupFailed",
+                f"failed to remove partial assembly {partial}: {cleanup_error}",
+            ) from original
+        raise
+
+
+def build_terms(
+    payload_path: Path, package: Path, schema: str = PRODUCT_TERMS_SCHEMA
+) -> None:
     payload = read_object(payload_path)
     evidence = SourceEvidence.load(package)
-    _validate_terms_payload(payload, evidence)
+    if schema not in {PRODUCT_TERMS_SCHEMA, PRODUCT_TERMS_V2_SCHEMA}:
+        fail("UnsupportedTermsSchema", f"cannot build unsupported terms schema {schema!r}")
+    _validate_terms_payload(payload, evidence, schema)
     destination = package / "product_terms.json"
-    _write_new_canonical(destination, build_envelope(PRODUCT_TERMS_SCHEMA, payload))
-    ProductTerms.load(package, evidence)
+    _write_new_canonical(destination, build_envelope(schema, payload))
+    try:
+        ProductTerms.load(package, evidence)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+
+
+def build_evidence_map(payload_path: Path, package: Path) -> None:
+    evidence = SourceEvidence.load(package)
+    product = ProductTerms.load(package, evidence)
+    payload = read_object(payload_path)
+    destination = package / "evidence_anchors.json"
+    _write_new_canonical(destination, build_envelope(EVIDENCE_MAP_SCHEMA, payload))
+    try:
+        EvidenceMap.load(package, product, evidence)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
 
 
 def review_terms(
@@ -1436,6 +2018,9 @@ def review_terms(
     effective_until_utc: str | None,
     effective_time_basis: str,
     limitations: list[str],
+    reviewer: str | None = None,
+    responsibilities: list[str] | None = None,
+    checklist: list[str] | None = None,
 ) -> None:
     evidence = SourceEvidence.load(package)
     product = ProductTerms.load(package, evidence)
@@ -1450,7 +2035,7 @@ def review_terms(
         or effective_until_utc != product.payload["effective"]["until_utc"]
     ):
         fail("EffectiveWindowMismatch", "review interval must match the terms payload")
-    payload = {
+    payload: dict[str, Any] = {
         "status": "reviewed",
         "reviewed_at_utc": reviewed_at_utc,
         "product_terms_sha256": product.payload_sha256,
@@ -1460,9 +2045,37 @@ def review_terms(
         "effective_time_basis": effective_time_basis,
         "limitations": limitations,
     }
+    schema = PRODUCT_REVIEW_SCHEMA
+    if evidence.schema == SOURCE_MANIFEST_V3_SCHEMA:
+        if evidence.acquisition_policy is None:
+            fail("AcquisitionPolicyMismatch", "source manifest V3 has no policy")
+        if reviewer is None:
+            fail("ReviewMissing", "review V2 requires a repository-declared reviewer")
+        evidence_map = EvidenceMap.load(package, product, evidence)
+        sorted_responsibilities = sorted(set(responsibilities or []))
+        checklist_items = checklist or []
+        if not sorted_responsibilities or not checklist_items:
+            fail("ReviewMissing", "review V2 requires responsibilities and checklist")
+        payload.update({
+            "reviewer": {
+                "identity": reviewer,
+                "identity_kind": "repository_declared",
+            },
+            "responsibilities": sorted_responsibilities,
+            "checklist": [
+                {"item": item, "status": "accepted"} for item in checklist_items
+            ],
+            "acquisition_policy_sha256": evidence.acquisition_policy.payload_sha256,
+            "evidence_map_sha256": evidence_map.payload_sha256,
+        })
+        schema = PRODUCT_REVIEW_V2_SCHEMA
     destination = package / "review.json"
-    _write_new_canonical(destination, build_envelope(PRODUCT_REVIEW_SCHEMA, payload))
-    ProductReview.load(package, product, evidence)
+    _write_new_canonical(destination, build_envelope(schema, payload))
+    try:
+        ProductReview.load(package, product, evidence)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
 
 
 def _diff_values(left: Any, right: Any, path: str = "$") -> list[dict[str, Any]]:
@@ -1569,9 +2182,21 @@ def build_parser() -> argparse.ArgumentParser:
     fetch = commands.add_parser("fetch")
     fetch.add_argument("--spec", required=True, type=Path)
     fetch.add_argument("--output", required=True, type=Path)
+    assemble = commands.add_parser("assemble-observations")
+    assemble.add_argument("--opening", required=True, type=Path)
+    assemble.add_argument("--closing", required=True, type=Path)
+    assemble.add_argument("--output", required=True, type=Path)
     build = commands.add_parser("build")
     build.add_argument("--payload", required=True, type=Path)
     build.add_argument("--package", required=True, type=Path)
+    build.add_argument(
+        "--schema",
+        choices=(PRODUCT_TERMS_SCHEMA, PRODUCT_TERMS_V2_SCHEMA),
+        default=PRODUCT_TERMS_SCHEMA,
+    )
+    build_evidence = commands.add_parser("build-evidence")
+    build_evidence.add_argument("--payload", required=True, type=Path)
+    build_evidence.add_argument("--package", required=True, type=Path)
     review = commands.add_parser("review")
     review.add_argument("--package", required=True, type=Path)
     review.add_argument("--reviewed-at", required=True)
@@ -1583,6 +2208,9 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("venue_explicit", "source_revision_timestamp", "contemporaneous_snapshot", "reviewed_retrospective"),
     )
     review.add_argument("--limitation", action="append", default=[])
+    review.add_argument("--reviewer")
+    review.add_argument("--responsibility", action="append", default=[])
+    review.add_argument("--checklist-item", action="append", default=[])
     compare = commands.add_parser("compare")
     compare.add_argument("--left", required=True, type=Path)
     compare.add_argument("--right", required=True, type=Path)
@@ -1613,8 +2241,14 @@ def main(argv: Iterable[str] | None = None) -> int:
         elif args.command == "fetch":
             fetch_sources(args.spec, args.output)
             result = {"status": "fetched", "output": str(args.output)}
+        elif args.command == "assemble-observations":
+            assemble_observations(args.opening, args.closing, args.output)
+            result = {"status": "assembled", "output": str(args.output)}
         elif args.command == "build":
-            build_terms(args.payload, args.package)
+            build_terms(args.payload, args.package, args.schema)
+            result = {"status": "built", "package": str(args.package)}
+        elif args.command == "build-evidence":
+            build_evidence_map(args.payload, args.package)
             result = {"status": "built", "package": str(args.package)}
         elif args.command == "review":
             review_terms(
@@ -1624,6 +2258,9 @@ def main(argv: Iterable[str] | None = None) -> int:
                 effective_until_utc=args.effective_until,
                 effective_time_basis=args.basis,
                 limitations=args.limitation,
+                reviewer=args.reviewer,
+                responsibilities=args.responsibility,
+                checklist=args.checklist_item,
             )
             result = {"status": "reviewed", "package": str(args.package)}
         elif args.command == "compare":
