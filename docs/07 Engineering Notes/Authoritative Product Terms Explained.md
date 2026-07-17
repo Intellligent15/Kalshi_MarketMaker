@@ -322,38 +322,237 @@ hidden assumptions.
 ## How B1b-1 hardens the boundary
 
 B1a established the artifact chain. B1b-1 removes ambiguity at the two places where outside facts
-enter it: time selection and network acquisition.
+enter it—time selection and network acquisition—and then strengthens every downstream check that
+depends on those facts.
+
+### What changed, in one picture
+
+```text
+operator acquisition intent
+        |
+        v
+validated first-party HTTPS request
+        |
+        +--> validate and record every redirect
+        |
+        v
+bounded temporary file -- incremental SHA-256 --> observed source-manifest V2
+        |                                              |
+        +---------------- atomic package --------------+
+                                                       |
+                                                       v
+terms interval == review interval == catalog interval
+                                                       |
+                                                       v
+normalization V2 -> features V2 -> config V3 -> result V3
+       ^                 ^             ^            ^
+       +---------------- offline hash verification --+
+```
+
+The important idea is that acquisition is a transaction, not a download, and time coverage is one
+contract, not three similar claims.
+
+### One temporal contract
 
 Terms, review, and catalog used to carry three interval copies that could disagree. The catalog
-also selected packages by asking whether the review covered a capture, rather than by applying its
-own advertised interval. They now form one exact half-open contract. Think of the three documents
-as three signed copies of the same date range: any endpoint difference refuses before selection.
-Adjacent revisions may touch at one boundary, gaps honestly mean there is no approved evidence,
-and overlaps never ask ordering to choose a winner.
+also selected packages by asking whether the review covered a capture rather than by applying its
+own advertised interval. A package could therefore be internally reviewed for one period while the
+catalog appeared to publish it for another.
 
-Network fetch is now treated as untrusted input. The tool follows redirects itself, validates every
-hop and final destination against the first-party HTTPS allowlist, and records the chain. It never
-loads an unlimited response into memory. Each source streams through a bounded temporary file in
-64 KiB chunks while byte count and SHA-256 are updated. Role-specific media checks prevent an HTML
-error page from being retained as JSON, Markdown, or a PDF. Timeouts, interruptions, wrong media,
-oversized responses, and invalid content remove the partial package before it receives its final
-name.
+B1b-1 uses exact equality. Each document must carry the same half-open interval:
 
-Source-manifest V2 separates what the operator requested from what the tool observed. The operator
-chooses the role, requested URL, and path. The tool owns retrieval start/end, elapsed time,
-redirects, final URL, status, selected headers, media type, byte count, hash, and tool version.
-The retrospective package remains source-manifest V1 because rewriting it would invent historical
-observations that were not retained at acquisition time.
+```text
+[effective_from_utc, effective_until_utc)
+```
 
-The formal schemas are no longer illustrative subsets. A positive/negative parity matrix requires
-every schema-addressable rule to agree with runtime validation. Cross-file hashes, canonical file
-bytes, source-to-terms projection, interval equality, filesystem membership, and decimal arithmetic
-remain clearly named runtime-only checks rather than being falsely attributed to JSON Schema.
+The start belongs to the revision; the end belongs to the next revision. Adjacent revisions can
+therefore meet at one timestamp without overlapping. A gap means there is no approved evidence for
+that period. An overlap is invalid rather than a priority rule. An open-ended revision cannot have
+a later revision because it already claims all future time.
 
-Offline V3 verification now follows more of the chain: copied product terms and conversion policy,
-the normalized product map, feature/product binding, upstream event and feature hashes, embedded
-result product metadata, and all four result artifacts. Public commands expose stable refusal codes
-so automation can depend on a category without depending on mutable diagnostic prose.
+We considered containment: the review or catalog could advertise a narrower interval inside the
+terms interval. That supports flexible approval windows, but it makes selection depend on which
+document a caller treats as authoritative. We also considered separately versioned declared and
+approved intervals. That is expressive, but it requires explicit transition semantics and a
+reason for every difference. The current evidence does not need either complexity. Exact equality
+is the smallest rule that makes disagreement impossible and makes mutation failures obvious.
+
+The loader enforces this in layers:
+
+1. `ProductReview.load` checks the review basis and both endpoints against the terms.
+2. `ProductCatalog._package_for` checks the catalog endpoints against both terms and review.
+3. `ProductCatalog.verify` rejects overlapping revisions for one market.
+4. `ProductCatalog.resolve` selects using the catalog's own verified interval.
+5. `ProductPackage.verify_capture` independently confirms that the selected review covers the full
+   capture.
+
+The repeated final check is deliberate defense in depth. Selection and package validity cannot
+silently diverge after a future refactor.
+
+### Acquisition is an all-or-nothing transaction
+
+The new fetch path begins from `pmm.product_acquisition_spec.v1`. That document is a request, not
+evidence. It tells the tool which source role to fetch, the requested URL, the retained relative
+path, and optional limits that may only narrow the built-in policy.
+
+For each source, the tool performs this sequence:
+
+1. Validate the requested URL before making a request. It must use HTTPS, have an exact approved
+   hostname, contain no credentials or fragment, and use only the default port or explicit 443.
+2. Send a streaming request with automatic redirects disabled and identity content encoding.
+3. If the response is a redirect, require a `Location`, resolve relative locations, validate the
+   destination, record the status and both raw and resolved location, close the response, and make
+   the next request. At most five hops are allowed.
+4. Require a final 2xx response whose observed response URL is exactly the URL the tool requested
+   for that hop. This catches a client or test double that changed destinations invisibly.
+5. Require an allowed media type for the declared role and reject compressed transport content,
+   so byte counts and retained hashes refer to the received identity bytes.
+6. Reject a declared `Content-Length` that is invalid, exceeds the source limit, or would exceed
+   the package limit.
+7. Stream into a sibling `.download` file in 64 KiB chunks. After every chunk, update the source
+   byte count and SHA-256 and recheck source, package, and deadline bounds.
+8. Flush and fsync the source file, require the streamed count to equal `Content-Length` when one
+   was supplied, and validate the retained content as a JSON object, UTF-8 text, or PDF signature.
+9. Rename the validated `.download` file to its retained path and record observed metadata.
+
+The built-in ceilings are intentionally conservative:
+
+| Source role | Maximum |
+|---|---:|
+| JSON API record | 2 MiB |
+| Official Markdown or text | 4 MiB |
+| Official contract/certification PDF | 32 MiB |
+| Complete retained package | 64 MiB |
+
+Connect timeout is 5 seconds, read inactivity timeout is 15 seconds, the per-source deadline is 60
+seconds, and the package deadline is 180 seconds. These values prevent an acquisition command from
+waiting or consuming resources without bound. They are policy defaults, not evidence that every
+future venue document will fit; B1b-2 should measure real source sizes before any adjustment.
+
+All sources are first written beneath a unique sibling directory such as
+`.candidate.<random>.partial`. Only after every source, the canonical manifest, total package size,
+and a complete `SourceEvidence.load` verification succeed does that directory receive the requested
+final name. Expected failures, transport errors, timeouts, and Python-level interrupts remove the
+partial directory. Existing output is never overwritten.
+
+This is atomic publication, not full crash durability. SIGKILL or power loss can leave the uniquely
+named partial directory because no cleanup handler can run. The current package documents that as
+operational debt rather than claiming more than the code proves.
+
+### Declared facts and observed facts are separate
+
+Source-manifest V1 used an operator-supplied retrieval timestamp. That was sufficient to bind bytes
+retrospectively, but it could not prove what the acquisition tool itself saw.
+
+Source-manifest V2 records the boundary explicitly:
+
+| Operator declares | Tool observes and records |
+|---|---|
+| source ID | retrieval start and completion UTC |
+| semantic role | monotonic elapsed milliseconds |
+| requested URL | final URL and every redirect hop |
+| retained relative path | final HTTP status |
+| optional stricter byte limit | selected response headers |
+| optional narrower media allowlist | normalized media type |
+| venue/environment intent | exact byte count and SHA-256 |
+| | acquisition tool name and version |
+
+This matters because labels and observations have different trust. An operator can say “this is the
+market record,” but the tool must say which endpoint actually answered, when it answered, what it
+returned, and which bytes were retained.
+
+The existing retrospective reviewed package remains V1. Converting it to V2 would require making
+up redirect, response, and timing observations that were never retained. Compatibility is stronger
+when old evidence keeps its honest limitations.
+
+### Schema and runtime now have a shared acceptance boundary
+
+JSON Schema is useful to editors and external tools, but it cannot by itself prove that a file is
+canonically encoded, that a hash matches another file, that a retained path is safe, that source
+bytes agree with projected terms, or that decimal arithmetic is exact.
+
+B1b-1 therefore keeps handwritten Draft 2020-12 schemas and handwritten runtime validation, but
+uses the same reviewed examples to test their overlap:
+
+- a positive document must pass both;
+- a schema-addressable one-defect mutation must fail both; and
+- cross-file, filesystem, hash, canonical-byte, source-projection, and arithmetic rules are named
+  as runtime-only rather than pretending the schema enforces them.
+
+Handwritten schemas were retained because they expose policy directly during review. Generating
+them from Python types now would create a third abstraction before a second real product proves
+which structures are stable. The critique records broader parity matrices as follow-up work; the
+current matrix establishes the method and closes the material nested-schema gap.
+
+### Refusal codes are part of the interface
+
+Before B1b-1, callers often had to match human-readable exception text. The module now raises
+`ProductTermsError` with a registered stable code. Constructing the exception with an unregistered
+code is a programming error.
+
+The CLI contract is:
+
+| Outcome | Exit status | stdout | stderr |
+|---|---:|---|---|
+| Success | 0 | one JSON result | empty |
+| Expected refusal | 2 | empty | `error: CODE: diagnostic` |
+| Unexpected failure | 1 | unspecified | traceback |
+
+Code names and meanings are compatibility promises. Diagnostic prose may become clearer and is not
+byte-stable. This lets scripts branch on `AcquisitionTimeout` versus `SourceHashMismatch` without
+depending on a path or sentence.
+
+### Offline verification follows the complete V3 chain
+
+Hashing an artifact at creation is not enough if later verification skips one link. B1b-1 expands
+`verify-lineage` so a result verification checks:
+
+- the V3 configuration hash;
+- normalization and feature manifests;
+- normalized events and feature rows;
+- normalized `product.json`;
+- copied `product_terms.json` and conversion policy;
+- product identity and hash binding between normalization and features;
+- terms, source, review, and conversion hashes declared by the configuration;
+- result-manifest upstream hashes and embedded product metadata; and
+- orders, fills, ledger, and risk-trace bytes.
+
+Each check is offline. A mutable venue endpoint is never consulted to decide whether an old result
+is still valid. Tampering tests change one layer at a time and require refusal. Separate tests feed
+valid venue values that the integer core cannot represent and prove that the backtest leaves no
+final or partial output instead of rounding.
+
+### How the tests avoid false confidence
+
+Acquisition tests use fake sessions, fake responses, and injected clocks. They exercise redirect,
+media, size, timeout, content, interruption, and cleanup behavior without trusting a live network
+or today's venue behavior. The positive acquisition still streams through the same production
+function and then loads and schema-validates the resulting source-manifest V2.
+
+Temporal tests copy the reviewed catalog into temporary directories and introduce one interval
+defect at a time. Schema parity tests use reviewed positives and one-defect negatives. V3 lineage
+tests build deterministic normalization, feature, and result artifacts, copy them, mutate one
+artifact or manifest, and require the intended refusal.
+
+This style matters: a live request test could pass today and fail tomorrow for reasons unrelated to
+the code, while a broad happy-path test might fail without identifying which invariant mattered.
+Offline one-defect tests make both cause and expected refusal reviewable.
+
+### Why we did not broaden the package
+
+B1b-1 deliberately did not add a second reviewed market, refactor the module around an imagined
+adapter, introduce content-addressed storage, or add fee and settlement behavior.
+
+- A real second product belongs in B1b-2 because its evidence should shape the abstraction.
+- Content-addressed storage solves a measured duplication problem; the current one-package catalog
+  does not provide that measurement.
+- Fee, accounting, and settlement correctness depend on stronger reviewed legal evidence and are
+  independent economic packages.
+- Live-network tests would weaken reproducibility and make normalization or backtesting depend on
+  external state.
+
+The result is intentionally strict and somewhat repetitive. At the present scale, visible checks
+and exact hashes are easier to audit than a generalized metadata platform.
 
 ## What remains incomplete
 
