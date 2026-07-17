@@ -17,10 +17,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
+import subprocess
 import tempfile
 import time
 from typing import Any, Callable, Iterable
+import unicodedata
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -29,9 +32,12 @@ import requests
 SOURCE_MANIFEST_SCHEMA = "pmm.product_terms_source_manifest.v1"
 SOURCE_MANIFEST_V2_SCHEMA = "pmm.product_terms_source_manifest.v2"
 SOURCE_MANIFEST_V3_SCHEMA = "pmm.product_terms_source_manifest.v3"
+SOURCE_MANIFEST_V4_SCHEMA = "pmm.product_terms_source_manifest.v4"
 ACQUISITION_SPEC_SCHEMA = "pmm.product_acquisition_spec.v1"
 ACQUISITION_SPEC_V2_SCHEMA = "pmm.product_acquisition_spec.v2"
+ACQUISITION_SPEC_V3_SCHEMA = "pmm.product_acquisition_spec.v3"
 ACQUISITION_POLICY_SCHEMA = "pmm.product_acquisition_policy.v1"
+EVIDENCE_PROFILE_SCHEMA = "pmm.product_evidence_profile.v1"
 SUPPORTED_ACQUISITION_POLICY_SHA256 = (
     "583204c3d5a177d6247c20d1c3b12543aab6b454c8066bb3ee4943d974d3792b"
 )
@@ -39,7 +45,9 @@ PRODUCT_TERMS_SCHEMA = "pmm.venue_product_terms.v1"
 PRODUCT_TERMS_V2_SCHEMA = "pmm.venue_product_terms.v2"
 PRODUCT_REVIEW_SCHEMA = "pmm.product_terms_review.v1"
 PRODUCT_REVIEW_V2_SCHEMA = "pmm.product_terms_review.v2"
+PRODUCT_REVIEW_V3_SCHEMA = "pmm.product_terms_review.v3"
 EVIDENCE_MAP_SCHEMA = "pmm.product_evidence_map.v1"
+EVIDENCE_MAP_V2_SCHEMA = "pmm.product_evidence_map.v2"
 PRODUCT_CATALOG_SCHEMA = "pmm.product_catalog.v1"
 CONVERSION_POLICY_SCHEMA = "pmm.product_conversion_policy.v1"
 COMPATIBILITY_REPORT_SCHEMA = "pmm.product_compatibility_report.v1"
@@ -48,6 +56,7 @@ SHA256_LENGTH = 64
 ACQUISITION_TOOL_NAME = "pmm_product_terms"
 ACQUISITION_TOOL_VERSION = "product-acquisition.v2"
 ACQUISITION_TOOL_V3_VERSION = "product-acquisition.v3"
+ACQUISITION_TOOL_V4_VERSION = "product-acquisition.v4"
 STREAM_CHUNK_BYTES = 64 * 1024
 MAX_PACKAGE_BYTES = 64 * 1024 * 1024
 MAX_REDIRECTS = 5
@@ -126,6 +135,7 @@ REFUSAL_CODES = frozenset({
     "EffectiveWindowOverlap",
     "EvidenceAnchorMismatch",
     "EvidenceIncomplete",
+    "EvidenceProfileMismatch",
     "EventTickerMismatch",
     "FeePolicyUnsupported",
     "FeeTermsMissing",
@@ -395,6 +405,203 @@ class AcquisitionPolicy:
         return cls(path, payload, payload_hash, sha256_file(path))
 
 
+@dataclass(frozen=True)
+class EvidenceProfile:
+    """Immutable semantic-source membership contract for successor packages."""
+
+    path: Path
+    payload: dict[str, Any]
+    payload_sha256: str
+    file_sha256: str
+
+    @classmethod
+    def load(cls, path: Path) -> "EvidenceProfile":
+        try:
+            return cls._load_unwrapped(path)
+        except ProductTermsError as error:
+            if error.code == "EvidenceProfileMismatch":
+                raise
+            fail("EvidenceProfileMismatch", str(error))
+
+    @classmethod
+    def _load_unwrapped(cls, path: Path) -> "EvidenceProfile":
+        if not path.is_file():
+            fail("EvidenceProfileMismatch", f"{path} is missing")
+        payload, payload_hash = validate_envelope(
+            path, EVIDENCE_PROFILE_SCHEMA, "EvidenceProfileMismatch"
+        )
+        require_keys(
+            payload,
+            {"venue", "environment", "profile_id", "observations", "roles", "field_coverage"},
+            set(),
+            "evidence profile payload",
+        )
+        if payload["venue"] != "kalshi" or payload["environment"] != "production":
+            fail("EvidenceProfileMismatch", "evidence profile venue/environment is unsupported")
+        require_string(payload["profile_id"], "evidence profile id")
+        if payload["observations"] != ["opening", "closing"]:
+            fail("EvidenceProfileMismatch", "evidence profile observations must be opening then closing")
+        roles = payload["roles"]
+        if not isinstance(roles, list):
+            fail("EvidenceProfileMismatch", "evidence profile roles must be an array")
+        source_keys: list[str] = []
+        role_names: list[str] = []
+        for index, item in enumerate(roles):
+            context = f"evidence profile roles[{index}]"
+            if not isinstance(item, dict):
+                fail("EvidenceProfileMismatch", f"{context} must be an object")
+            require_keys(
+                item,
+                {
+                    "source_key", "role", "applicability", "reason",
+                    "cardinality_per_observation", "media_types", "content_kind",
+                    "mutability", "linked_source_keys",
+                },
+                set(),
+                context,
+            )
+            source_key = require_string(item["source_key"], f"{context}.source_key")
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", source_key) is None:
+                fail("EvidenceProfileMismatch", f"{context}.source_key is not portable")
+            role = require_string(item["role"], f"{context}.role")
+            if role not in ROLE_POLICIES:
+                fail("EvidenceProfileMismatch", f"{context}.role is unsupported")
+            source_keys.append(source_key)
+            role_names.append(role)
+            applicability = item["applicability"]
+            if applicability not in {"required", "optional", "not_applicable"}:
+                fail("EvidenceProfileMismatch", f"{context}.applicability is unsupported")
+            reason = item["reason"]
+            if applicability == "required":
+                if reason is not None:
+                    fail("EvidenceProfileMismatch", f"{context}.reason must be null for a required role")
+                expected_cardinality = {"minimum": 1, "maximum": 1}
+            elif applicability == "optional":
+                require_string(reason, f"{context}.reason")
+                expected_cardinality = {"minimum": 0, "maximum": 1}
+            else:
+                require_string(reason, f"{context}.reason")
+                expected_cardinality = {"minimum": 0, "maximum": 0}
+            if item["cardinality_per_observation"] != expected_cardinality:
+                fail("EvidenceProfileMismatch", f"{context} cardinality disagrees with applicability")
+            maximum_bytes, allowed_media, content_kind = ROLE_POLICIES[role]
+            del maximum_bytes
+            media_types = item["media_types"]
+            if (
+                not isinstance(media_types, list)
+                or not media_types
+                or media_types != sorted(set(media_types))
+                or not set(media_types).issubset(allowed_media)
+            ):
+                fail("EvidenceProfileMismatch", f"{context}.media_types do not narrow the acquisition policy")
+            if item["content_kind"] != content_kind:
+                fail("EvidenceProfileMismatch", f"{context}.content_kind disagrees with the role policy")
+            expected_mutability = "mutable_endpoint" if content_kind == "json" else "static_document"
+            if item["mutability"] != expected_mutability:
+                fail("EvidenceProfileMismatch", f"{context}.mutability is inconsistent with its content kind")
+            links = item["linked_source_keys"]
+            if (
+                not isinstance(links, list)
+                or links != sorted(set(links))
+                or any(not isinstance(link, str) or not link for link in links)
+                or source_key in links
+            ):
+                fail("EvidenceProfileMismatch", f"{context}.linked_source_keys must be sorted, unique, and exclude itself")
+        if source_keys != sorted(source_keys) or len(source_keys) != len(set(source_keys)):
+            fail("EvidenceProfileMismatch", "profile source keys must be unique and sorted")
+        if set(role_names) != set(ROLE_POLICIES) or len(role_names) != len(set(role_names)):
+            fail("EvidenceProfileMismatch", "profile must classify every semantic role exactly once")
+        known_keys = set(source_keys)
+        for item in roles:
+            if not set(item["linked_source_keys"]).issubset(known_keys):
+                fail("EvidenceProfileMismatch", f"{item['source_key']} links an unknown source key")
+        coverage = payload["field_coverage"]
+        if not isinstance(coverage, list) or not coverage:
+            fail("EvidenceProfileMismatch", "evidence profile field coverage must not be empty")
+        coverage_pointers: list[str] = []
+        for index, item in enumerate(coverage):
+            context = f"evidence profile field_coverage[{index}]"
+            if not isinstance(item, dict):
+                fail("EvidenceProfileMismatch", f"{context} must be an object")
+            require_keys(item, {"term_pointer", "coverage_class"}, set(), context)
+            pointer = require_string(item["term_pointer"], f"{context}.term_pointer")
+            if not pointer.startswith("/payload/"):
+                fail("EvidenceProfileMismatch", f"{context}.term_pointer must begin /payload/")
+            if item["coverage_class"] not in {
+                "mechanically_projected", "human_reviewed", "derived",
+                "repository_local_policy", "unsupported", "not_applicable",
+            }:
+                fail("EvidenceProfileMismatch", f"{context}.coverage_class is unsupported")
+            coverage_pointers.append(pointer)
+        if coverage_pointers != sorted(coverage_pointers) or len(coverage_pointers) != len(set(coverage_pointers)):
+            fail("EvidenceProfileMismatch", "field coverage pointers must be unique and sorted")
+        return cls(path, payload, payload_hash, sha256_file(path))
+
+    def verify_sources(self, sources: list[dict[str, Any]], observations: list[str]) -> None:
+        role_by_key = {item["source_key"]: item for item in self.payload["roles"]}
+        counts = {(observation, key): 0 for observation in observations for key in role_by_key}
+        present = {(observation, key): False for observation in observations for key in role_by_key}
+        for source in sources:
+            observation = source["observation_id"]
+            source_key = require_string(source.get("source_key"), "source source_key")
+            profile_role = role_by_key.get(source_key)
+            if profile_role is None:
+                fail("EvidenceIncomplete", f"source key {source_key!r} is not declared by the evidence profile")
+            if source["id"] != f"{observation}_{source_key}":
+                fail("EvidenceIncomplete", f"source {source['id']!r} does not use its observation/source-key identity")
+            if source["role"] != profile_role["role"]:
+                fail("EvidenceIncomplete", f"source {source['id']!r} has the wrong semantic role")
+            if source["media_type"] not in profile_role["media_types"]:
+                fail("AcquisitionMediaTypeMismatch", f"source {source['id']!r} has media outside its evidence profile")
+            counts[(observation, source_key)] += 1
+            present[(observation, source_key)] = True
+        for observation in observations:
+            for source_key, role in role_by_key.items():
+                count = counts[(observation, source_key)]
+                expected = role["cardinality_per_observation"]
+                if not expected["minimum"] <= count <= expected["maximum"]:
+                    fail("EvidenceIncomplete", f"{observation}/{source_key} cardinality is {count}, expected {expected}")
+                if count:
+                    for linked_key in role["linked_source_keys"]:
+                        if not present[(observation, linked_key)]:
+                            fail("EvidenceIncomplete", f"{observation}/{source_key} is missing linked source {linked_key}")
+        if observations == ["opening", "closing"]:
+            for source_key, role in role_by_key.items():
+                if role["applicability"] == "optional" and (
+                    present[("opening", source_key)] != present[("closing", source_key)]
+                ):
+                    fail("EvidenceIncomplete", f"optional source {source_key} is asymmetric across observations")
+
+    def verify_spec_sources(self, sources: Any) -> None:
+        if not isinstance(sources, list):
+            fail("EvidenceIncomplete", "acquisition spec sources must be an array")
+        role_by_key = {item["source_key"]: item for item in self.payload["roles"]}
+        seen: set[str] = set()
+        for index, source in enumerate(sources):
+            if not isinstance(source, dict):
+                fail("EvidenceIncomplete", f"acquisition spec source {index} must be an object")
+            source_key = source.get("id")
+            if not isinstance(source_key, str) or source_key not in role_by_key or source_key in seen:
+                fail("EvidenceIncomplete", f"acquisition spec source {index} has an unknown or duplicate source key")
+            seen.add(source_key)
+            profile_role = role_by_key[source_key]
+            if source.get("role") != profile_role["role"]:
+                fail("EvidenceIncomplete", f"acquisition spec source {source_key} has the wrong role")
+            requested_media = source.get("media_types", profile_role["media_types"])
+            if (
+                not isinstance(requested_media, list)
+                or not requested_media
+                or not set(requested_media).issubset(profile_role["media_types"])
+            ):
+                fail("AcquisitionMediaTypeMismatch", f"acquisition spec source {source_key} has media outside its profile")
+        for source_key, role in role_by_key.items():
+            present = source_key in seen
+            if role["applicability"] == "required" and not present:
+                fail("EvidenceIncomplete", f"acquisition spec is missing required source {source_key}")
+            if role["applicability"] == "not_applicable" and present:
+                fail("EvidenceIncomplete", f"acquisition spec includes not-applicable source {source_key}")
+
+
 def _validate_acquisition_summary(value: Any) -> None:
     if not isinstance(value, dict):
         fail("TermsNoncanonical", "source acquisition summary must be an object")
@@ -484,6 +691,7 @@ class SourceEvidence:
     source_hashes: dict[str, str]
     schema: str
     acquisition_policy: AcquisitionPolicy | None
+    evidence_profile: EvidenceProfile | None
 
     @classmethod
     def load(cls, package: Path) -> "SourceEvidence":
@@ -496,6 +704,7 @@ class SourceEvidence:
             SOURCE_MANIFEST_SCHEMA,
             SOURCE_MANIFEST_V2_SCHEMA,
             SOURCE_MANIFEST_V3_SCHEMA,
+            SOURCE_MANIFEST_V4_SCHEMA,
         }:
             fail("UnsupportedTermsSchema", f"{path} uses unsupported source schema {schema!r}")
         payload, payload_hash = validate_envelope(path, schema, "SourceHashMismatch")
@@ -515,7 +724,7 @@ class SourceEvidence:
                 "source payload",
             )
             _validate_acquisition_summary(payload["acquisition"])
-        else:
+        elif schema == SOURCE_MANIFEST_V3_SCHEMA:
             require_keys(
                 payload,
                 {
@@ -524,6 +733,16 @@ class SourceEvidence:
                     "acquisition_policy_sha256",
                     "acquisitions",
                     "sources",
+                },
+                set(),
+                "source payload",
+            )
+        else:
+            require_keys(
+                payload,
+                {
+                    "venue", "environment", "acquisition_policy_sha256",
+                    "evidence_profile_sha256", "acquisitions", "sources",
                 },
                 set(),
                 "source payload",
@@ -554,8 +773,10 @@ class SourceEvidence:
                     "byte_length", "sha256", "tool_name", "tool_version",
                     "response_headers",
                 }
-                if schema == SOURCE_MANIFEST_V3_SCHEMA:
+                if schema in {SOURCE_MANIFEST_V3_SCHEMA, SOURCE_MANIFEST_V4_SCHEMA}:
                     required.add("observation_id")
+                if schema == SOURCE_MANIFEST_V4_SCHEMA:
+                    required.add("source_key")
                 require_keys(
                     source,
                     required,
@@ -619,7 +840,7 @@ class SourceEvidence:
                 total_bytes += source["byte_length"]
             if total_bytes > MAX_PACKAGE_BYTES:
                 fail("TermsNoncanonical", "retained package exceeds its byte limit")
-        elif schema == SOURCE_MANIFEST_V3_SCHEMA:
+        elif schema in {SOURCE_MANIFEST_V3_SCHEMA, SOURCE_MANIFEST_V4_SCHEMA}:
             acquisition_policy = AcquisitionPolicy.load(package / "acquisition_policy.json")
             if acquisition_policy.payload_sha256 != require_hash(
                 payload["acquisition_policy_sha256"], "source acquisition policy hash"
@@ -637,8 +858,13 @@ class SourceEvidence:
                 )
                 if observation_id not in {"opening", "closing"}:
                     fail("EvidenceIncomplete", "acquisition observation must be opening or closing")
-                if acquisition["tool_version"] != ACQUISITION_TOOL_V3_VERSION:
-                    fail("AcquisitionPolicyMismatch", "V3 acquisition tool version is unsupported")
+                expected_tool_version = (
+                    ACQUISITION_TOOL_V4_VERSION
+                    if schema == SOURCE_MANIFEST_V4_SCHEMA
+                    else ACQUISITION_TOOL_V3_VERSION
+                )
+                if acquisition["tool_version"] != expected_tool_version:
+                    fail("AcquisitionPolicyMismatch", f"{schema} acquisition tool version is unsupported")
                 observation_ids.append(observation_id)
                 acquisition_by_id[observation_id] = (
                     parse_utc(acquisition["started_at_utc"], "acquisition start"),
@@ -670,11 +896,34 @@ class SourceEvidence:
                 )
                 if source_started < started or source_completed > completed:
                     fail("TermsNoncanonical", "source retrieval lies outside its acquisition")
-                if source["tool_version"] != ACQUISITION_TOOL_V3_VERSION:
-                    fail("AcquisitionPolicyMismatch", "source tool version differs from V3 policy")
+                expected_tool_version = (
+                    ACQUISITION_TOOL_V4_VERSION
+                    if schema == SOURCE_MANIFEST_V4_SCHEMA
+                    else ACQUISITION_TOOL_V3_VERSION
+                )
+                if source["tool_version"] != expected_tool_version:
+                    fail("AcquisitionPolicyMismatch", "source tool version differs from its manifest version")
                 total_bytes += source["byte_length"]
             if total_bytes > acquisition_policy.payload["maximum_package_bytes"]:
                 fail("TermsNoncanonical", "retained package exceeds its policy byte limit")
+        evidence_profile: EvidenceProfile | None = None
+        if schema == SOURCE_MANIFEST_V4_SCHEMA:
+            evidence_profile = EvidenceProfile.load(package / "evidence_profile.json")
+            if evidence_profile.payload_sha256 != require_hash(
+                payload["evidence_profile_sha256"], "source evidence profile hash"
+            ):
+                fail("EvidenceProfileMismatch", "source manifest names a different evidence profile")
+            evidence_profile.verify_sources(sources, [item["observation_id"] for item in payload["acquisitions"]])
+            source_by_observation_key = {
+                (source["observation_id"], source["source_key"]): source for source in sources
+            }
+            for role in evidence_profile.payload["roles"]:
+                if role["mutability"] != "static_document":
+                    continue
+                opening = source_by_observation_key.get(("opening", role["source_key"]))
+                closing = source_by_observation_key.get(("closing", role["source_key"]))
+                if opening is not None and closing is not None and opening["sha256"] != closing["sha256"]:
+                    fail("EvidenceAnchorMismatch", f"static source {role['source_key']} changed across observations")
         return cls(
             payload,
             payload_hash,
@@ -682,6 +931,7 @@ class SourceEvidence:
             hashes,
             schema,
             acquisition_policy,
+            evidence_profile,
         )
 
 
@@ -824,13 +1074,23 @@ def _validate_terms_against_retained_sources(
     """
 
     observations = [None]
-    if evidence.schema == SOURCE_MANIFEST_V3_SCHEMA:
+    if evidence.schema in {SOURCE_MANIFEST_V3_SCHEMA, SOURCE_MANIFEST_V4_SCHEMA}:
         observations = ["opening", "closing"]
+    profile_keys_by_role: dict[str, str] = {}
+    if evidence.evidence_profile is not None:
+        profile_keys_by_role = {
+            item["role"]: item["source_key"] for item in evidence.evidence_profile.payload["roles"]
+        }
     for observation in observations:
         prefix = "" if observation is None else f"{observation}_"
-        market_document = _retained_json(package, evidence, f"{prefix}market_record")
-        series_document = _retained_json(package, evidence, f"{prefix}series_record")
-        metadata = _retained_json(package, evidence, f"{prefix}event_metadata")
+        market_key = profile_keys_by_role.get("market_record", "market_record")
+        series_key = profile_keys_by_role.get(
+            "series_record_and_contract_document_identity", "series_record"
+        )
+        metadata_key = profile_keys_by_role.get("event_metadata_record", "event_metadata")
+        market_document = _retained_json(package, evidence, f"{prefix}{market_key}")
+        series_document = _retained_json(package, evidence, f"{prefix}{series_key}")
+        metadata = _retained_json(package, evidence, f"{prefix}{metadata_key}")
         market = market_document.get("market")
         series = series_document.get("series")
         if not isinstance(market, dict) or not isinstance(series, dict):
@@ -1059,11 +1319,228 @@ def _json_pointer(value: Any, pointer: Any, context: str) -> Any:
     return current
 
 
+DOCUMENT_NORMALIZATION_POLICY = {
+    "policy_id": "pmm.document_text_normalization.v1",
+    "unicode_form": "NFC",
+    "line_endings": "LF",
+    "nbsp_to_space": True,
+    "collapse_horizontal_whitespace": True,
+    "collapse_blank_lines": True,
+    "pdf_ligatures": {"ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl"},
+}
+DOCUMENT_NORMALIZATION_POLICY_SHA256 = sha256_bytes(
+    canonical_json_bytes(DOCUMENT_NORMALIZATION_POLICY)
+)
+PDFTOTEXT_ARGUMENTS = [
+    "-f", "{page}", "-l", "{page}", "-enc", "UTF-8", "-nopgbrk", "{source}", "-",
+]
+SUPPORTED_EXTRACTOR_NIXPKGS_REVISION = "59682e0069f0ed0a452e2179a7f4c1f247027b9e"
+SUPPORTED_POPPLER_VERSION = "26.06.0"
+SUPPORTED_PDFINFO_VERSION = f"pdfinfo version {SUPPORTED_POPPLER_VERSION}"
+SUPPORTED_PDFTOTEXT_VERSION = f"pdftotext version {SUPPORTED_POPPLER_VERSION}"
+
+
+def _normalize_document_text(raw: str, *, pdf: bool) -> str:
+    text = raw.replace("\r\n", "\n").replace("\r", "\n").replace("\f", "\n")
+    text = unicodedata.normalize("NFC", text).replace("\u00a0", " ")
+    if pdf:
+        for ligature, replacement in DOCUMENT_NORMALIZATION_POLICY["pdf_ligatures"].items():
+            text = text.replace(ligature, replacement)
+    normalized_lines: list[str] = []
+    prior_blank = False
+    for line in text.split("\n"):
+        line = re.sub(r"[\t\v ]+", " ", line).strip(" ")
+        blank = not line
+        if blank and prior_blank:
+            continue
+        normalized_lines.append(line)
+        prior_blank = blank
+    while normalized_lines and not normalized_lines[0]:
+        normalized_lines.pop(0)
+    while normalized_lines and not normalized_lines[-1]:
+        normalized_lines.pop()
+    return "\n".join(normalized_lines)
+
+
+def _tool_version(executable: str, context: str) -> str:
+    try:
+        completed = subprocess.run(
+            [executable, "-v"], capture_output=True, check=False, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        fail("EvidenceAnchorMismatch", f"{context} is unavailable: {error}")
+    output = completed.stdout + completed.stderr
+    try:
+        lines = output.decode("utf-8", errors="strict").splitlines()
+    except UnicodeDecodeError as error:
+        fail("EvidenceAnchorMismatch", f"{context} version is not UTF-8: {error}")
+    if completed.returncode not in {0, 99} or not lines:
+        fail("EvidenceAnchorMismatch", f"{context} version probe failed")
+    return lines[0].strip()
+
+
+def _verify_extractor_policy(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        fail("EvidenceAnchorMismatch", "extractor policy must be an object")
+    require_keys(
+        value,
+        {
+            "policy_id", "pdfinfo_executable", "pdfinfo_version",
+            "pdftotext_executable", "pdftotext_version", "pdftotext_arguments",
+            "nixpkgs_revision", "poppler_package_version", "normalization_policy",
+            "normalization_policy_sha256",
+        },
+        set(),
+        "extractor policy",
+    )
+    if value["policy_id"] != "poppler_page_text.v1":
+        fail("EvidenceAnchorMismatch", "extractor policy id is unsupported")
+    if value["pdfinfo_executable"] != "pdfinfo" or value["pdftotext_executable"] != "pdftotext":
+        fail("EvidenceAnchorMismatch", "extractor executable names are unsupported")
+    if value["pdftotext_arguments"] != PDFTOTEXT_ARGUMENTS:
+        fail("EvidenceAnchorMismatch", "pdftotext arguments differ from the immutable policy")
+    if value["nixpkgs_revision"] != SUPPORTED_EXTRACTOR_NIXPKGS_REVISION:
+        fail("EvidenceAnchorMismatch", "extractor nixpkgs revision is unsupported")
+    if value["poppler_package_version"] != SUPPORTED_POPPLER_VERSION:
+        fail("EvidenceAnchorMismatch", "extractor Poppler version is unsupported")
+    if value["pdfinfo_version"] != SUPPORTED_PDFINFO_VERSION:
+        fail("EvidenceAnchorMismatch", "declared pdfinfo version is unsupported")
+    if value["pdftotext_version"] != SUPPORTED_PDFTOTEXT_VERSION:
+        fail("EvidenceAnchorMismatch", "declared pdftotext version is unsupported")
+    if value["normalization_policy"] != DOCUMENT_NORMALIZATION_POLICY["policy_id"]:
+        fail("EvidenceAnchorMismatch", "document normalization policy is unsupported")
+    if require_hash(value["normalization_policy_sha256"], "normalization policy hash") != DOCUMENT_NORMALIZATION_POLICY_SHA256:
+        fail("EvidenceAnchorMismatch", "document normalization policy hash is stale")
+    if _tool_version("pdfinfo", "pdfinfo") != value["pdfinfo_version"]:
+        fail("EvidenceAnchorMismatch", "pdfinfo version differs from the evidence-map identity")
+    if _tool_version("pdftotext", "pdftotext") != value["pdftotext_version"]:
+        fail("EvidenceAnchorMismatch", "pdftotext version differs from the evidence-map identity")
+    return value
+
+
+def _extract_pdf_page(path: Path, page: int, policy: dict[str, Any]) -> tuple[int, str]:
+    try:
+        info = subprocess.run(
+            [policy["pdfinfo_executable"], str(path)], capture_output=True, check=False, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        fail("EvidenceAnchorMismatch", f"PDF metadata extraction failed: {error}")
+    if info.returncode != 0:
+        fail("EvidenceAnchorMismatch", "PDF is malformed, encrypted, or unreadable")
+    try:
+        info_text = info.stdout.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        fail("EvidenceAnchorMismatch", f"PDF metadata is not UTF-8: {error}")
+    match = re.search(r"(?m)^Pages:\s+([0-9]+)\s*$", info_text)
+    if match is None:
+        fail("EvidenceAnchorMismatch", "PDF page count is unavailable")
+    page_count = int(match.group(1))
+    if page < 1 or page > page_count:
+        fail("EvidenceAnchorMismatch", f"PDF page {page} is outside 1..{page_count}")
+    arguments = [
+        token.replace("{page}", str(page)).replace("{source}", str(path))
+        for token in policy["pdftotext_arguments"]
+    ]
+    try:
+        extracted = subprocess.run(
+            [policy["pdftotext_executable"], *arguments],
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        fail("EvidenceAnchorMismatch", f"PDF text extraction failed: {error}")
+    if extracted.returncode != 0:
+        fail("EvidenceAnchorMismatch", "PDF text extraction refused the selected page")
+    try:
+        text = extracted.stdout.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        fail("EvidenceAnchorMismatch", f"PDF extracted text is not UTF-8: {error}")
+    normalized = _normalize_document_text(text, pdf=True)
+    if not normalized:
+        fail("EvidenceAnchorMismatch", "PDF selected page is scanned, image-only, or textless")
+    return page_count, normalized
+
+
+def _bounded_lines(text: str, start: str, end: str | None, context: str) -> str:
+    lines = text.split("\n")
+    starts = [index for index, line in enumerate(lines) if line == start]
+    if len(starts) != 1:
+        fail("EvidenceAnchorMismatch", f"{context} start marker must occur exactly once")
+    start_index = starts[0]
+    if end is None:
+        selected = lines[start_index:]
+    else:
+        ends = [index for index, line in enumerate(lines) if index > start_index and line == end]
+        if len(ends) != 1:
+            fail("EvidenceAnchorMismatch", f"{context} end marker must occur exactly once after the start")
+        selected = lines[start_index:ends[0]]
+    return "\n".join(selected)
+
+
+def _section_fingerprint(kind: str, boundary: Any, text: str) -> str:
+    return sha256_bytes(canonical_json_bytes({
+        "kind": kind,
+        "normalization_policy": DOCUMENT_NORMALIZATION_POLICY["policy_id"],
+        "boundary": boundary,
+        "text": text,
+    }))
+
+
+def _markdown_sections(text: str) -> list[tuple[list[dict[str, Any]], int, int]]:
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    headings: list[tuple[int, str, int]] = []
+    fence: str | None = None
+    for index, line in enumerate(lines):
+        fence_match = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if fence_match:
+            marker = fence_match.group(1)
+            if fence is None:
+                fence = marker[0]
+            elif marker[0] == fence:
+                fence = None
+            continue
+        if fence is not None:
+            continue
+        match = re.match(r"^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$", line)
+        if match:
+            headings.append((len(match.group(1)), unicodedata.normalize("NFC", match.group(2)), index))
+    result: list[tuple[list[dict[str, Any]], int, int]] = []
+    stack: list[tuple[int, str]] = []
+    for position, (level, title, line_index) in enumerate(headings):
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        stack.append((level, title))
+        end = len(lines)
+        for later_level, _, later_index in headings[position + 1:]:
+            if later_level <= level:
+                end = later_index
+                break
+        result.append(([{"level": item_level, "text": item_title} for item_level, item_title in stack], line_index + 1, end))
+    return result
+
+
+def _term_leaf_pointers(value: Any, prefix: str = "/payload") -> list[str]:
+    if isinstance(value, dict):
+        result: list[str] = []
+        for key, child in value.items():
+            escaped = key.replace("~", "~0").replace("/", "~1")
+            result.extend(_term_leaf_pointers(child, f"{prefix}/{escaped}"))
+        return result
+    if isinstance(value, list):
+        result = []
+        for index, child in enumerate(value):
+            result.extend(_term_leaf_pointers(child, f"{prefix}/{index}"))
+        return result
+    return [prefix]
+
+
 @dataclass(frozen=True)
 class EvidenceMap:
     payload: dict[str, Any]
     payload_sha256: str
     file_sha256: str
+    schema: str = EVIDENCE_MAP_SCHEMA
 
     @classmethod
     def load(
@@ -1072,6 +1549,9 @@ class EvidenceMap:
         path = package / "evidence_anchors.json"
         if not path.is_file():
             fail("EvidenceIncomplete", f"{path} is missing")
+        document = read_object(path)
+        if document.get("schema") == EVIDENCE_MAP_V2_SCHEMA:
+            return cls._load_v2(path, package, terms, evidence)
         payload, payload_hash = validate_envelope(
             path, EVIDENCE_MAP_SCHEMA, "EvidenceAnchorMismatch"
         )
@@ -1173,6 +1653,157 @@ class EvidenceMap:
             fail("EvidenceAnchorMismatch", "term pointers must be unique and sorted")
         return cls(payload, payload_hash, sha256_file(path))
 
+    @classmethod
+    def _load_v2(
+        cls, path: Path, package: Path, terms: ProductTerms, evidence: SourceEvidence
+    ) -> "EvidenceMap":
+        if evidence.schema != SOURCE_MANIFEST_V4_SCHEMA or evidence.evidence_profile is None:
+            fail("EvidenceProfileMismatch", "evidence-map V2 requires source-manifest V4 and its profile")
+        payload, payload_hash = validate_envelope(path, EVIDENCE_MAP_V2_SCHEMA, "EvidenceAnchorMismatch")
+        require_keys(
+            payload,
+            {"effective_interval_evidence", "evidence_profile_sha256", "extractor_policy", "entries"},
+            set(),
+            "evidence map V2 payload",
+        )
+        if payload["effective_interval_evidence"] != {
+            "opening_observation_id": "opening", "closing_observation_id": "closing"
+        }:
+            fail("EvidenceIncomplete", "evidence map V2 must bracket opening and closing")
+        if require_hash(payload["evidence_profile_sha256"], "evidence map profile hash") != evidence.evidence_profile.payload_sha256:
+            fail("EvidenceProfileMismatch", "evidence map names a different evidence profile")
+        extractor_policy = _verify_extractor_policy(payload["extractor_policy"])
+        entries = payload["entries"]
+        if not isinstance(entries, list) or not entries:
+            fail("EvidenceIncomplete", "evidence map V2 must contain a complete coverage ledger")
+        source_by_id = {source["id"]: source for source in evidence.payload["sources"]}
+        profile_coverage = {
+            item["term_pointer"]: item["coverage_class"]
+            for item in evidence.evidence_profile.payload["field_coverage"]
+        }
+        expected_leaves = sorted(_term_leaf_pointers(terms.payload))
+        if sorted(profile_coverage) != expected_leaves:
+            fail("EvidenceIncomplete", "evidence profile does not classify every product-term leaf exactly once")
+        pointers: list[str] = []
+        for index, entry in enumerate(entries):
+            context = f"evidence.entries[{index}]"
+            if not isinstance(entry, dict):
+                fail("EvidenceAnchorMismatch", f"{context} must be an object")
+            require_keys(
+                entry,
+                {"term_pointer", "coverage_class", "anchors", "dependency_pointers", "policy_id", "reason"},
+                set(),
+                context,
+            )
+            pointer = require_string(entry["term_pointer"], f"{context}.term_pointer")
+            _json_pointer({"payload": terms.payload}, pointer, f"{context}.term_pointer")
+            pointers.append(pointer)
+            coverage_class = entry["coverage_class"]
+            if profile_coverage.get(pointer) != coverage_class:
+                fail("EvidenceProfileMismatch", f"{context} coverage class differs from the profile")
+            anchors = entry["anchors"]
+            dependencies = entry["dependency_pointers"]
+            if not isinstance(anchors, list) or not isinstance(dependencies, list):
+                fail("EvidenceAnchorMismatch", f"{context} anchors and dependencies must be arrays")
+            if dependencies != sorted(set(dependencies)):
+                fail("EvidenceAnchorMismatch", f"{context} dependencies must be unique and sorted")
+            for dependency in dependencies:
+                _json_pointer({"payload": terms.payload}, dependency, f"{context}.dependency")
+            policy_id = entry["policy_id"]
+            reason = entry["reason"]
+            if coverage_class in {"mechanically_projected", "human_reviewed"}:
+                if not anchors or dependencies or policy_id is not None or reason is not None:
+                    fail("EvidenceIncomplete", f"{context} source-backed coverage has invalid metadata")
+            elif coverage_class == "derived":
+                if anchors or not dependencies or policy_id is not None or reason is not None:
+                    fail("EvidenceIncomplete", f"{context} derived coverage must name dependencies only")
+            elif coverage_class == "repository_local_policy":
+                if anchors or dependencies or reason is not None:
+                    fail("EvidenceIncomplete", f"{context} repository policy coverage has invalid metadata")
+                require_string(policy_id, f"{context}.policy_id")
+            else:
+                if anchors or dependencies or policy_id is not None:
+                    fail("EvidenceIncomplete", f"{context} unsupported/N-A coverage has invalid metadata")
+                require_string(reason, f"{context}.reason")
+            observations: set[str] = set()
+            for anchor_index, anchor in enumerate(anchors):
+                anchor_context = f"{context}.anchors[{anchor_index}]"
+                if not isinstance(anchor, dict):
+                    fail("EvidenceAnchorMismatch", f"{anchor_context} must be an object")
+                require_keys(anchor, {"source_id", "source_sha256", "locator"}, {"claim"}, anchor_context)
+                source_id = require_string(anchor["source_id"], f"{anchor_context}.source_id")
+                source = source_by_id.get(source_id)
+                if source is None:
+                    fail("EvidenceIncomplete", f"{anchor_context} names a missing source")
+                if require_hash(anchor["source_sha256"], f"{anchor_context}.source_sha256") != source["sha256"]:
+                    fail("EvidenceAnchorMismatch", f"{anchor_context} source hash is stale")
+                observations.add(source["observation_id"])
+                locator = anchor["locator"]
+                if not isinstance(locator, dict):
+                    fail("EvidenceAnchorMismatch", f"{anchor_context}.locator must be an object")
+                retained_path = safe_member(package, source["path"], f"{anchor_context}.source path")
+                kind = locator.get("kind")
+                if kind == "json_pointer":
+                    require_keys(locator, {"kind", "pointer"}, set(), f"{anchor_context}.locator")
+                    source_value = _json_pointer(read_object(retained_path), locator["pointer"], f"{anchor_context}.pointer")
+                    if coverage_class != "mechanically_projected":
+                        fail("EvidenceAnchorMismatch", f"{anchor_context} JSON pointer is only valid for projected coverage")
+                    if source_value != _json_pointer({"payload": terms.payload}, pointer, f"{context}.term_pointer"):
+                        fail("EvidenceAnchorMismatch", f"{anchor_context} value differs from terms")
+                elif kind == "pdf_section":
+                    require_keys(
+                        locator,
+                        {"kind", "page", "section_start", "section_end", "section_sha256"},
+                        set(),
+                        f"{anchor_context}.locator",
+                    )
+                    if coverage_class != "human_reviewed" or source["media_type"] != "application/pdf":
+                        fail("EvidenceAnchorMismatch", f"{anchor_context} PDF locator has incompatible coverage/media")
+                    page = require_integer(locator["page"], f"{anchor_context}.page", minimum=1)
+                    start = require_string(locator["section_start"], f"{anchor_context}.section_start")
+                    end = locator["section_end"]
+                    if end is not None:
+                        end = require_string(end, f"{anchor_context}.section_end")
+                    _, page_text = _extract_pdf_page(retained_path, page, extractor_policy)
+                    section = _bounded_lines(page_text, _normalize_document_text(start, pdf=True), None if end is None else _normalize_document_text(end, pdf=True), anchor_context)
+                    fingerprint = _section_fingerprint("pdf_section", {"page": page, "section_start": start, "section_end": end}, section)
+                    if require_hash(locator["section_sha256"], f"{anchor_context}.section_sha256") != fingerprint:
+                        fail("EvidenceAnchorMismatch", f"{anchor_context} PDF section fingerprint differs")
+                elif kind == "markdown_section":
+                    require_keys(locator, {"kind", "heading_path", "section_sha256"}, set(), f"{anchor_context}.locator")
+                    if coverage_class != "human_reviewed" or source["media_type"] not in {"text/markdown", "text/plain"}:
+                        fail("EvidenceAnchorMismatch", f"{anchor_context} Markdown locator has incompatible coverage/media")
+                    heading_path = locator["heading_path"]
+                    if not isinstance(heading_path, list) or not heading_path:
+                        fail("EvidenceAnchorMismatch", f"{anchor_context}.heading_path must not be empty")
+                    normalized_path: list[dict[str, Any]] = []
+                    for heading in heading_path:
+                        if not isinstance(heading, dict):
+                            fail("EvidenceAnchorMismatch", f"{anchor_context}.heading_path item must be an object")
+                        require_keys(heading, {"level", "text"}, set(), f"{anchor_context}.heading")
+                        normalized_path.append({
+                            "level": require_integer(heading["level"], f"{anchor_context}.heading.level", minimum=1),
+                            "text": unicodedata.normalize("NFC", require_string(heading["text"], f"{anchor_context}.heading.text")),
+                        })
+                    matches = [item for item in _markdown_sections(retained_path.read_text(encoding="utf-8")) if item[0] == normalized_path]
+                    if len(matches) != 1:
+                        fail("EvidenceAnchorMismatch", f"{anchor_context} heading path must resolve exactly once")
+                    _, start_line, end_line = matches[0]
+                    raw_lines = retained_path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+                    section = _normalize_document_text("\n".join(raw_lines[start_line:end_line]), pdf=False)
+                    fingerprint = _section_fingerprint("markdown_section", {"heading_path": normalized_path}, section)
+                    if require_hash(locator["section_sha256"], f"{anchor_context}.section_sha256") != fingerprint:
+                        fail("EvidenceAnchorMismatch", f"{anchor_context} Markdown section fingerprint differs")
+                else:
+                    fail("EvidenceAnchorMismatch", f"{anchor_context} locator kind is unsupported")
+                if anchor.get("claim") is not None:
+                    require_string(anchor["claim"], f"{anchor_context}.claim")
+            if anchors and observations != {"opening", "closing"}:
+                fail("EvidenceIncomplete", f"{context} is not supported at both interval endpoints")
+        if pointers != sorted(pointers) or len(pointers) != len(set(pointers)) or pointers != expected_leaves:
+            fail("EvidenceIncomplete", "evidence map V2 must classify every product-term leaf once in sorted order")
+        return cls(payload, payload_hash, sha256_file(path), EVIDENCE_MAP_V2_SCHEMA)
+
 
 @dataclass(frozen=True)
 class ProductReview:
@@ -1189,7 +1820,7 @@ class ProductReview:
             fail("ReviewMissing", f"{path} is missing")
         document = read_object(path)
         schema = document.get("schema")
-        if schema not in {PRODUCT_REVIEW_SCHEMA, PRODUCT_REVIEW_V2_SCHEMA}:
+        if schema not in {PRODUCT_REVIEW_SCHEMA, PRODUCT_REVIEW_V2_SCHEMA, PRODUCT_REVIEW_V3_SCHEMA}:
             fail("UnsupportedTermsSchema", f"{path} uses unsupported review schema {schema!r}")
         payload, payload_hash = validate_envelope(path, schema, "ReviewHashMismatch")
         required = {
@@ -1197,11 +1828,13 @@ class ProductReview:
             "source_manifest_sha256", "effective_from_utc", "effective_until_utc",
             "effective_time_basis", "limitations",
         }
-        if schema == PRODUCT_REVIEW_V2_SCHEMA:
+        if schema in {PRODUCT_REVIEW_V2_SCHEMA, PRODUCT_REVIEW_V3_SCHEMA}:
             required.update({
                 "reviewer", "responsibilities", "checklist",
                 "acquisition_policy_sha256", "evidence_map_sha256",
             })
+        if schema == PRODUCT_REVIEW_V3_SCHEMA:
+            required.add("evidence_profile_sha256")
         require_keys(payload, required, set(), "review payload")
         if payload["status"] != "reviewed":
             fail("ReviewNotApproved", f"review status is {payload['status']!r}")
@@ -1225,9 +1858,13 @@ class ProductReview:
         if not isinstance(payload["limitations"], list) or any(not isinstance(item, str) for item in payload["limitations"]):
             fail("TermsNoncanonical", "review limitations must be strings")
         evidence_map: EvidenceMap | None = None
-        if schema == PRODUCT_REVIEW_V2_SCHEMA:
-            if evidence.schema != SOURCE_MANIFEST_V3_SCHEMA or evidence.acquisition_policy is None:
-                fail("AcquisitionPolicyMismatch", "review V2 requires source manifest V3")
+        if schema in {PRODUCT_REVIEW_V2_SCHEMA, PRODUCT_REVIEW_V3_SCHEMA}:
+            expected_manifest_schema = (
+                SOURCE_MANIFEST_V4_SCHEMA if schema == PRODUCT_REVIEW_V3_SCHEMA
+                else SOURCE_MANIFEST_V3_SCHEMA
+            )
+            if evidence.schema != expected_manifest_schema or evidence.acquisition_policy is None:
+                fail("AcquisitionPolicyMismatch", f"{schema} requires {expected_manifest_schema}")
             reviewer = payload["reviewer"]
             if not isinstance(reviewer, dict):
                 fail("TermsNoncanonical", "reviewer must be an object")
@@ -1246,23 +1883,33 @@ class ProductReview:
             checklist = payload["checklist"]
             if not isinstance(checklist, list) or not checklist:
                 fail("TermsNoncanonical", "review checklist must not be empty")
+            checklist_names: list[str] = []
             for item in checklist:
                 if not isinstance(item, dict):
                     fail("TermsNoncanonical", "review checklist item must be an object")
                 require_keys(item, {"item", "status"}, set(), "review checklist item")
-                require_string(item["item"], "review checklist item")
+                checklist_names.append(require_string(item["item"], "review checklist item"))
                 if item["status"] != "accepted":
                     fail("ReviewNotApproved", "review checklist contains an unaccepted item")
+            if schema == PRODUCT_REVIEW_V3_SCHEMA and len(checklist_names) != len(set(checklist_names)):
+                fail("TermsNoncanonical", "review V3 checklist item names must be unique")
             if require_hash(
                 payload["acquisition_policy_sha256"], "review acquisition policy hash"
             ) != evidence.acquisition_policy.payload_sha256:
                 fail("AcquisitionPolicyMismatch", "review names a different acquisition policy")
+            if schema == PRODUCT_REVIEW_V3_SCHEMA:
+                if evidence.evidence_profile is None:
+                    fail("EvidenceProfileMismatch", "review V3 requires an evidence profile")
+                if require_hash(
+                    payload["evidence_profile_sha256"], "review evidence profile hash"
+                ) != evidence.evidence_profile.payload_sha256:
+                    fail("EvidenceProfileMismatch", "review names a different evidence profile")
             evidence_map = EvidenceMap.load(package, terms, evidence)
             if require_hash(payload["evidence_map_sha256"], "review evidence map hash") != evidence_map.payload_sha256:
                 fail("ReviewHashMismatch", "review names a different evidence map")
             acquisitions = evidence.payload["acquisitions"]
             if len(acquisitions) != 2:
-                fail("EvidenceIncomplete", "review V2 requires opening and closing observations")
+                fail("EvidenceIncomplete", f"{schema} requires opening and closing observations")
             bracket_from = acquisitions[0]["completed_at_utc"]
             bracket_until = acquisitions[1]["started_at_utc"]
             if payload["effective_from_utc"] != bracket_from or payload["effective_until_utc"] != bracket_until:
@@ -1341,9 +1988,11 @@ class ProductPackage:
         expected_files = {"source_manifest.json", "product_terms.json", "review.json"}
         review_document = read_object(resolved / "review.json")
         review_schema = review_document.get("schema")
-        if evidence.schema == SOURCE_MANIFEST_V3_SCHEMA:
+        if evidence.schema in {SOURCE_MANIFEST_V3_SCHEMA, SOURCE_MANIFEST_V4_SCHEMA}:
             expected_files.add("acquisition_policy.json")
-        if review_schema == PRODUCT_REVIEW_V2_SCHEMA:
+        if evidence.schema == SOURCE_MANIFEST_V4_SCHEMA:
+            expected_files.add("evidence_profile.json")
+        if review_schema in {PRODUCT_REVIEW_V2_SCHEMA, PRODUCT_REVIEW_V3_SCHEMA}:
             expected_files.add("evidence_anchors.json")
         expected_files.update(source["path"] for source in evidence.payload["sources"])
         actual_files: set[str] = set()
@@ -1752,6 +2401,7 @@ def fetch_sources(
         )
         observation_id: str | None = None
         acquisition_policy: AcquisitionPolicy | None = None
+        evidence_profile: EvidenceProfile | None = None
         tool_version = ACQUISITION_TOOL_VERSION
     elif schema == ACQUISITION_SPEC_V2_SCHEMA:
         require_keys(
@@ -1775,6 +2425,38 @@ def fetch_sources(
         ):
             fail("AcquisitionPolicyMismatch", "fetch spec names a different policy")
         tool_version = ACQUISITION_TOOL_V3_VERSION
+        evidence_profile = None
+    elif schema == ACQUISITION_SPEC_V3_SCHEMA:
+        require_keys(
+            spec,
+            {
+                "schema", "venue", "environment", "observation_id",
+                "acquisition_policy", "acquisition_policy_sha256",
+                "evidence_profile", "evidence_profile_sha256", "sources",
+            },
+            set(),
+            "fetch spec",
+        )
+        observation_id = require_string(spec["observation_id"], "fetch observation_id")
+        if observation_id not in {"opening", "closing"}:
+            fail("EvidenceIncomplete", "fetch observation must be opening or closing")
+        policy_relative = Path(require_string(spec["acquisition_policy"], "fetch policy path"))
+        profile_relative = Path(require_string(spec["evidence_profile"], "fetch profile path"))
+        if policy_relative.is_absolute() or ".." in policy_relative.parts:
+            fail("AcquisitionPolicyMismatch", "fetch policy path must be relative to its spec")
+        if profile_relative.is_absolute() or ".." in profile_relative.parts:
+            fail("EvidenceProfileMismatch", "fetch profile path must be relative to its spec")
+        acquisition_policy = AcquisitionPolicy.load(spec_path.parent / policy_relative)
+        if acquisition_policy.payload_sha256 != require_hash(
+            spec["acquisition_policy_sha256"], "fetch policy hash"
+        ):
+            fail("AcquisitionPolicyMismatch", "fetch spec names a different policy")
+        evidence_profile = EvidenceProfile.load(spec_path.parent / profile_relative)
+        if evidence_profile.payload_sha256 != require_hash(
+            spec["evidence_profile_sha256"], "fetch profile hash"
+        ):
+            fail("EvidenceProfileMismatch", "fetch spec names a different evidence profile")
+        tool_version = ACQUISITION_TOOL_V4_VERSION
     else:
         fail("UnsupportedTermsSchema", f"fetch spec uses unsupported schema {schema!r}")
     if spec["venue"] != "kalshi" or spec["environment"] != "production":
@@ -1782,6 +2464,8 @@ def fetch_sources(
     sources = spec["sources"]
     if not isinstance(sources, list) or not sources:
         fail("SourceMissing", "fetch spec must list at least one source")
+    if evidence_profile is not None:
+        evidence_profile.verify_spec_sources(sources)
     if output.exists():
         fail("SourceMissing", f"fetch output already exists: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1831,6 +2515,9 @@ def fetch_sources(
                 observation_id=observation_id,
                 tool_version=tool_version,
             )
+            if evidence_profile is not None:
+                source_record["source_key"] = identity
+                source_record["id"] = f"{observation_id}_{identity}"
             total_bytes += added_bytes
             retained.append(source_record)
         retained.sort(key=lambda value: value["id"])
@@ -1848,7 +2535,7 @@ def fetch_sources(
                 "sources": retained,
             }
             manifest_schema = SOURCE_MANIFEST_V2_SCHEMA
-        else:
+        elif evidence_profile is None:
             assert acquisition_policy is not None
             acquisition["observation_id"] = observation_id
             payload = {
@@ -1862,6 +2549,20 @@ def fetch_sources(
             shutil.copyfile(
                 acquisition_policy.path, partial / "acquisition_policy.json"
             )
+        else:
+            assert acquisition_policy is not None
+            acquisition["observation_id"] = observation_id
+            payload = {
+                "venue": "kalshi",
+                "environment": "production",
+                "acquisition_policy_sha256": acquisition_policy.payload_sha256,
+                "evidence_profile_sha256": evidence_profile.payload_sha256,
+                "acquisitions": [acquisition],
+                "sources": retained,
+            }
+            manifest_schema = SOURCE_MANIFEST_V4_SCHEMA
+            shutil.copyfile(acquisition_policy.path, partial / "acquisition_policy.json")
+            shutil.copyfile(evidence_profile.path, partial / "evidence_profile.json")
         _write_new_canonical(
             partial / "source_manifest.json",
             build_envelope(manifest_schema, payload),
@@ -1890,6 +2591,14 @@ def fetch_sources(
 def assemble_observations(opening: Path, closing: Path, output: Path) -> None:
     opening_evidence = SourceEvidence.load(opening)
     closing_evidence = SourceEvidence.load(closing)
+    if (
+        opening_evidence.schema == SOURCE_MANIFEST_V4_SCHEMA
+        and closing_evidence.schema == SOURCE_MANIFEST_V4_SCHEMA
+    ):
+        _assemble_profile_observations(
+            opening, closing, output, opening_evidence, closing_evidence
+        )
+        return
     if (
         opening_evidence.schema != SOURCE_MANIFEST_V3_SCHEMA
         or closing_evidence.schema != SOURCE_MANIFEST_V3_SCHEMA
@@ -1945,7 +2654,13 @@ def assemble_observations(opening: Path, closing: Path, output: Path) -> None:
         ):
             for source_id, source in sorted(source_map.items()):
                 source_path = safe_member(root, source["path"], f"{observation_id} source path")
-                relative = Path("sources") / observation_id / Path(source["path"]).name
+                original = Path(source["path"])
+                parts = list(original.parts)
+                if parts and parts[0] == "sources":
+                    parts.pop(0)
+                if not parts:
+                    fail("SourceMissing", f"{observation_id}/{source_id} has no retained relative path")
+                relative = Path("sources") / observation_id / Path(*parts)
                 destination = partial / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source_path, destination)
@@ -1966,6 +2681,110 @@ def assemble_observations(opening: Path, closing: Path, output: Path) -> None:
         _write_new_canonical(
             partial / "source_manifest.json",
             build_envelope(SOURCE_MANIFEST_V3_SCHEMA, payload),
+        )
+        SourceEvidence.load(partial)
+        partial.rename(output)
+    except BaseException as original:
+        try:
+            shutil.rmtree(partial)
+        except OSError as cleanup_error:
+            raise ProductTermsError(
+                "AcquisitionCleanupFailed",
+                f"failed to remove partial assembly {partial}: {cleanup_error}",
+            ) from original
+        raise
+
+
+def _assemble_profile_observations(
+    opening: Path,
+    closing: Path,
+    output: Path,
+    opening_evidence: SourceEvidence,
+    closing_evidence: SourceEvidence,
+) -> None:
+    if (
+        [item["observation_id"] for item in opening_evidence.payload["acquisitions"]] != ["opening"]
+        or [item["observation_id"] for item in closing_evidence.payload["acquisitions"]] != ["closing"]
+    ):
+        fail("EvidenceIncomplete", "V4 assembly requires one opening and one closing observation")
+    opening_policy = opening_evidence.acquisition_policy
+    closing_policy = closing_evidence.acquisition_policy
+    opening_profile = opening_evidence.evidence_profile
+    closing_profile = closing_evidence.evidence_profile
+    assert opening_policy is not None and closing_policy is not None
+    assert opening_profile is not None and closing_profile is not None
+    if opening_policy.payload_sha256 != closing_policy.payload_sha256:
+        fail("AcquisitionPolicyMismatch", "opening and closing use different policies")
+    if opening_profile.payload_sha256 != closing_profile.payload_sha256:
+        fail("EvidenceProfileMismatch", "opening and closing use different evidence profiles")
+    opening_completed = parse_utc(
+        opening_evidence.payload["acquisitions"][0]["completed_at_utc"],
+        "opening acquisition completion",
+    )
+    closing_started = parse_utc(
+        closing_evidence.payload["acquisitions"][0]["started_at_utc"],
+        "closing acquisition start",
+    )
+    if closing_started <= opening_completed:
+        fail("EffectiveWindowGap", "opening and closing observations do not bracket time")
+    opening_sources = {item["source_key"]: item for item in opening_evidence.payload["sources"]}
+    closing_sources = {item["source_key"]: item for item in closing_evidence.payload["sources"]}
+    for source_key in sorted(set(opening_sources) & set(closing_sources)):
+        left = opening_sources[source_key]
+        right = closing_sources[source_key]
+        for field in ("role", "requested_url", "media_type"):
+            if left[field] != right[field]:
+                fail("EvidenceIncomplete", f"{source_key} {field} differs across observations")
+    if output.exists():
+        fail("SourceMissing", f"assembly output already exists: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    partial = Path(tempfile.mkdtemp(
+        prefix=f".{output.name}.", suffix=".partial", dir=output.parent
+    ))
+    try:
+        shutil.copyfile(opening_policy.path, partial / "acquisition_policy.json")
+        shutil.copyfile(opening_profile.path, partial / "evidence_profile.json")
+        assembled_sources: list[dict[str, Any]] = []
+        destinations: set[str] = set()
+        for observation_id, root, source_map in (
+            ("opening", opening, opening_sources),
+            ("closing", closing, closing_sources),
+        ):
+            for source_key, source in sorted(source_map.items()):
+                source_path = safe_member(root, source["path"], f"{observation_id} source path")
+                original = Path(source["path"])
+                parts = list(original.parts)
+                if parts and parts[0] == "sources":
+                    parts.pop(0)
+                if not parts:
+                    fail("SourceMissing", f"{observation_id}/{source_key} has no retained relative path")
+                relative = Path("sources") / observation_id / Path(*parts)
+                relative_text = relative.as_posix()
+                if relative_text in destinations:
+                    fail("PackageMembershipMismatch", f"assembled path collision at {relative_text}")
+                destinations.add(relative_text)
+                destination = partial / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source_path, destination)
+                assembled = dict(source)
+                assembled["id"] = f"{observation_id}_{source_key}"
+                assembled["observation_id"] = observation_id
+                assembled["path"] = relative_text
+                assembled_sources.append(assembled)
+        payload = {
+            "venue": "kalshi",
+            "environment": "production",
+            "acquisition_policy_sha256": opening_policy.payload_sha256,
+            "evidence_profile_sha256": opening_profile.payload_sha256,
+            "acquisitions": [
+                opening_evidence.payload["acquisitions"][0],
+                closing_evidence.payload["acquisitions"][0],
+            ],
+            "sources": sorted(assembled_sources, key=lambda item: item["id"]),
+        }
+        _write_new_canonical(
+            partial / "source_manifest.json",
+            build_envelope(SOURCE_MANIFEST_V4_SCHEMA, payload),
         )
         SourceEvidence.load(partial)
         partial.rename(output)
@@ -2002,7 +2821,12 @@ def build_evidence_map(payload_path: Path, package: Path) -> None:
     product = ProductTerms.load(package, evidence)
     payload = read_object(payload_path)
     destination = package / "evidence_anchors.json"
-    _write_new_canonical(destination, build_envelope(EVIDENCE_MAP_SCHEMA, payload))
+    schema = (
+        EVIDENCE_MAP_V2_SCHEMA
+        if evidence.schema == SOURCE_MANIFEST_V4_SCHEMA
+        else EVIDENCE_MAP_SCHEMA
+    )
+    _write_new_canonical(destination, build_envelope(schema, payload))
     try:
         EvidenceMap.load(package, product, evidence)
     except BaseException:
@@ -2046,7 +2870,7 @@ def review_terms(
         "limitations": limitations,
     }
     schema = PRODUCT_REVIEW_SCHEMA
-    if evidence.schema == SOURCE_MANIFEST_V3_SCHEMA:
+    if evidence.schema in {SOURCE_MANIFEST_V3_SCHEMA, SOURCE_MANIFEST_V4_SCHEMA}:
         if evidence.acquisition_policy is None:
             fail("AcquisitionPolicyMismatch", "source manifest V3 has no policy")
         if reviewer is None:
@@ -2068,7 +2892,13 @@ def review_terms(
             "acquisition_policy_sha256": evidence.acquisition_policy.payload_sha256,
             "evidence_map_sha256": evidence_map.payload_sha256,
         })
-        schema = PRODUCT_REVIEW_V2_SCHEMA
+        if evidence.schema == SOURCE_MANIFEST_V4_SCHEMA:
+            if evidence.evidence_profile is None:
+                fail("EvidenceProfileMismatch", "source manifest V4 has no profile")
+            payload["evidence_profile_sha256"] = evidence.evidence_profile.payload_sha256
+            schema = PRODUCT_REVIEW_V3_SCHEMA
+        else:
+            schema = PRODUCT_REVIEW_V2_SCHEMA
     destination = package / "review.json"
     _write_new_canonical(destination, build_envelope(schema, payload))
     try:

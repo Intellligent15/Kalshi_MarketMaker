@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.product_evidence_map.v2",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "payload", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "pmm.product_evidence_map.v2"},
+    "payload_sha256": {"$ref": "#/$defs/hash"},
+    "payload": {
+      "type": "object", "additionalProperties": false,
+      "required": ["effective_interval_evidence", "evidence_profile_sha256", "extractor_policy", "entries"],
+      "properties": {
+        "effective_interval_evidence": {"$ref": "evidence-map-v1.schema.json#/properties/payload/properties/effective_interval_evidence"},
+        "evidence_profile_sha256": {"$ref": "#/$defs/hash"},
+        "extractor_policy": {"$ref": "#/$defs/extractor"},
+        "entries": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/entry"}}
+      }
+    }
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "extractor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["policy_id", "nixpkgs_revision", "poppler_package_version", "pdfinfo_executable", "pdfinfo_version", "pdftotext_executable", "pdftotext_version", "pdftotext_arguments", "normalization_policy", "normalization_policy_sha256"],
+      "properties": {
+        "policy_id": {"const": "poppler_page_text.v1"},
+        "nixpkgs_revision": {"const": "59682e0069f0ed0a452e2179a7f4c1f247027b9e"},
+        "poppler_package_version": {"const": "26.06.0"},
+        "pdfinfo_executable": {"const": "pdfinfo"},
+        "pdfinfo_version": {"type": "string", "minLength": 1},
+        "pdftotext_executable": {"const": "pdftotext"},
+        "pdftotext_version": {"type": "string", "minLength": 1},
+        "pdftotext_arguments": {"const": ["-f", "{page}", "-l", "{page}", "-enc", "UTF-8", "-nopgbrk", "{source}", "-"]},
+        "normalization_policy": {"const": "pmm.document_text_normalization.v1"},
+        "normalization_policy_sha256": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "entry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["term_pointer", "coverage_class", "anchors", "dependency_pointers", "policy_id", "reason"],
+      "properties": {
+        "term_pointer": {"type": "string", "pattern": "^/payload/"},
+        "coverage_class": {"enum": ["mechanically_projected", "human_reviewed", "derived", "repository_local_policy", "unsupported", "not_applicable"]},
+        "anchors": {"type": "array", "items": {"$ref": "#/$defs/anchor"}},
+        "dependency_pointers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^/payload/"}},
+        "policy_id": {"type": ["string", "null"]},
+        "reason": {"type": ["string", "null"]}
+      }
+    },
+    "anchor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "source_sha256", "locator"],
+      "properties": {"source_id": {"type": "string", "minLength": 1}, "source_sha256": {"$ref": "#/$defs/hash"}, "locator": {"$ref": "#/$defs/locator"}, "claim": {"type": "string", "minLength": 1}}
+    },
+    "locator": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind", "pointer"], "properties": {"kind": {"const": "json_pointer"}, "pointer": {"type": "string"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "page", "section_start", "section_end", "section_sha256"], "properties": {"kind": {"const": "pdf_section"}, "page": {"type": "integer", "minimum": 1}, "section_start": {"type": "string", "minLength": 1}, "section_end": {"type": ["string", "null"], "minLength": 1}, "section_sha256": {"$ref": "#/$defs/hash"}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "heading_path", "section_sha256"], "properties": {"kind": {"const": "markdown_section"}, "heading_path": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["level", "text"], "properties": {"level": {"type": "integer", "minimum": 1, "maximum": 6}, "text": {"type": "string", "minLength": 1}}}}, "section_sha256": {"$ref": "#/$defs/hash"}}}
+      ]
+    }
+  }
+}

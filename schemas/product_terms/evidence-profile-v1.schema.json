@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.product_evidence_profile.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "payload", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "pmm.product_evidence_profile.v1"},
+    "payload_sha256": {"$ref": "#/$defs/hash"},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["venue", "environment", "profile_id", "observations", "roles", "field_coverage"],
+      "properties": {
+        "venue": {"const": "kalshi"},
+        "environment": {"const": "production"},
+        "profile_id": {"type": "string", "minLength": 1},
+        "observations": {"const": ["opening", "closing"]},
+        "field_coverage": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["term_pointer", "coverage_class"],
+            "properties": {
+              "term_pointer": {"type": "string", "pattern": "^/payload/"},
+              "coverage_class": {"enum": ["mechanically_projected", "human_reviewed", "derived", "repository_local_policy", "unsupported", "not_applicable"]}
+            }
+          }
+        },
+        "roles": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/role"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "roleName": {"enum": ["event_metadata_record", "market_record", "series_record_and_contract_document_identity", "official_fee_rounding_document", "official_fixed_point_document", "official_settlement_document", "official_contract_terms_document", "official_certification_document"]},
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_key", "role", "applicability", "reason", "cardinality_per_observation", "media_types", "content_kind", "mutability", "linked_source_keys"],
+      "properties": {
+        "source_key": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
+        "role": {"$ref": "#/$defs/roleName"},
+        "applicability": {"enum": ["required", "optional", "not_applicable"]},
+        "reason": {"type": ["string", "null"], "minLength": 1},
+        "cardinality_per_observation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimum", "maximum"],
+          "properties": {"minimum": {"type": "integer", "minimum": 0, "maximum": 1}, "maximum": {"type": "integer", "minimum": 0, "maximum": 1}}
+        },
+        "media_types": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["application/json", "application/pdf", "text/markdown", "text/plain"]}},
+        "content_kind": {"enum": ["json", "text", "pdf"]},
+        "mutability": {"enum": ["static_document", "mutable_endpoint"]},
+        "linked_source_keys": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}
