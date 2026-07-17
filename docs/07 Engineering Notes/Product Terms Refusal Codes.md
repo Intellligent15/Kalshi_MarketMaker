@@ -35,6 +35,7 @@ artifact must produce the same refusal.
 | `AcquisitionMediaTypeMismatch` | Response media type is not allowed for the declared role. | Correct the URL/role or investigate an error page. |
 | `AcquisitionContentInvalid` | Encoding, length, JSON, UTF-8, PDF signature, or retained content validation failed. | Reacquire only after identifying the official-source problem. |
 | `AcquisitionCleanupFailed` | The tool could not remove a partial acquisition after another failure. | Operator cleanup is required before reuse. |
+| `AcquisitionPolicyMismatch` | A V2/V3 acquisition names a missing, changed, or unsupported immutable policy identity. | Use the exact supported policy or design a versioned successor; do not reinterpret old evidence. |
 
 ## Package, review, and catalog codes
 
@@ -55,6 +56,8 @@ artifact must produce the same refusal.
 | `EffectiveWindowMismatch` | Terms, review, and catalog endpoints or terms/review basis differ. |
 | `EffectiveWindowGap` | An interval is empty/invalid or no catalog revision covers the requested capture. |
 | `EffectiveWindowOverlap` | Two revisions for one market overlap. |
+| `EvidenceAnchorMismatch` | A JSON pointer, Markdown heading, PDF page/section, source hash, or endpoint binding does not resolve to the retained evidence. |
+| `EvidenceIncomplete` | Required sources, both observations, anchors, responsibilities, or review checklist coverage are incomplete. |
 | `CaptureOutsideEffectiveWindow` | Capture time is reversed or outside the selected exact interval. |
 | `SeriesTickerMismatch` | Catalog and reviewed series identity differ. |
 | `EventTickerMismatch` | Catalog and reviewed event identity differ. |

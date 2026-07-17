@@ -31,6 +31,12 @@ captured Washington–Toronto market retrospectively. Its review limitations are
 identity. Never edit a reviewed revision in place; add a new package and non-overlapping catalog
 entry.
 
+The second entry covers `KXHMONTH-26JUL` contemporaneously. Its opening and closing observations
+are retained under one source-manifest V3 package, use the immutable
+`acquisition_policies/kalshi_first_party_v1.json` policy, and carry field-level evidence anchors
+plus review V2. The official empty secondary rule is represented by product-terms V2 rather than
+invented text or a weakened V1 rule.
+
 `product_catalog/acquisition_spec.example.json` is the source-manifest V2 operator template. Copy
 it outside the reviewed catalog, replace placeholders, add required linked documents, and fetch to
 a new revision directory. It declares requested source roles/URLs/paths only; the tool records

@@ -110,6 +110,13 @@ The fetcher validates every redirect and final host, streams in 64 KiB chunks, a
 provenance, and removes partial output on expected failure or interruption. The existing reviewed
 source-manifest V1 remains valid and is not rewritten.
 
+For bracketed evidence, acquisition-spec V2 names the immutable acquisition-policy hash and one
+`opening` or `closing` observation. Fetch each observation independently, then use
+`assemble-observations` offline. The assembled source-manifest V3 interval starts at opening
+completion and ends at closing start. `build-evidence` adds field-level JSON, Markdown, and PDF
+anchors before review V2 can be created. Review V2 requires a repository-declared reviewer,
+responsibilities, and an accepted checklist; it is not a signature.
+
 Focused B1b-1 validation commands are:
 
 ```sh

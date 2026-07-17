@@ -94,3 +94,17 @@ Focused product-term validation now passes 18 tests, the complete Python suite p
 and all 78 CTest tests remain passing. The next package is B1b-2: acquire a contemporaneous source
 bundle including required linked documents, approve a second product family, and prove additive
 catalog refresh entirely offline after acquisition.
+
+## B1b-2 contemporaneous evidence
+
+The reviewed `KXHMONTH-26JUL` climate package retains byte-identical opening and closing
+observations of eight required sources, including contract and certification PDFs. Its exact
+half-open interval is bounded by opening completion and closing start. Source-manifest V3 binds an
+immutable acquisition policy, evidence-map V1 resolves structured and document anchors, review V2
+records repository-declared responsibility, and product-terms V2 honestly permits the official
+empty secondary-rules value.
+
+The catalog now selects between two reviewed markets while the B1a package and existing normalized,
+feature, configuration, result, lifecycle, checkpoint, and risk artifacts remain unchanged. The
+new focused tests remain entirely offline. B2 broader observed-market coverage and recovery is next;
+this metadata package does not implement multi-market replay or reconnect handling.

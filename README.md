@@ -52,6 +52,12 @@ incremental hashes and observed HTTP metadata, and cleans partial output; formal
 runtime parity matrix; and public product/lineage refusals use stable documented codes. The first
 reviewed package and existing V1/V2/V3 artifacts keep their original bytes and meaning.
 
+B1b-2 adds a contemporaneous climate product without changing the integer core or downstream
+artifact formats. Two complete HMONTH acquisitions bracket one exact effective interval, an
+immutable policy hash fixes the acquisition rules, field-level anchors bind JSON/Markdown/PDF
+evidence, and review V2 records repository-declared human responsibility without claiming a
+signature. Product-terms V2 preserves the official empty secondary rule; V1 remains unchanged.
+
 ## Quick start
 
 Prerequisites: CMake 3.24+, a C++20 compiler, Git (to fetch GoogleTest for test builds),

@@ -23,21 +23,21 @@ complete, this current-state document wins; the older note remains useful histor
 
 | Field | Current value |
 | --- | --- |
-| Last reviewed | 2026-07-16 |
-| Baseline commit before this tracking update | `902a2df` (`docs: track B1b-1 critique and explanation`) |
-| Branch state after this tracking update | `main` eight commits ahead of `origin/main` |
+| Last reviewed | 2026-07-17 |
+| Baseline commit before B1b-2 | `d49cbee` (`docs: define B1b-2 design gate`) |
+| Branch state before B1b-2 commits | `main` eight commits ahead of `origin/main` |
 | Recent B1b-1 commits | `902a2df`, `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
 | C++/CTest validation | 78 tests passing |
-| Python validation | 77 tests passing |
-| Focused product-term validation | 18 tests passing |
+| Python validation | 81 tests passing |
+| Focused product-term validation | 22 tests passing |
 | Focused checkpoint-reader validation | 17 tests passing |
 | Focused fixture-integrity validation | 17 tests passing |
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | B1b-2 contemporaneous linked-document and second-product evidence |
-| Immediate next action | B1b-2 design review; no retained acquisition or implementation before approval |
+| Next bounded package | B2 broader observed-market coverage and recovery |
+| Immediate next action | B2 design review; do not begin implementation before approval |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -70,6 +70,7 @@ Use these documents to verify or deepen a claim in this roadmap:
 - [[02 Architecture/ADR-008 Calibrated Execution Accounting and Research Evaluation|Execution, accounting, and evaluation boundary]]
 - [[02 Architecture/ADR-009 Canonical Risk Conformance and Research Oracle Migration|Canonical C++ risk migration]]
 - [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage|Authoritative product terms and lineage]]
+- [[02 Architecture/ADR-011 Bracketed Product Evidence and Review Responsibility|Bracketed evidence and review responsibility]]
 - [[07 Engineering Notes/Phase 7 Critique|Original Phase 7 critique]]
 - [[07 Engineering Notes/Product Terms Source and Review Guide|Product-term source and review guide]]
 - [[07 Engineering Notes/Product Terms Refusal Codes|Product-term refusal-code compatibility reference]]
@@ -470,7 +471,7 @@ Boundary: the first reviewed package is explicitly retrospective. It retains the
 contract-document identities but not the linked PDF bytes, and it covers one market. Fee and
 settlement identities are retained but neither behavior is applied.
 
-#### B1b. Contemporaneous source acquisition and second-market evidence — current umbrella
+#### B1b. Contemporaneous source acquisition and second-market evidence — complete
 
 Close the remaining high-value provenance and generality gaps before treating B1 as complete. The
 post-B1a critique makes the dependency order explicit: harden the integrity/acquisition contract
@@ -508,53 +509,31 @@ fees, accounting, settlement, execution calibration, reconnect/multi-market repl
 paper/live behavior was added. The reviewed B1a bytes, hashes, risk behavior, and conformance
 corpora remain unchanged.
 
-##### B1b-2. Contemporaneous linked-document and second-product evidence — next bounded package
+##### B1b-2. Contemporaneous linked-document and second-product evidence — complete
 
-Now that B1b-1 closes the known integrity/acquisition gaps:
+Completion evidence:
 
-- use the hardened operator acquisition specification before capture and retain the
-  market, event, series, fixed-point, fee, settlement, contract-terms, and certification bytes;
-- add at least one reviewed package from a different product family or price-grid shape;
-- retain linked legal/document bytes or explicitly refuse approval when required documents cannot
-  be archived;
-- prove additive refresh, non-overlapping effective revisions, catalog selection, and compatibility
-  reporting across two markets entirely offline; and
-- keep network acquisition explicit and outside deterministic normalization/backtesting.
+- ADR-011 freezes the acquisition-policy identity and selects paired complete observations,
+  field-level evidence anchors, and repository-declared review responsibility without signatures;
+- the climate-family `KXHMONTH-26JUL` package retains opening and closing observations of all eight
+  required market, event, series, representation, fee, settlement, contract, and certification
+  sources; all source bytes were identical at both observations;
+- its exact half-open interval is `[2026-07-17T15:07:16.002543Z,
+  2026-07-17T15:08:37.512205Z)`, bounded by opening completion and closing start;
+- acquisition-spec V2 and source-manifest V3 bind an immutable checked-in policy; evidence-map V1
+  resolves JSON pointers, Markdown headings, and PDF page/section anchors offline;
+- review V2 records repository-declared reviewer responsibility, accepted checklist items, exact
+  hashes, and the exact bracket without implying signatures or organizational controls;
+- product-terms V2 preserves the official empty secondary-rules value honestly while leaving V1
+  semantics unchanged; catalog V1 and downstream V2/V3 formats remain additive;
+- focused offline tests cover the paired observation, recomputed-hash anchor mutation, two-market
+  selection, normalization, and feature lineage; and
+- the retrospective B1a package and its existing artifacts remain unchanged.
 
-B1b remains metadata/evidence work. Neither subpackage may add fees, accounting, settlement
-processing, multi-market replay/reconnect policy, calibrated execution, paper/live behavior, or new
-core numeric types.
-
-The first B1b-2 turn is design and evidence discovery only. Read-only inspection of current
-first-party public sources may identify candidate products and linked documents, but the agent must
-not run the repository acquisition command, retain a source package, edit schemas/runtime code, or
-approve/catalog a product before the design is reviewed.
-
-Before requesting implementation approval, the design must:
-
-1. Compare at least two currently available candidate products and recommend one whose family,
-   price grid, quantity shape, lifecycle, or linked-document structure tests a real new assumption.
-2. Inventory every required first-party source and linked document, with proposed source role,
-   requested URL, expected media type, expected size, and the product fields each source supports.
-3. Define the completeness/refusal rule when a contract, certification, fee, settlement, or other
-   linked document is missing, mutable, unretainable, or semantically insufficient.
-4. Define the contemporaneous effective interval and the retained evidence supporting both exact
-   endpoints; terms, review, and catalog must remain exactly equal and half-open.
-5. Propose field-level evidence anchors for structured JSON, Markdown, and PDF sources, including
-   how anchors survive offline review and source mutation.
-6. Decide whether acquisition-spec V1/source-manifest V2 policy semantics can be frozen as-is or
-   need an explicit immutable policy identity before the first real V2 package is committed.
-7. Compare keeping review V1 with repository review controls against a versioned review successor
-   carrying reviewer identity, responsibility, supersession, or revocation metadata.
-8. State whether existing product-terms/catalog schemas can represent the candidate honestly or a
-   versioned successor is required; do not add conditionals merely to force the product into V1.
-9. Define immutable catalog/package paths and additive migration that leaves the retrospective B1a
-   package and all existing normalized, feature, configuration, and result artifacts unchanged.
-10. Define offline positive, refusal, mutation, schema/runtime parity, public-CLI, two-product
-    catalog, compatibility, normalization, feature, V3 lineage, and byte-reproduction tests.
-11. Identify documentation updates and logical implementation, evidence, test, and documentation
-    commit boundaries.
-12. Reconfirm every B1b non-goal and readiness/economic non-claim before implementation begins.
+Boundary preserved: this package does not charge fees, process settlement, calculate accounting or
+PnL, add calibrated fills, broaden replay/reconnect behavior, change core numeric types, or make
+paper/live/readiness/profitability claims. The bracket proves two complete endpoint observations,
+not continuous source immutability between them.
 
 ### B2. Broader observed-market coverage and recovery — planned
 
@@ -946,63 +925,29 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | B1b-2 contemporaneous product evidence and second reviewed market | Closes B1 source completeness and generality on the hardened boundary. |
-| 2 | Multi-market/reconnect/gap-recovery fixtures | Establishes broader observed-data validity. |
-| 3 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
-| 4 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
-| 5 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
-| 6 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
-| 7 | Durable full-run continuation | Required for long and operationally reliable experiments. |
-| 8 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
-| 9 | Predictive models and model registry | Follows held-out baseline evidence. |
-| 10 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
-| 11 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
-| 12 | Demo exchange integration | Follows stable paper operations and reconciliation. |
-| 13 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
+| 1 | Multi-market/reconnect/gap-recovery design and fixtures | Establishes broader observed-data validity after B1 completion. |
+| 2 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
+| 3 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
+| 4 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
+| 5 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
+| 6 | Durable full-run continuation | Required for long and operationally reliable experiments. |
+| 7 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
+| 8 | Predictive models and model registry | Follows held-out baseline evidence. |
+| 9 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
+| 10 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
+| 11 | Demo exchange integration | Follows stable paper operations and reconciliation. |
+| 12 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
 
 This order is a default, not a prohibition on discovery work. A prototype may explore a later idea,
 but it must remain labelled experimental and must not bypass its promotion gates.
 
 ## Current next package
 
-The next agent should design **B1b-2 contemporaneous linked-document and second-product evidence**
-and wait for approval before performing network acquisition or creating a reviewed package.
-
-This is a design gate, not authorization to implement B1b-2. The first response should explain the
-existing boundary, compare candidate products and schema/governance alternatives, recommend one
-bounded design, identify uncertainties, and stop for approval.
-
-Required design and implementation boundary:
-
-- identify one currently available product from a genuinely different family or price-grid shape
-  and explain what new generality it tests before acquiring it;
-- enumerate the complete first-party market, event, series, fixed-point, fee, settlement,
-  contract-terms, certification, and other linked evidence required for approval;
-- use acquisition-spec V1 before capture and require source-manifest V2 observed provenance for
-  every source; do not manually manufacture a V2 manifest;
-- refuse review if a required linked document cannot be retained, has wrong media/content, leaves
-  the approved redirect boundary, or cannot support its projected field;
-- define the contemporaneous half-open interval from retained evidence and keep terms, review, and
-  catalog endpoints exactly equal;
-- add the new package and catalog entry additively without editing the retrospective package;
-- record field-level document page/section anchors where structured API comparison is impossible;
-- prove two-product catalog verification, selection, exact compatibility reporting, source/terms
-  mutation refusal, and offline normalization/feature/V3 lineage with minimal deterministic
-  fixtures or a retained capture appropriate to the approved scope;
-- preserve exact-reproduction compatibility as the default fail-closed gate; and
-- do not add fees, accounting, settlement processing, calibrated execution, reconnect/multi-market
-  replay, experiment grids, ML, gateways, paper trading, or live order behavior.
-
-Before acquisition, present the proposed product, source inventory and URLs, expected media/size,
-linked-document completeness rule, effective-time evidence, field projection/evidence anchors,
-test fixtures, and immutable package/catalog paths. Network acquisition is explicit operator work;
-normalization, backtesting, verification, and tests must remain offline afterward.
-
-The handoff begins from B1b-1 implementation `dbd6fd8` and tests `6d489e3`, plus ADR-010, the source
-and review guide, the refusal-code reference, explanation, and current critique. The validated
-baseline is 78 CTest tests, 77 Python tests, 18 focused product-term tests, 17 focused
-checkpoint-reader tests, and canonical/current lifecycle and checkpoint corpora. B1b-1 did not
-change the reviewed B1a bytes, production risk behavior, or either reviewed risk corpus.
+The next agent should design **B2 broader observed-market coverage and recovery** and wait for
+approval before implementation. The design should bound multi-market ordering, reconnect snapshots,
+sequence gaps, duplicates, late/out-of-order input, and recovery fixtures without changing matching,
+risk, economic, or readiness claims. B1b-2's two-entry metadata catalog proves product selection
+generalizes; it is not multi-market replay or reconnect recovery.
 
 Track A is closed by `4e6336b` for A1 and `ecca209` for A2, with their documentation packages.
 Deferred A3 hardening remains available only when evidence raises its impact or its containing

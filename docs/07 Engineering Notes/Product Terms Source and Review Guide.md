@@ -102,6 +102,31 @@ no selected package, and overlap refuses. See
 [[07 Engineering Notes/Product Terms Refusal Codes]] for the stable public error categories and
 CLI compatibility policy.
 
+## Contemporaneous HMONTH package
+
+The second reviewed package is the climate-family market `KXHMONTH-26JUL`. Its immutable directory
+contains two complete observations of eight sources: market, event metadata, series, fixed-point
+representation, fee rounding, settlement guidance, HMONTH contract terms, and HMONTH certification.
+The observations are byte-identical and establish the exact interval
+`[2026-07-17T15:07:16.002543Z, 2026-07-17T15:08:37.512205Z)`. This brackets two observations; it
+does not prove that no source changed between them.
+
+Acquisition-spec V2 names the immutable policy file. Each fetch emits source-manifest V3 with an
+observation identity. `assemble-observations` refuses different membership, source bytes, policy,
+or invalid acquisition ordering and combines the endpoint evidence. Product-terms V2 is required
+because the official HMONTH market record contains an empty secondary-rules string that V1 cannot
+represent honestly.
+
+Evidence-map V1 anchors mechanically projected JSON values by RFC 6901 pointer and records
+human-reviewed Markdown headings and PDF pages/section text. Review V2 binds those anchors, the
+policy, both observations, the terms, a repository-declared reviewer, responsibilities, and accepted
+checklist items. This identity is accountability metadata in version control, not a signature.
+
+Approval is all-or-nothing. A missing, mutable between endpoints, unretainable, redirected outside
+policy, wrong-media, structurally invalid, or semantically insufficient required source refuses the
+package. A URL alone is never evidence. Refreshes create adjacent or otherwise non-overlapping
+immutable revisions; they do not edit this package.
+
 ## Known limitations and next evidence package
 
 The first market record was retrieved after settlement, so its effective coverage is a reviewed
@@ -109,7 +134,7 @@ retrospective conclusion rather than a contemporaneous pre-capture snapshot. The
 record names official contract-terms and certification PDFs, but their bytes are not in this first
 package. Only one market/product family is reviewed.
 
-B1b-2 should acquire before capture, retain linked document bytes, and add a different market or
-price-grid family through the hardened V2 acquisition boundary. It must keep acquisition outside
-runtime and must not use metadata work as a shortcut into accounting, settlement, calibrated
-execution, multi-market reconnect behavior, or live trading.
+B1b-2 closes those linked-document and second-family gaps. The next observed-data package is B2,
+which must design broader multi-market/reconnect/gap-recovery evidence separately. Metadata work
+remains outside runtime and does not establish accounting, settlement, calibrated execution,
+multi-market replay, or live trading.

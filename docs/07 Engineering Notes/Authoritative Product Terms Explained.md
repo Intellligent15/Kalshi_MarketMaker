@@ -570,6 +570,28 @@ The accompanying critique records the detailed current debt. The most important 
 Those are B1b-2 and later governance/scale questions. They are not reasons to weaken exact
 reproduction, offline verification, or refusal of nonrepresentable values.
 
+## How B1b-2 proves a second product boundary
+
+B1b-2 adds the climate-family market `KXHMONTH-26JUL`, not another sports ticker. The package
+contains a complete opening observation and a complete closing observation of eight first-party
+sources. Since all retained bytes match, the interval begins when opening acquisition completed and
+ends when closing acquisition began. That is a conservative bracket, not continuous monitoring.
+
+The acquisition policy is now an immutable artifact with a fixed payload hash. Source-manifest V3
+names it and preserves both observations. Evidence-map V1 connects terms to exact JSON pointers,
+Markdown headings, and PDF page/section anchors. Review V2 names the reviewer and accepted
+responsibilities as repository metadata, without claiming a cryptographic signature or an
+organizational approval system.
+
+One real source value forced a clean successor: HMONTH's official `rules_secondary` is empty, while
+product-terms V1 requires a nonempty string. Product-terms V2 permits the empty secondary text and
+otherwise preserves the same economic boundary. V1 was not weakened. Catalog V1, normalization and
+feature V2, and configuration/result V3 can carry the new hashes without reinterpretation.
+
+Old source-manifest V2 packages remain checked under their frozen legacy rules. New V3 packages are
+verified against the named policy identity, so a future role, media, byte, redirect, or timeout
+change requires a new policy or schema rather than silently changing what this evidence means.
+
 ## Non-claims
 
 B1a does not calculate fees, maintain double-entry accounts, calculate PnL, process settlement,

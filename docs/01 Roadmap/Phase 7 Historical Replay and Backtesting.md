@@ -60,8 +60,16 @@ See [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage]]
 - V3 offline verification covers upstream manifests, normalized and feature artifacts, embedded
   product metadata, result manifests, and every result artifact.
 
-The next bounded product-metadata package is contemporaneous linked-document acquisition and a
-second reviewed product. It must exercise this hardened boundary rather than weaken it.
+## Contemporaneous second-product evidence implemented
+
+- A complete climate-family HMONTH package retains two observations of every required JSON,
+  Markdown, and linked PDF source.
+- Source-manifest V3 binds the immutable acquisition policy and both endpoints; evidence-map V1 and
+  review V2 retain field anchors and repository-declared responsibility.
+- Product-terms V2 preserves an official empty secondary-rules value without weakening V1.
+- The two-market catalog and downstream normalization/feature V2 lineage verify entirely offline.
+
+The next bounded package is B2 broader observed-market coverage and recovery, beginning with design.
 
 ## Explicitly deferred
 

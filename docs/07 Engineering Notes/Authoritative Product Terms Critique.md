@@ -264,3 +264,22 @@ terms. Refactoring and performance work should remain measurement-driven.
 
 None of the findings permits fee charging, settlement processing, accounting, calibrated fills,
 multi-market replay, paper/live behavior, ML, or readiness/profitability claims.
+
+## B1b-2 post-implementation critique
+
+B1b-2 supplies the missing real generality evidence: a climate product, complete linked PDFs, two
+endpoint observations, field anchors, explicit policy identity, and named review responsibility.
+It also correctly introduced product-terms V2 when live evidence contradicted V1's nonempty
+secondary-rules assumption instead of hiding the mismatch.
+
+| Finding | Impact | Ease | Recommendation |
+|---|---:|---:|---|
+| Two byte-identical observations bracket the interval but do not prove continuous immutability. | 4 | 2 | Keep the claim narrow; use evented source history or more observations only when a later use needs stronger temporal evidence. |
+| Review identity is repository-declared and has no signature, independent approval, revocation log, or organization-backed role. | 4 | 2 | Preserve the honest boundary. Add append-only supersession/revocation only when a real governance workflow exists. |
+| Evidence anchors verify structure and selected values, not the full semantics of legal prose. | 4 | 2 | Retain human review for legal meaning and add mechanically projected anchors only where source structure supports them. |
+| Policy identity is frozen, but the legacy V2 policy remains an implicit compatibility contract in code. | 3 | 3 | Never change legacy constants in place; introduce a new policy/schema for changed semantics and retain regression fixtures for V2. |
+| The main module is larger after adding version dispatch and evidence validation. | 3 | 2 | Split transport, package/evidence models, venue projection, and CLI only as a behavior-preserving package before B2 creates more coupling. |
+| The second package duplicates documentation bytes across endpoint observations. | 2 | 2 | Measure growth across more revisions before considering content-addressed storage. |
+
+The recommended next step is B2 design, not more metadata abstraction. B2 must not mistake a
+two-market catalog for multi-market replay, reconnect recovery, or broader observed-data validity.
