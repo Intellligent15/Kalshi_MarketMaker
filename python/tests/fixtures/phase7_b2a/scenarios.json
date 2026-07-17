@@ -1,0 +1,26 @@
+{
+  "schema": "pmm.historical.b2a_fixture_scenarios.v1",
+  "scenarios": [
+    {
+      "id": "steady_two_market_one_connection",
+      "reconnect": false,
+      "missing_recovery_snapshot": false,
+      "delta_before_recovery": false,
+      "expected_completeness": "complete_observed_interval"
+    },
+    {
+      "id": "reconnect_recovered",
+      "reconnect": true,
+      "missing_recovery_snapshot": false,
+      "delta_before_recovery": false,
+      "expected_completeness": "observed_discontinuous"
+    },
+    {
+      "id": "reconnect_incomplete",
+      "reconnect": true,
+      "missing_recovery_snapshot": true,
+      "delta_before_recovery": false,
+      "expected_completeness": "incomplete"
+    }
+  ]
+}

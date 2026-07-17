@@ -4,10 +4,14 @@ import importlib.util
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import uuid
+
+from jsonschema import Draft202012Validator
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "pmm_phase7.py"
@@ -45,6 +49,198 @@ class Phase7Tests(unittest.TestCase):
         with (capture / "frames.jsonl").open("w", encoding="utf-8") as destination:
             for line, message in enumerate(messages, start=1):
                 destination.write(json.dumps(self.raw_record(message, line)) + "\n")
+        return capture
+
+    def make_v2_capture(
+        self,
+        *,
+        reconnect: bool = False,
+        missing_recovery_snapshot: bool = False,
+        delta_before_recovery: bool = False,
+    ) -> Path:
+        capture = self.generated_root / f"capture-v2-{uuid.uuid4()}"
+        capture.mkdir()
+        tickers = ["KX-A", "KX-B"]
+        metadata = {
+            "schema": phase7.RAW_CAPTURE_V2_SCHEMA,
+            "source": "kalshi",
+            "environment": "production",
+            "market_tickers": tickers,
+            "capture_started_at_utc_ns": 1,
+            "capture_ended_at_utc_ns": 10_000_000_000,
+            "truth_category": "Synthetic",
+            "source_fidelity": "level_2",
+            "requested_duration_seconds": 10,
+            "connection_strategy": "single_connection_v1",
+            "websocket_endpoint": "wss://fixture",
+            "subscription_template": {
+                "id": 1,
+                "cmd": "subscribe",
+                "params": {
+                    "channels": ["orderbook_delta", "trade"],
+                    "market_tickers": tickers,
+                    "use_yes_price": True,
+                },
+            },
+            "sequence_domain": {
+                "status": "fixture_declared",
+                "components": ["connection_segment_id", "venue_subscription_id"],
+                "mechanical_validation_key": ["connection_segment_id", "venue_subscription_id"],
+                "limitation": "Synthetic fixture scope.",
+            },
+            "credential_environment_variables": [],
+            "credential_values_persisted": False,
+            "git_revision": None,
+            "package_versions": {},
+            "message_counts_by_type": {},
+            "message_counts_by_market": {},
+            "connections": 2 if reconnect else 1,
+            "disconnects": 1 if reconnect else 0,
+            "connection_segments": [],
+            "sequence_gaps": [],
+            "non_monotonic_sequences": [],
+            "capture_continuity": "observed_discontinuous" if reconnect else "continuous_within_recorded_mechanical_scopes",
+            "shutdown": {"status": "completed", "clean": True},
+        }
+        (capture / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+        records: list[dict[str, object]] = []
+
+        def add(kind: str, connection: int, **values: object) -> None:
+            records.append(
+                {
+                    "schema": phase7.RAW_CAPTURE_RECORD_V2_SCHEMA,
+                    "kind": kind,
+                    "raw_ingress_ordinal": len(records) + 1,
+                    "received_at_utc_ns": 1_000_000_000 + len(records),
+                    "connection_segment_id": connection,
+                    **values,
+                }
+            )
+
+        def inbound(connection: int, message: dict[str, object]) -> None:
+            add(
+                "inbound_frame",
+                connection,
+                message_type=message["type"],
+                subscription_id=message.get("sid"),
+                source_sequence=message.get("seq"),
+                market_ticker=(message.get("msg") or {}).get("market_ticker"),  # type: ignore[union-attr]
+                venue_market_id=(message.get("msg") or {}).get("market_id"),  # type: ignore[union-attr]
+                raw_frame_utf8=json.dumps(message),
+            )
+
+        def connection_prefix(connection: int, orderbook_sid: int, trade_sid: int) -> None:
+            add("connection_attempt", connection, websocket_url="wss://fixture")
+            add("connection_opened", connection, websocket_url="wss://fixture")
+            subscription = {
+                "id": connection,
+                "cmd": "subscribe",
+                "params": {
+                    "channels": ["orderbook_delta", "trade"],
+                    "market_tickers": tickers,
+                    "use_yes_price": True,
+                },
+            }
+            add(
+                "subscription_sent",
+                connection,
+                subscription_request_id=f"c{connection}:r1",
+                wire_request_id=connection,
+                subscription=subscription,
+            )
+            for channel, sid in (("orderbook_delta", orderbook_sid), ("trade", trade_sid)):
+                inbound(
+                    connection,
+                    {"id": connection, "type": "subscribed", "msg": {"channel": channel, "sid": sid}},
+                )
+                add(
+                    "subscription_acknowledged",
+                    connection,
+                    subscription_request_id=f"c{connection}:r1",
+                    wire_request_id=connection,
+                    channel=channel,
+                    venue_subscription_id=str(sid),
+                    requested_market_tickers=tickers,
+                    membership_claim="request_bound_not_echoed_by_acknowledgement",
+                )
+
+        def snapshot(connection: int, sid: int, ticker: str, market_id: str, sequence: int) -> None:
+            inbound(
+                connection,
+                {
+                    "type": "orderbook_snapshot",
+                    "sid": sid,
+                    "seq": sequence,
+                    "msg": {
+                        "market_ticker": ticker,
+                        "market_id": market_id,
+                        "yes_dollars_fp": [["0.50", "3"]],
+                        "no_dollars_fp": [["0.51", "4"]],
+                    },
+                },
+            )
+
+        def delta(connection: int, sid: int, ticker: str, market_id: str, sequence: int) -> None:
+            inbound(
+                connection,
+                {
+                    "type": "orderbook_delta",
+                    "sid": sid,
+                    "seq": sequence,
+                    "msg": {
+                        "market_ticker": ticker,
+                        "market_id": market_id,
+                        "side": "yes",
+                        "price_dollars": "0.50",
+                        "delta_fp": "1",
+                        "ts_ms": 1000 + sequence,
+                    },
+                },
+            )
+
+        connection_prefix(1, 11, 12)
+        snapshot(1, 11, "KX-A", "market-a", 1)
+        snapshot(1, 11, "KX-B", "market-b", 2)
+        delta(1, 11, "KX-A", "market-a", 3)
+        inbound(
+            1,
+            {
+                "type": "trade",
+                "sid": 12,
+                "seq": 1,
+                "msg": {
+                    "market_ticker": "KX-B",
+                    "market_id": "market-b",
+                    "trade_id": "trade-1",
+                    "yes_price_dollars": "0.50",
+                    "no_price_dollars": "0.50",
+                    "count_fp": "1",
+                    "ts_ms": 999,
+                },
+            },
+        )
+        if reconnect:
+            add(
+                "connection_gap",
+                1,
+                failure_phase="receive",
+                error_type="ConnectionError",
+                error_code="TransportDisconnected",
+                reconnect_delay_seconds=1,
+            )
+            connection_prefix(2, 21, 22)
+            if delta_before_recovery:
+                delta(2, 21, "KX-A", "market-a", 1)
+            if not missing_recovery_snapshot:
+                snapshot(2, 21, "KX-A", "market-a", 1 if not delta_before_recovery else 2)
+                snapshot(2, 21, "KX-B", "market-b", 2 if not delta_before_recovery else 3)
+                delta(2, 21, "KX-B", "market-b", 3 if not delta_before_recovery else 4)
+            add("connection_closed", 2, close_reason="capture_deadline", clean=True)
+        else:
+            add("connection_closed", 1, close_reason="capture_deadline", clean=True)
+        with (capture / "frames.jsonl").open("w", encoding="utf-8") as destination:
+            for record in records:
+                destination.write(json.dumps(record, separators=(",", ":")) + "\n")
         return capture
 
     @staticmethod
@@ -310,6 +506,310 @@ class Phase7Tests(unittest.TestCase):
             self.assertEqual(oracle.view()["net_position_contracts"], "0")
         finally:
             oracle.close()
+
+    def test_v3_normalizes_two_markets_in_shared_scope_deterministically(self) -> None:
+        capture = self.make_v2_capture()
+        first = self.generated_root / "normalized-v3-one"
+        second = self.generated_root / "normalized-v3-two"
+        first_manifest = phase7.normalize_capture_v3(capture, first)
+        second_manifest = phase7.normalize_capture_v3(capture, second)
+        self.assertEqual(first_manifest, second_manifest)
+        self.assertEqual(first_manifest["completeness"], "complete_observed_interval")
+        self.assertEqual(first_manifest["event_counts"]["book_snapshot"], 2)
+        for filename in ("records.jsonl", "source_scopes.json", "product.json", "manifest.json"):
+            self.assertEqual((first / filename).read_bytes(), (second / filename).read_bytes())
+        products = json.loads((first / "product.json").read_text())["products"]
+        self.assertEqual([product["ticker"] for product in products], ["KX-A", "KX-B"])
+        records = list(phase7.iter_jsonl(first / "records.jsonl"))
+        market_records = [record for record in records if record["kind"] == "market_event"]
+        self.assertEqual(
+            [record["raw_ingress_ordinal"] for record in market_records],
+            sorted(record["raw_ingress_ordinal"] for record in market_records),
+        )
+        self.assertTrue(all(record["truth_category"] == "Synthetic" for record in records))
+
+    def test_v3_retained_offline_scenario_matrix(self) -> None:
+        fixture = json.loads(
+            (
+                Path(__file__).parent
+                / "fixtures"
+                / "phase7_b2a"
+                / "scenarios.json"
+            ).read_text()
+        )
+        self.assertEqual(fixture["schema"], "pmm.historical.b2a_fixture_scenarios.v1")
+        for scenario in fixture["scenarios"]:
+            with self.subTest(scenario=scenario["id"]):
+                capture = self.make_v2_capture(
+                    reconnect=scenario["reconnect"],
+                    missing_recovery_snapshot=scenario["missing_recovery_snapshot"],
+                    delta_before_recovery=scenario["delta_before_recovery"],
+                )
+                manifest = phase7.normalize_capture_v3(
+                    capture,
+                    self.generated_root / f"scenario-{scenario['id']}",
+                    continuity_policy="record",
+                )
+                self.assertEqual(manifest["completeness"], scenario["expected_completeness"])
+
+    def test_v3_shared_and_independent_sequence_scopes_do_not_collide(self) -> None:
+        capture = self.make_v2_capture()
+        output = self.generated_root / "normalized-v3"
+        phase7.normalize_capture_v3(capture, output)
+        records = list(phase7.iter_jsonl(output / "records.jsonl"))
+        events = [record for record in records if record["kind"] == "market_event"]
+        self.assertEqual(
+            [(event["subscription_id"], event["source_sequence"]) for event in events],
+            [("11", 1), ("11", 2), ("11", 3), ("12", 1)],
+        )
+
+    def test_v3_reconnect_snapshot_starts_new_discontinuous_segment(self) -> None:
+        capture = self.make_v2_capture(reconnect=True)
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "DiscontinuousInput"):
+            phase7.normalize_capture_v3(capture, self.generated_root / "refused")
+        output = self.generated_root / "recorded"
+        manifest = phase7.normalize_capture_v3(capture, output, continuity_policy="record")
+        self.assertEqual(manifest["completeness"], "observed_discontinuous")
+        records = list(phase7.iter_jsonl(output / "records.jsonl"))
+        gaps = [record for record in records if record.get("control_type") == "connection_gap"]
+        self.assertEqual(len(gaps), 2)
+        starts = [record for record in records if record["kind"] == "segment_boundary"]
+        self.assertEqual(len(starts), 4)
+        self.assertTrue(all(start["continuity_claim"] == "valid_from_observed_snapshot_only" for start in starts))
+
+    def test_v3_missing_recovery_snapshot_is_incomplete(self) -> None:
+        capture = self.make_v2_capture(reconnect=True, missing_recovery_snapshot=True)
+        output = self.generated_root / "recorded"
+        manifest = phase7.normalize_capture_v3(capture, output, continuity_policy="record")
+        self.assertEqual(manifest["completeness"], "incomplete")
+        codes = {reason["code"] for reason in manifest["incomplete_reasons"]}
+        self.assertIn("RecoverySnapshotMissing", codes)
+        self.assertIn("SnapshotCardinalityMismatch", codes)
+
+    def test_v3_per_scope_sequence_gap_and_regression_are_fail_closed(self) -> None:
+        capture = self.make_v2_capture()
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        target = next(record for record in records if record.get("message_type") == "orderbook_delta")
+        message = json.loads(target["raw_frame_utf8"])
+        message["seq"] = 4
+        target["source_sequence"] = 4
+        target["raw_frame_utf8"] = json.dumps(message)
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        output = self.generated_root / "gap-recorded"
+        manifest = phase7.normalize_capture_v3(capture, output, continuity_policy="record")
+        self.assertEqual(manifest["discontinuity_counts"], {"sequence_gap": 1})
+        self.assertIn("DeltaBeforeRecovery", {item["code"] for item in manifest["incomplete_reasons"]})
+
+        capture = self.make_v2_capture()
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        target = next(record for record in records if record.get("message_type") == "orderbook_delta")
+        message = json.loads(target["raw_frame_utf8"])
+        message["seq"] = 0
+        target["source_sequence"] = 0
+        target["raw_frame_utf8"] = json.dumps(message)
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "SourceSequenceRegression"):
+            phase7.normalize_capture_v3(capture, self.generated_root / "regression")
+
+    def test_v3_duplicate_recovery_snapshot_and_missing_ack_are_refused(self) -> None:
+        capture = self.make_v2_capture(reconnect=True)
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        second_snapshots = [
+            record
+            for record in records
+            if record.get("connection_segment_id") == 2
+            and record.get("message_type") == "orderbook_snapshot"
+        ]
+        target = second_snapshots[1]
+        message = json.loads(target["raw_frame_utf8"])
+        message["msg"]["market_ticker"] = "KX-A"
+        message["msg"]["market_id"] = "market-a"
+        target["market_ticker"] = "KX-A"
+        target["venue_market_id"] = "market-a"
+        target["raw_frame_utf8"] = json.dumps(message)
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "RecoverySnapshotDuplicate"):
+            phase7.normalize_capture_v3(capture, self.generated_root / "duplicate-recovery")
+
+        capture = self.make_v2_capture()
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        records = [
+            record
+            for record in records
+            if not (
+                record.get("kind") == "subscription_acknowledged"
+                and record.get("channel") == "trade"
+            )
+        ]
+        for ordinal, record in enumerate(records, start=1):
+            record["raw_ingress_ordinal"] = ordinal
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "UnboundSourceScope"):
+            phase7.normalize_capture_v3(capture, self.generated_root / "missing-ack")
+
+    def test_v3_delta_before_recovery_refuses_or_records_unsupported_state(self) -> None:
+        capture = self.make_v2_capture(reconnect=True, delta_before_recovery=True)
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "DeltaBeforeRecovery"):
+            phase7.normalize_capture_v3(capture, self.generated_root / "refused")
+        output = self.generated_root / "recorded"
+        manifest = phase7.normalize_capture_v3(capture, output, continuity_policy="record")
+        self.assertEqual(manifest["completeness"], "incomplete")
+        unsupported = [
+            record
+            for record in phase7.iter_jsonl(output / "records.jsonl")
+            if record["kind"] == "market_event" and not record["book_state_valid"]
+        ]
+        self.assertEqual(len(unsupported), 1)
+
+    def test_v3_identical_and_conflicting_duplicates_are_distinct(self) -> None:
+        capture = self.make_v2_capture()
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        donor_index = next(
+            index
+            for index, record in enumerate(records)
+            if record.get("message_type") == "orderbook_delta"
+        )
+        duplicate = dict(records[donor_index])
+        records.insert(donor_index + 1, duplicate)
+        for index, record in enumerate(records, start=1):
+            record["raw_ingress_ordinal"] = index
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        output = self.generated_root / "deduplicated"
+        manifest = phase7.normalize_capture_v3(capture, output)
+        self.assertEqual(manifest["identical_duplicates_skipped"], 1)
+
+        conflicting_capture = self.make_v2_capture()
+        conflicting_frames = conflicting_capture / "frames.jsonl"
+        conflicting = [json.loads(line) for line in conflicting_frames.read_text().splitlines()]
+        donor = next(record for record in conflicting if record.get("message_type") == "orderbook_delta")
+        collision = dict(donor)
+        message = json.loads(collision["raw_frame_utf8"])
+        message["msg"]["delta_fp"] = "2"
+        collision["raw_frame_utf8"] = json.dumps(message)
+        insert_at = conflicting.index(donor) + 1
+        conflicting.insert(insert_at, collision)
+        for index, record in enumerate(conflicting, start=1):
+            record["raw_ingress_ordinal"] = index
+        conflicting_frames.write_text("".join(json.dumps(record) + "\n" for record in conflicting))
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "ConflictingDuplicate"):
+            phase7.normalize_capture_v3(conflicting_capture, self.generated_root / "conflict")
+
+    def test_v3_refuses_ingress_ordinal_and_membership_defects(self) -> None:
+        capture = self.make_v2_capture()
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        records[1]["raw_ingress_ordinal"] = 1
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "IngressOrdinalMismatch"):
+            phase7.normalize_capture_v3(capture, self.generated_root / "ordinal")
+
+        capture = self.make_v2_capture()
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        target = next(record for record in records if record.get("message_type") == "trade")
+        message = json.loads(target["raw_frame_utf8"])
+        message["msg"]["market_ticker"] = "KX-OUTSIDE"
+        target["raw_frame_utf8"] = json.dumps(message)
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "MarketMembershipMismatch"):
+            phase7.normalize_capture_v3(capture, self.generated_root / "membership")
+
+    def test_v3_schema_runtime_parity_for_generated_formats(self) -> None:
+        capture = self.make_v2_capture()
+        output = self.generated_root / "normalized-v3"
+        phase7.normalize_capture_v3(capture, output)
+        schema_root = phase7.REPOSITORY_ROOT / "schemas" / "historical"
+        pairs = {
+            "raw-capture-v2.schema.json": capture / "metadata.json",
+            "source-scope-map-v1.schema.json": output / "source_scopes.json",
+            "product-map-v3.schema.json": output / "product.json",
+            "normalization-manifest-v3.schema.json": output / "manifest.json",
+        }
+        config_schema = json.loads((schema_root / "capture-config-v2.schema.json").read_text())
+        Draft202012Validator(config_schema).validate(
+            {
+                "schema": "pmm.kalshi.capture_config.v2",
+                "market_tickers": ["KX-A", "KX-B"],
+                "channels": ["orderbook_delta", "trade"],
+                "connection_strategy": "single_connection_v1",
+                "use_yes_price": True,
+                "duration_seconds": 30,
+            }
+        )
+        for schema_name, document_path in pairs.items():
+            with self.subTest(schema=schema_name):
+                schema = json.loads((schema_root / schema_name).read_text())
+                Draft202012Validator(schema).validate(json.loads(document_path.read_text()))
+        raw_schema = Draft202012Validator(
+            json.loads((schema_root / "raw-capture-record-v2.schema.json").read_text())
+        )
+        for record in phase7.iter_jsonl(capture / "frames.jsonl"):
+            raw_schema.validate(record)
+        normalized_schema = Draft202012Validator(
+            json.loads((schema_root / "normalized-record-v2.schema.json").read_text())
+        )
+        for record in phase7.iter_jsonl(output / "records.jsonl"):
+            normalized_schema.validate(record)
+
+        bad_metadata = json.loads((capture / "metadata.json").read_text())
+        bad_metadata["schema"] = "pmm.kalshi.raw_capture.v3"
+        metadata_schema = Draft202012Validator(
+            json.loads((schema_root / "raw-capture-v2.schema.json").read_text())
+        )
+        self.assertFalse(metadata_schema.is_valid(bad_metadata))
+        (capture / "metadata.json").write_text(json.dumps(bad_metadata))
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "CaptureSchemaMismatch"):
+            phase7.normalize_capture_v3(capture, self.generated_root / "bad-schema")
+
+    def test_v3_interrupt_removes_partial_output_and_downstream_refuses(self) -> None:
+        capture = self.make_v2_capture()
+        interrupted = self.generated_root / "interrupted"
+        with mock.patch.object(phase7, "normalized_payload", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                phase7.normalize_capture_v3(capture, interrupted)
+        self.assertFalse(interrupted.exists())
+        self.assertFalse(interrupted.with_name("interrupted.partial").exists())
+
+        normalized = self.generated_root / "normalized-v3"
+        phase7.normalize_capture_v3(capture, normalized)
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "DownstreamContinuityRequired"):
+            phase7.materialize_features(normalized, self.generated_root / "features")
+
+    def test_v3_cli_success_and_expected_refusal_stream_contract(self) -> None:
+        capture = self.make_v2_capture()
+        output = self.generated_root / "cli-success"
+        command = [
+            sys.executable,
+            str(phase7.MODULE_PATH) if hasattr(phase7, "MODULE_PATH") else str(phase7.REPOSITORY_ROOT / "python" / "pmm_phase7.py"),
+            "normalize-v3",
+            "--input",
+            str(capture),
+            "--output",
+            str(output),
+        ]
+        success = subprocess.run(command, text=True, capture_output=True, check=False)
+        self.assertEqual(success.returncode, 0)
+        self.assertEqual(success.stderr, "")
+        self.assertEqual(json.loads(success.stdout)["completeness"], "complete_observed_interval")
+
+        reconnect = self.make_v2_capture(reconnect=True)
+        refused_output = self.generated_root / "cli-refused"
+        refused = subprocess.run(
+            command[:3]
+            + ["--input", str(reconnect), "--output", str(refused_output)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(refused.returncode, 2)
+        self.assertEqual(refused.stdout, "")
+        self.assertIn("DiscontinuousInput", refused.stderr)
+        self.assertFalse(refused_output.exists())
 
 
 if __name__ == "__main__":
