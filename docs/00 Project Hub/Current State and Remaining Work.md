@@ -24,9 +24,9 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-16 |
-| Baseline commit | `6d489e3` (`test(phase7): cover product integrity refusal paths`) |
-| Branch state after this tracking update | `main` four commits ahead of `origin/main` |
-| Recent B1b-1 commits | `6d489e3` and `dbd6fd8` |
+| Baseline commit before this tracking update | `5d40d64` (`docs(phase7): expand B1b-1 integrity walkthrough`) |
+| Branch state after this tracking update | `main` seven commits ahead of `origin/main` |
+| Recent B1b-1 commits | `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
 | C++/CTest validation | 78 tests passing |
 | Python validation | 77 tests passing |
@@ -496,7 +496,10 @@ Completion evidence:
   feature/product binding, embedded result metadata, and result artifacts;
 - commit `6d489e3` adds interval, catalog adjacency/gap/overlap, redirect, size, media, timeout,
   interruption, cleanup, recomputed-source-hash, schema parity, public CLI, V3 mutation, and exact
-  nonrepresentable-output tests; and
+  nonrepresentable-output tests;
+- commits `e33885a` and `5d40d64` record the current category-by-category critique, impact ratings,
+  ranked follow-up, and a detailed plain-language explanation of the temporal, acquisition,
+  provenance, schema, refusal, lineage, compatibility, and testing design; and
 - validation passes 18 focused product-term tests, 77 total Python tests, and all 78 CTest tests.
 
 Boundary preserved: no second reviewed market, linked-document corpus, content-addressed storage,
