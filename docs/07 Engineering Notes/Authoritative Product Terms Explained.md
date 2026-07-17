@@ -554,47 +554,276 @@ adapter, introduce content-addressed storage, or add fee and settlement behavior
 The result is intentionally strict and somewhat repetitive. At the present scale, visible checks
 and exact hashes are easier to audit than a generalized metadata platform.
 
-## What remains incomplete
+## B1b-2 in plain language
 
-The accompanying critique records the detailed current debt. The most important items are:
+B1a answered, “Can one historical market be tied to reviewed product rules?” B1b-1 answered, “Can
+that evidence be acquired and verified without loose redirects, unbounded downloads, ambiguous
+time intervals, or shallow lineage checks?” B1b-2 asks the next question:
 
-- acquire a contemporaneous package before capture and retain every required linked contract and
-  certification document;
-- review a second product family and prove additive catalog revisions on real differing terms;
-- add reviewer identity, responsibility, revocation, and supersession policy;
-- attach field-level page/section evidence to legal and document-derived projections;
-- define crash-recovery/scavenging for partial acquisitions if acquisition becomes operational;
-- separate exact-reproduction compatibility from later economic-comparison compatibility; and
-- measure document duplication before considering content-addressed storage.
+> Does the boundary still work when the product is genuinely different and the complete linked
+> document set is retained at the time of review?
 
-Those are B1b-2 and later governance/scale questions. They are not reasons to weaken exact
-reproduction, offline verification, or refusal of nonrepresentable values.
+The answer is yes, within a carefully limited claim. We added the climate-family market
+`KXHMONTH-26JUL`, retained all eight required first-party sources twice, projected its terms,
+recorded field-level evidence addresses, declared review responsibility, added it to the catalog,
+and selected it through offline normalization and feature lineage. We did not implement climate
+settlement, fees, PnL, or multi-market replay.
 
-## How B1b-2 proves a second product boundary
+## What we added
 
-B1b-2 adds the climate-family market `KXHMONTH-26JUL`, not another sports ticker. The package
-contains a complete opening observation and a complete closing observation of eight first-party
-sources. Since all retained bytes match, the interval begins when opening acquisition completed and
-ends when closing acquisition began. That is a conservative bracket, not continuous monitoring.
+The immutable package is:
 
-The acquisition policy is now an immutable artifact with a fixed payload hash. Source-manifest V3
-names it and preserves both observations. Evidence-map V1 connects terms to exact JSON pointers,
-Markdown headings, and PDF page/section anchors. Review V2 names the reviewer and accepted
-responsibilities as repository metadata, without claiming a cryptographic signature or an
-organizational approval system.
+```text
+configs/product_catalog/kalshi/production/markets/KXHMONTH-26JUL/
+  2026-07-17T150716Z-150837Z-contemporaneous-bracketed/
+```
 
-One real source value forced a clean successor: HMONTH's official `rules_secondary` is empty, while
-product-terms V1 requires a nonempty string. Product-terms V2 permits the empty secondary text and
-otherwise preserves the same economic boundary. V1 was not weakened. Catalog V1, normalization and
-feature V2, and configuration/result V3 can carry the new hashes without reinterpretation.
+It contains two observations of these official sources:
 
-Old source-manifest V2 packages remain checked under their frozen legacy rules. New V3 packages are
-verified against the named policy identity, so a future role, media, byte, redirect, or timeout
-change requires a new policy or schema rather than silently changing what this evidence means.
+| Source | Why it is present |
+|---|---|
+| Market JSON | Market identity, rules, price grid, lifecycle, payout, and labels |
+| Event metadata JSON | Event membership and settlement-source identity |
+| Series JSON | Series identity, fees, settlement source, and linked-document identities |
+| Fixed-point Markdown | Venue price and quantity representation context |
+| Fee-rounding Markdown | Fee-rounding identity; fees remain unapplied |
+| Settlement Markdown | General settlement context; settlement remains unapplied |
+| HMONTH contract-terms PDF | Product-specific legal/economic terms for human review |
+| HMONTH certification PDF | First-party certification evidence for human review |
+
+Every opening source was byte-identical to its closing counterpart. The combined package is about
+484 KiB. Its key canonical payload hashes are:
+
+| Artifact | Payload SHA-256 |
+|---|---|
+| Source manifest V3 | `d2dd466010b27750f39a980bd2afc3b4f320702cea7e7a27eeb152f5ab8921d8` |
+| Product terms V2 | `f755e613ac77f093710e532b9a94e9937a125b9c7da75ef56945d5b4a1266e2c` |
+| Evidence map V1 | `9401ca5b8acfa3f274cf3fa24a6231ca0eae64b537e8211d7d8028307c70a2b1` |
+| Review V2 | `73c62a0d5b00bfee4067cbf4c64eefa26cfb41bff95cf74a0a40ee8b048b867b` |
+
+These hashes are identities, not claims of correctness by themselves. They let every later verifier
+answer “are these exactly the bytes that were reviewed?” The source projection and human review
+answer the separate question “do these bytes support these terms?”
+
+## How the two-observation bracket works
+
+A single retrieval instant cannot support both endpoints of an interval. We therefore acquired the
+same complete source inventory twice:
+
+```text
+opening acquisition                              closing acquisition
+started -------- completed                       started -------- completed
+                    |                              |
+                    +------ accepted interval -----+
+                    [                              )
+       2026-07-17T15:07:16.002543Z    2026-07-17T15:08:37.512205Z
+```
+
+The left endpoint is the completion of the opening acquisition. Before that moment, not every
+opening source had been observed. The right endpoint is the start of the closing acquisition. Once
+that acquisition began, we no longer treat the earlier observation as the sole endpoint evidence.
+The interval is half-open, so a capture exactly at the right endpoint belongs to a later revision or
+to a catalog gap—not to this package.
+
+Assembly refuses if the observations use different policies, have different source membership,
+roles, requested URLs, or media, or have invalid time ordering. Static Markdown and PDF sources
+must have identical hashes. Market, event, and series JSON may legitimately change, but every
+mechanically projected field must still support the reviewed terms at both endpoints.
+
+This is conservative but not magical. Two equal observations do not prove that a mutable endpoint
+could not have changed and changed back during the 81-second gap. The package proves two complete
+endpoint observations under one policy, not continuous monitoring.
+
+## Why acquisition policy became an artifact
+
+Source-manifest V2 recorded what happened, but the meaning of “acceptable acquisition” lived in
+Python constants: approved hosts, redirect statuses, media types, byte limits, timeouts, and chunk
+sizes. If those constants changed later, an old manifest could be interpreted under new rules.
+
+B1b-2 adds `pmm.product_acquisition_policy.v1`. Its canonical payload hash is
+`583204c3d5a177d6247c20d1c3b12543aab6b454c8066bb3ee4943d974d3792b`. Acquisition-spec V2 names
+that exact identity, and source-manifest V3 carries it forward. Runtime accepts only the frozen
+supported payload.
+
+We considered three approaches:
+
+| Approach | Benefit | Problem | Decision |
+|---|---|---|---|
+| Keep only tool-version/constants | Few files | Old evidence can drift when constants change | Rejected for new acquisitions |
+| Add immutable policy identity | Old evidence names exact rules without changing all formats | Adds one artifact and runtime branch | Chosen for B1b-2 |
+| Version every schema immediately | Maximum explicit separation | Needlessly changes terms, catalog, normalization, features, and results that already carry exact hashes | Use only where semantics actually change |
+
+The important compatibility rule is that old V2 manifests remain under their frozen legacy
+interpretation. A future policy change must add a new identity, and a semantic shape change must add
+a successor schema. It must never edit the meaning of this policy in place.
+
+## The complete artifact chain
+
+```text
+acquisition policy
+       |
+       +--> opening acquisition --+
+       |                           +--> source manifest V3
+       +--> closing acquisition --+          |
+                                               +--> product terms V2
+                                               |          |
+                                               +--> evidence map V1
+                                                          |
+                                                          +--> review V2
+                                                                 |
+                                                                 +--> catalog V1
+                                                                        |
+raw/synthetic capture + capture time -----------------------------------+
+                                                                        |
+                                                                        v
+                                                        normalization/product map V2
+                                                                        |
+                                                                        v
+                                                               feature manifest V2
+                                                                        |
+                                                                        v
+                                                        backtest/result V3 lineage
+```
+
+Each stage names exact upstream hashes. This makes refresh additive: a changed source, policy,
+terms projection, evidence map, or review creates a new identity and package. It does not rewrite a
+past normalized dataset or result.
+
+## What evidence anchors really verify
+
+The HMONTH evidence map contains 30 sorted product-term pointers. Every entry is supported by an
+opening and closing anchor. The behavior depends on source type:
+
+| Locator | Runtime guarantee | Human responsibility |
+|---|---|---|
+| JSON pointer, mechanically projected | The source pointer and term pointer both resolve and their JSON values are exactly equal. | Decide that the selected source field has the intended venue meaning. |
+| JSON pointer, human reviewed | Both pointers resolve and the retained source hash matches; values are not required to be literally equal. | Interpret transformations or multi-field meaning. |
+| Markdown section | The retained hash matches and the named text occurs in the document. | Confirm the occurrence is the intended heading/section and supports the claim. |
+| PDF page/section | The retained hash matches; the locator has a positive page and nonempty section; the file begins with a PDF signature. | Open the retained PDF and confirm that the page/section exists and supports the claim. |
+
+That last row is deliberately precise. The current runtime does not extract a PDF page or search
+for the section text. Therefore a PDF locator is a durable human review address bound to exact
+bytes, not machine proof of legal prose. Similarly, Markdown uses text occurrence rather than a
+full Markdown-section parser. The critique ranks stronger document-anchor verification as the
+highest-impact follow-up.
+
+Evidence-map V1 is also selective rather than a complete anchor for every leaf of product-terms
+V2. Important projected identity, price, lifecycle, fee, settlement, rule, and payout fields are
+represented, while other fields are protected by product validation, source projection, or local
+policy. A future coverage profile should make those categories mechanically explicit.
+
+## Why product-terms V2 was necessary
+
+The real HMONTH market record contains an empty `rules_secondary` string. Product-terms V1 requires
+that string to be nonempty. Three responses were possible:
+
+1. invent secondary text;
+2. weaken V1 for every historical package; or
+3. add a successor that can represent the observed value.
+
+We chose the third. Invented text would be false evidence. Weakening V1 would silently change the
+meaning of an accepted historical format. Product-terms V2 differs only where the new evidence
+requires it: secondary rules may be empty. All other current binary, one-dollar, fixed-point, fee,
+settlement, and exact-conversion boundaries remain in force.
+
+This is the central schema-evolution rule: preserve old meanings, and create a successor only for a
+real value the old schema cannot represent honestly.
+
+## What review V2 means—and does not mean
+
+Review V1 bound terms and source hashes but did not name responsibility. Review V2 adds:
+
+- reviewer identity `ronit`, classified as `repository_declared`;
+- responsibilities for linked-document completeness, product projection, evidence interpretation,
+  and interval consistency;
+- five accepted checklist items;
+- acquisition-policy and evidence-map hashes; and
+- the same exact effective interval as terms and catalog.
+
+This improves accountability: Git history and the review document show which repository identity
+accepted which bytes and responsibilities. It is not a signature, independent legal approval,
+separation of duties, or an organizational role system. There is also no append-only runtime
+revocation/supersession record yet. Those controls should be added only after the real human process
+exists.
+
+## How the catalog and downstream pipeline use the package
+
+Catalog V1 did not need a successor. Its entry already names the market, exact interval, package
+path, and source/terms/review hashes. It now has two entries: the original retrospective WNBA
+package and the contemporaneous HMONTH package. Selection uses market ticker plus complete capture
+interval; gaps, overlaps, and ambiguity refuse.
+
+Normalization/product-map V2 and feature V2 also needed no schema change. They copy and bind the
+selected package identities. Backtest/result V3 already carries those identities through
+configuration, results, and every result artifact. This is additive compatibility: downstream
+formats did not need to understand the internal difference between terms V1 and V2 because they
+bind the exact reviewed package.
+
+The HMONTH-specific focused test currently proves catalog selection, synthetic-capture
+normalization, and feature lineage. The older WNBA fixture still exercises the complete V3
+configuration/result mutation chain. A complete HMONTH V3 result-chain test remains useful future
+coverage; the current work does not claim that a real HMONTH market-data capture was made inside
+the short evidence interval.
+
+## Failure and publication behavior
+
+Acquisition streams bytes into an unpublished temporary directory, hashes incrementally, checks
+redirects manually, validates role/media/content, applies per-source and cumulative limits, and
+publishes by rename only after the source manifest reloads successfully. Expected exceptions and
+interruptions remove the partial directory. Terms, evidence, and review builders similarly remove
+their final file if post-write validation fails.
+
+Assembly also writes to an unpublished directory and publishes only after loading the combined V3
+manifest. One known debt is that it currently flattens each source path to its basename; future
+inputs with two equal basenames need explicit collision refusal or full-path preservation.
+
+Process termination or power loss can still leave a stale hidden partial directory because no
+exception handler can run. That is an operational cleanup/scavenging question, not a reason to
+weaken atomic final publication.
+
+## How we tested it without depending on today's internet
+
+The checked-in source bytes came from explicit operator acquisition. Tests never fetch them again.
+They use retained fixtures, fake HTTP sessions/responses, injected clocks, temporary directories,
+and minimal synthetic captures.
+
+The four new focused cases prove:
+
+- the checked-in HMONTH package, review V2, evidence map, policy, catalog interval, and conversion
+  refusal load together;
+- a changed JSON field anchor still refuses after the evidence and review hashes are recomputed;
+- separate fake opening and closing acquisitions assemble into the exact bracket; and
+- a synthetic HMONTH capture selects the second catalog entry and propagates normalization/feature
+  lineage offline.
+
+Those tests build on the B1b-1 matrix for redirects, media, streamed/cumulative size, timeout,
+interruption, cleanup, semantic source mutation, interval adjacency/gap/overlap, public CLI behavior,
+schema/runtime checks, nonrepresentable values, and complete WNBA V3 result lineage. The closeout
+baseline is 22 focused product-term tests, 81 total Python tests, and 78 CTest tests.
+
+The remaining gaps are important: PDF and Markdown semantic mutations, exact required-role
+completeness, deeper new-schema parity, assembly basename collisions, Review V2 mutations, the new
+CLI commands, and a complete HMONTH V3 result chain. The critique rates and prioritizes each one.
+
+## Why we stopped here
+
+The package proves the narrow thing B1b-2 needed to prove: the hardened metadata boundary can
+support a complete, contemporaneous, genuinely different second product without rewriting old
+artifacts or rounding values the core cannot represent.
+
+We did not add fees or settlement because retaining the documents is not the same as implementing
+their economics. We did not add multi-market replay because a two-entry metadata catalog is not a
+replay scheduler or reconnect protocol. We did not add content-addressed storage, concurrency,
+indexes, signatures, or universal venue adapters because the present scale and governance process
+do not justify those abstractions yet.
+
+The recommended immediate hardening is document-anchor truth and generic required-source
+completeness. B2 should then begin as a separate design review for multi-market observed-data
+ordering and recovery.
 
 ## Non-claims
 
-B1a does not calculate fees, maintain double-entry accounts, calculate PnL, process settlement,
+B1 does not calculate fees, maintain double-entry accounts, calculate PnL, process settlement,
 model collateral or margin, calibrate fills, infer queue position, model hidden liquidity, recover
 multi-market connections, place paper or live orders, or begin ML work. It does not change Phase 3
 matching, core integer types, `AccountRiskProjection`, risk rejection categories or ordering,
