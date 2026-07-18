@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.backtest_artifact.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "artifact_ordinal", "effective_time_utc_ns", "product_identity", "contract_identity", "segment_identity", "strategy_instance_id", "causal_watermark", "truth", "fidelity", "configuration_sha256", "feature_definition_sha256"],
+  "properties": {
+    "schema": {"enum": ["pmm.backtest_decision.v1", "pmm.backtest_submitted_order.v1", "pmm.backtest_cancellation.v1", "pmm.backtest_acknowledgement.v1", "pmm.backtest_rejection.v1", "pmm.backtest_fill.v1", "pmm.backtest_exposure.v1", "pmm.backtest_risk_event.v1", "pmm.backtest_summary.v1"]},
+    "run_id": {"type": "string", "minLength": 1}, "artifact_ordinal": {"type": "integer", "minimum": 1}, "effective_time_utc_ns": {"type": "integer", "minimum": 0},
+    "product_identity": {"type": "object"}, "contract_identity": {"type": "object"}, "segment_identity": {"type": "object"}, "strategy_instance_id": {"type": "string", "minLength": 1},
+    "causal_watermark": {"type": "object"}, "truth": {"type": "object"}, "fidelity": {"type": "object"},
+    "configuration_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "feature_definition_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "decision_id": {"type": "integer", "minimum": 1}, "client_intent_id": {"type": "integer", "minimum": 1}, "order_id": {"type": "integer", "minimum": 1},
+    "side": {"enum": ["buy", "sell"]}, "price_dollars": {"type": "string"}, "quantity_contracts": {"type": "string"},
+    "planned_expires_at_utc_ns": {"type": "integer", "minimum": 0}, "expires_at_utc_ns": {"type": "integer", "minimum": 0},
+    "public_trade_event_id": {"type": "string"}, "fill_model": {"const": "trade_touch_v1"},
+    "stage": {"type": "string"}, "reason": {"type": "string"}, "operation": {"type": "string"}, "result": {"type": "string"},
+    "risk_view": {"type": "object"}, "scope": {"const": "product"}, "counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}
+  },
+  "allOf": [
+    {"if": {"properties": {"schema": {"const": "pmm.backtest_decision.v1"}}}, "then": {"required": ["decision_id"]}},
+    {"if": {"properties": {"schema": {"const": "pmm.backtest_submitted_order.v1"}}}, "then": {"required": ["client_intent_id", "side", "price_dollars", "quantity_contracts", "planned_expires_at_utc_ns"]}},
+    {"if": {"properties": {"schema": {"const": "pmm.backtest_cancellation.v1"}}}, "then": {"required": ["order_id", "reason"]}},
+    {"if": {"properties": {"schema": {"const": "pmm.backtest_acknowledgement.v1"}}}, "then": {"required": ["order_id", "expires_at_utc_ns"]}},
+    {"if": {"properties": {"schema": {"const": "pmm.backtest_rejection.v1"}}}, "then": {"required": ["stage", "reason"]}},
+    {"if": {"properties": {"schema": {"const": "pmm.backtest_fill.v1"}}}, "then": {"required": ["order_id", "side", "price_dollars", "quantity_contracts", "public_trade_event_id", "fill_model"]}},
+    {"if": {"properties": {"schema": {"const": "pmm.backtest_exposure.v1"}}}, "then": {"required": ["risk_view"]}},
+    {"if": {"properties": {"schema": {"const": "pmm.backtest_risk_event.v1"}}}, "then": {"required": ["operation", "order_id", "result"]}},
+    {"if": {"properties": {"schema": {"const": "pmm.backtest_summary.v1"}}}, "then": {"required": ["scope", "counts"]}}
+  ]
+}

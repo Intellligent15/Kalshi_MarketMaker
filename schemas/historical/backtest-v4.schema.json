@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.backtest.v4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "seed", "inputs", "products", "execution", "risk", "completeness", "limitations"],
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_path", "manifest_sha256"],
+      "properties": {
+        "manifest_path": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"$ref": "#/$defs/sha"},
+        "records_path": {"type": "string", "minLength": 1},
+        "records_sha256": {"$ref": "#/$defs/sha"},
+        "source_scopes_path": {"type": "string", "minLength": 1},
+        "source_scopes_sha256": {"$ref": "#/$defs/sha"},
+        "product_map_path": {"type": "string", "minLength": 1},
+        "product_map_sha256": {"$ref": "#/$defs/sha"},
+        "rows_path": {"type": "string", "minLength": 1},
+        "rows_sha256": {"$ref": "#/$defs/sha"},
+        "feature_definition_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximum_order_quantity_contracts", "maximum_absolute_position_contracts", "maximum_buy_exposure_contracts", "maximum_sell_exposure_contracts", "maximum_pending_exposure_contracts", "maximum_active_orders"],
+      "properties": {
+        "maximum_order_quantity_contracts": {"type": "string"},
+        "maximum_absolute_position_contracts": {"type": "string"},
+        "maximum_buy_exposure_contracts": {"type": "string"},
+        "maximum_sell_exposure_contracts": {"type": "string"},
+        "maximum_pending_exposure_contracts": {"type": "string"},
+        "maximum_active_orders": {"type": "integer", "minimum": 1}
+      }
+    }
+  },
+  "properties": {
+    "schema": {"const": "pmm.backtest.v4"},
+    "run_id": {"type": "string", "minLength": 1},
+    "seed": {"type": "integer", "minimum": 0},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normalization", "features"],
+      "properties": {
+        "normalization": {
+          "allOf": [{"$ref": "#/$defs/file"}, {"required": ["records_path", "records_sha256", "source_scopes_path", "source_scopes_sha256", "product_map_path", "product_map_sha256"]}]
+        },
+        "features": {
+          "allOf": [{"$ref": "#/$defs/file"}, {"required": ["rows_path", "rows_sha256", "feature_definition_sha256"]}]
+        }
+      }
+    },
+    "products": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["product_identity", "contract_identity", "strategy", "latency", "reviewed_lineage", "risk_binding"],
+        "properties": {
+          "product_identity": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["venue", "environment", "ticker", "venue_market_id", "input_product_entry_sha256"],
+            "properties": {
+              "venue": {"const": "kalshi"}, "environment": {"const": "production"},
+              "ticker": {"type": "string", "minLength": 1}, "venue_market_id": {"type": "string", "minLength": 1},
+              "input_product_entry_sha256": {"$ref": "#/$defs/sha"}
+            }
+          },
+          "contract_identity": {
+            "type": "object", "additionalProperties": false, "required": ["contract_id", "side"],
+            "properties": {"contract_id": {"type": "integer", "minimum": 1}, "side": {"enum": ["yes", "no"]}}
+          },
+          "strategy": {
+            "type": "object", "additionalProperties": false,
+            "required": ["schema", "strategy_instance_id", "decision_interval_ns", "order_lifetime_ns", "minimum_spread_dollars", "quote_quantity_contracts"],
+            "properties": {
+              "schema": {"const": "pmm.baseline_market_maker.v1"}, "strategy_instance_id": {"type": "string", "minLength": 1},
+              "decision_interval_ns": {"type": "integer", "minimum": 1}, "order_lifetime_ns": {"type": "integer", "minimum": 1},
+              "minimum_spread_dollars": {"type": "string"}, "quote_quantity_contracts": {"type": "string"}
+            }
+          },
+          "latency": {
+            "type": "object", "additionalProperties": false,
+            "required": ["market_data_ns", "decision_ns", "order_ns", "acknowledgement_ns", "cancellation_ns", "fill_ns"],
+            "properties": {
+              "market_data_ns": {"type": "integer", "minimum": 0}, "decision_ns": {"type": "integer", "minimum": 0},
+              "order_ns": {"type": "integer", "minimum": 0}, "acknowledgement_ns": {"type": "integer", "minimum": 0},
+              "cancellation_ns": {"type": "integer", "minimum": 0}, "fill_ns": {"type": "integer", "minimum": 0}
+            }
+          },
+          "reviewed_lineage": {
+            "type": "object", "additionalProperties": false,
+            "required": ["ticker", "product_terms_sha256", "source_manifest_sha256", "review_sha256", "conversion_policy_sha256"],
+            "properties": {
+              "ticker": {"type": "string"}, "product_terms_sha256": {"$ref": "#/$defs/sha"},
+              "source_manifest_sha256": {"$ref": "#/$defs/sha"}, "review_sha256": {"$ref": "#/$defs/sha"},
+              "conversion_policy_sha256": {"$ref": "#/$defs/sha"}
+            }
+          },
+          "risk_binding": {
+            "type": "object", "additionalProperties": false,
+            "required": ["account_id", "strategy_id", "trader_id", "contract_id"],
+            "properties": {
+              "account_id": {"type": "integer", "minimum": 1}, "strategy_id": {"type": "integer", "minimum": 1},
+              "trader_id": {"type": "integer", "minimum": 1}, "contract_id": {"type": "integer", "minimum": 1}
+            }
+          }
+        }
+      }
+    },
+    "execution": {
+      "type": "object", "additionalProperties": false, "required": ["model", "truth_category", "scheduling_policy"],
+      "properties": {"model": {"enum": ["no_fill_v1", "trade_touch_v1"]}, "truth_category": {"const": "ModelDerived"}, "scheduling_policy": {"const": "causal_multimarket_v1"}}
+    },
+    "risk": {
+      "type": "object", "additionalProperties": false, "required": ["engine", "ownership", "launcher", "risk_contract", "limits_by_contract"],
+      "properties": {
+        "engine": {"const": "cxx_oracle_v2"}, "ownership": {"const": "per_contract_projection"},
+        "launcher": {"type": "object"}, "risk_contract": {"type": "object"},
+        "limits_by_contract": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["contract_id", "limits"], "properties": {"contract_id": {"type": "integer", "minimum": 1}, "limits": {"$ref": "#/$defs/limits"}}}}
+      }
+    },
+    "completeness": {"type": "object", "additionalProperties": false, "required": ["required"], "properties": {"required": {"const": "complete_observed_interval"}}},
+    "limitations": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+  }
+}

@@ -63,6 +63,7 @@ FEATURE_V2_VERSION = "observed-l2-per-market-segment.v2"
 BACKTEST_SCHEMA = "pmm.backtest.v1"
 BACKTEST_V2_SCHEMA = "pmm.backtest.v2"
 BACKTEST_V3_SCHEMA = "pmm.backtest.v3"
+BACKTEST_V4_SCHEMA = "pmm.backtest.v4"
 RISK_TRACE_SCHEMA = "pmm.risk_conformance_trace.v2"
 
 
@@ -1889,8 +1890,17 @@ class CxxRiskOracle:
         )
         self.sequence = 0
         self.pending_clients: dict[int, int] = {}
+        binding = config.get("binding", {})
+        if not isinstance(binding, dict):
+            raise ValueError("risk.binding must be an object")
+        account_id = int_value(binding.get("account_id", 1), "risk.binding.account_id")
+        strategy_id = int_value(binding.get("strategy_id", 1), "risk.binding.strategy_id")
+        trader_id = int_value(binding.get("trader_id", 1), "risk.binding.trader_id")
+        contract_id = int_value(binding.get("contract_id", 1), "risk.binding.contract_id")
+        if min(account_id, strategy_id, trader_id, contract_id) <= 0:
+            raise ValueError("risk binding identifiers must be positive")
         self._send(
-            "INIT 1 1 1 1 "
+            f"INIT {account_id} {strategy_id} {trader_id} {contract_id} "
             f"{int_config({'value': risk['maximum_order_quantity_contracts']}, 'value')} "
             f"{int_config({'value': risk['maximum_absolute_position_contracts']}, 'value')} "
             f"{int_config({'value': risk['maximum_buy_exposure_contracts']}, 'value')} "
@@ -2013,27 +2023,51 @@ class CxxRiskOracle:
                                       "price_dollars": format(order.price, "f"),
                                       "time_utc_ns": order.active_at_ns}, "applied")
 
-    def apply_fill(self, order: BacktestOrder, quantity: Decimal) -> None:
+    def apply_fill(
+        self, order: BacktestOrder, quantity: Decimal, time_ns: int | None = None
+    ) -> None:
         self.sequence += 1
         price_units = integer_units(order.price * Decimal(100), "fill price in cents")
         quantity_units = integer_units(quantity, "fill quantity")
         self._send(
             f"FILL {self.sequence} {order.order_id} {order.side} {quantity_units} "
-            f"{price_units} {order.active_at_ns}"
+            f"{price_units} {order.active_at_ns if time_ns is None else time_ns}"
         )
         self._expect_applied_or_bound("APPLIED")
         self._record("fill", {"order_id": order.order_id, "side": order.side,
                                "quantity_contracts": format(quantity, "f"),
                                "price_dollars": format(order.price, "f"),
-                               "time_utc_ns": order.active_at_ns}, "applied")
+                               "time_utc_ns": order.active_at_ns if time_ns is None else time_ns},
+                     "applied")
 
-    def cancel(self, order: BacktestOrder, reason: str = "cancellation") -> None:
+    def cancel(
+        self, order: BacktestOrder, reason: str = "cancellation", time_ns: int | None = None
+    ) -> None:
         self.sequence += 1
-        self._send(f"CANCEL {self.sequence} {order.order_id} {order.expires_at_ns}")
+        occurred_at = order.expires_at_ns if time_ns is None else time_ns
+        self._send(f"CANCEL {self.sequence} {order.order_id} {occurred_at}")
         self._expect_applied_or_bound("APPLIED")
         self._record("expire" if reason == "logical_expiry" else "cancel",
                      {"order_id": order.order_id, "reason": reason,
-                      "time_utc_ns": order.expires_at_ns}, "applied")
+                      "time_utc_ns": occurred_at}, "applied")
+
+    def reject_pending(self, order: BacktestOrder, time_ns: int) -> None:
+        client = self.pending_clients.pop(order.order_id)
+        self._send(f"BIND {client} {order.order_id}")
+        self._expect_applied_or_bound("BOUND")
+        self._record(
+            "bind_ingress",
+            {"client_intent_id": client, "ingress_sequence": order.order_id},
+            "bound",
+        )
+        self.sequence += 1
+        self._send(f"REJECT {self.sequence} {order.order_id} {time_ns}")
+        self._expect_applied_or_bound("APPLIED")
+        self._record(
+            "command_reject",
+            {"ingress_sequence": order.order_id, "time_utc_ns": time_ns},
+            "applied",
+        )
 
     @property
     def position(self) -> Decimal:
@@ -2603,6 +2637,16 @@ def build_parser() -> argparse.ArgumentParser:
     backtest = commands.add_parser("backtest", help="Run an explicit deterministic research backtest.")
     backtest.add_argument("--config", required=True, type=Path)
     backtest.add_argument("--output", required=True, type=Path)
+    backtest_v4 = commands.add_parser(
+        "backtest-v4", help="Run the additive deterministic multi-market backtest."
+    )
+    backtest_v4.add_argument("--config", required=True, type=Path)
+    backtest_v4.add_argument("--output", required=True, type=Path)
+    verify_v4 = commands.add_parser(
+        "verify-backtest-v4", help="Verify an additive multi-market result bundle offline."
+    )
+    verify_v4.add_argument("--config", required=True, type=Path)
+    verify_v4.add_argument("--result", required=True, type=Path)
     verify = commands.add_parser(
         "verify-lineage", help="Verify a V3 configuration and optional result bundle offline."
     )
@@ -2657,6 +2701,22 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
         elif args.command == "verify-lineage":
             result = verify_lineage(args.config, args.result)
+        elif args.command == "backtest-v4":
+            from pmm_phase7_multimarket import run_backtest_v4
+
+            try:
+                result = run_backtest_v4(args.config, args.output)
+            except (HistoricalDataError, ValueError, ProductTermsError, KeyboardInterrupt):
+                raise
+            except Exception as error:
+                print(
+                    f"programming failure: {type(error).__name__}: {error}", file=sys.stderr
+                )
+                return 1
+        elif args.command == "verify-backtest-v4":
+            from pmm_phase7_multimarket import verify_backtest_v4
+
+            result = verify_backtest_v4(args.config, args.result)
         else:
             result = run_backtest(args.config, args.output)
         print(json.dumps(result, indent=2, sort_keys=True))
