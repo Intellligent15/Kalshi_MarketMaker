@@ -173,7 +173,8 @@ contract, typed product/contract/segment-aware results, and offline verification
 legacy replay paths and refuses discontinuity, lineage, ordering, segment, watermark, hash, count,
 and cleanup defects before final publication.
 
-The implementation's focused 9-test matrix, frozen 42 Phase 7 tests, 47 combined
-capture/checkpoint-reader/fixture-integrity tests, formatting, and 78 CTests pass. The full
-product-term/Python closure gate remains blocked by the 19 tracked retained-package files that
-were already deleted in the worktree; those bytes are outside B2b-2 ownership.
+The implementation's focused 9-test matrix, frozen 42 Phase 7 tests, 13 capture tests, 42
+product-term tests, 17 checkpoint-reader tests, 17 fixture-integrity tests, formatting, all 145
+Python tests, and all 78 CTests pass. Seventeen accidentally deleted retained-package files were
+restored byte-for-byte from `HEAD`; the accepted two-entry catalog and frozen package-tree hashes
+verify without reacquisition or artifact rewriting.

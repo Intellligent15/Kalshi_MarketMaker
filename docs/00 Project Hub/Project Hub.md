@@ -20,7 +20,7 @@ fees, collateral, settlement, durable persistence, and gateways remain intention
 
 Phase 7 now also has an additive multi-market backtest implementation: one global causal schedule,
 independent per-product baseline state, and one canonical C++ risk projection per contract. Its
-full closure validation is pending resolution of pre-existing retained product-package deletions.
+focused and full offline closure gates pass; B2c retained full-capture regression evidence is next.
 
 ## Navigation
 

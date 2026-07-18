@@ -32,7 +32,8 @@ refusal codes, risk checkpoints, and conformance fixtures retain their bytes and
 
 ## Validation status
 
-The focused B2b-2 suite passes 9 tests and the frozen Phase 7 suite passes 42 tests. Capture,
-checkpoint-reader, fixture-integrity, formatting, and all 78 CTests also pass. The full
-product-term/Python closure gate is blocked by pre-existing worktree deletions inside the two
-retained product packages; B2b-2 does not restore or rewrite those user-owned files.
+The focused B2b-2 suite passes 9 tests and the frozen Phase 7 suite passes 42 tests. The 13 capture,
+42 product-term, 17 checkpoint-reader, and 17 fixture-integrity tests pass, as do formatting, all
+145 Python tests, and all 78 CTests. Seventeen accidentally deleted retained-package files were
+restored byte-for-byte from `HEAD`; catalog and frozen package-tree verification pass without
+reacquisition or rewriting accepted bytes.

@@ -4,14 +4,14 @@
 
 The implementation closes the unsafe orchestration gap: products and segments are isolated,
 latency stages are explicit, risk remains canonical, artifacts are auditable, and the new path is
-additive. B2b-2 must not be marked fully complete until the retained product-file deletions are
-resolved and the full Python gate is rerun.
+additive. The retained product-file deletions were confirmed accidental, restored exactly from
+`HEAD`, and the full offline validation gate was rerun successfully.
 
 ## Finding register
 
 | ID | Finding | Impact | Status and follow-up |
 | --- | --- | ---: | --- |
-| B2B2-01 | The full product-term suite cannot run against the current dirty retained packages. | 5 | Open external closure blocker; do not restore user deletions without approval. |
+| B2B2-01 | The full product-term suite could not run against the dirty retained packages. | 5 | Closed: 17 accidental deletions were restored byte-for-byte from `HEAD`; catalog, frozen package-tree, focused product-term, and full Python validation pass. |
 | B2B2-02 | Risk is independent per contract, not portfolio-wide. | 4 | Deliberately deferred; requires separately approved semantics. |
 | B2B2-03 | Execution remains `no_fill_v1` or uncalibrated `trade_touch_v1`. | 4 | Deliberately deferred to execution sensitivity/calibration. |
 | B2B2-04 | Discontinuous feature/replay publication is unsupported. | 3 | Correctly refused; later snapshots never recover missing history. |

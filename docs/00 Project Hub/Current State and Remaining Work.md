@@ -24,8 +24,10 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-18 |
-| B2b-2 implementation status | Implemented and focused-valid; full closure blocked by pre-existing retained product-package deletions |
-| Last completed package | B2b-1 segment-aware multi-market projection and feature artifacts |
+| B2b-2 implementation status | Complete |
+| Last completed package | B2b-2 multi-market replay and backtest integration |
+| B2b-2 implementation and test commits | `a0faa89` and `77cf533` |
+| B2b-2 documentation and review commit | `9f8e3a4` plus the closure update after retained-package restoration |
 | B2b-1 implementation and test commits | `edf3b44` and `dd3dc74` |
 | B2b-1 documentation and review commit | `fce665f` |
 | B2b-1 closure baseline before this roadmap handoff | `fce665f`; clean `main`; four commits ahead of `origin/main` |
@@ -39,7 +41,7 @@ complete, this current-state document wins; the older note remains useful histor
 | Recent B1b-1 commits | `902a2df`, `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
 | C++/CTest validation | 78 tests passing |
-| Python validation | 136 tests passing |
+| Python validation | 145 tests passing |
 | Focused capture validation | 13 tests passing |
 | Focused Phase 7 validation | 42 tests passing |
 | Focused product-term validation | 42 tests passing |
@@ -48,8 +50,8 @@ complete, this current-state document wins; the older note remains useful histor
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | B2b-2 closure validation and retained-package baseline resolution |
-| Immediate next action | Resolve the 19 pre-existing retained-package deletions, then rerun product-term and full Python validation |
+| Next bounded package | B2c retained full-capture regression evidence |
+| Immediate next action | Read-only B2c design gate; do not perform a retained capture before approval |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -772,7 +774,7 @@ The post-implementation critique intentionally leaves B2b-2 replay/backtest inte
 discontinuous feature publication, cross-market joins, module extraction, durable feature
 checkpoints, and measured performance outside this package.
 
-##### B2b-2. Multi-market replay and backtest integration — implemented; closure validation blocked
+##### B2b-2. Multi-market replay and backtest integration — complete
 
 Goal: consume the approved B2b-1 projection/feature successors through additive configuration and
 result formats with explicit per-product/per-segment causality, latency, compatibility, and
@@ -850,11 +852,9 @@ multiple concurrent WebSocket connections, performance redesign, matching change
 `Price`/`Quantity` replacement, `AccountRiskProjection` semantic changes, checkpoint rejection
 changes, weakened exact-conversion refusal, or rewrites of accepted product packages/artifacts.
 
-The B2b-1 closure baseline before this roadmap-only handoff is `fce665f`: `main` was clean and four
-commits ahead of `origin/main`. The last validated baseline is 78 CTests, 136 Python tests, 13
-focused capture tests, 42 focused Phase 7 tests, 42 focused product-term tests, 17 focused
-checkpoint-reader tests, and 17 focused fixture-integrity tests. Verify the current handoff commit
-and state rather than copying this snapshot forward.
+The B2b-1 closure baseline before this package was `fce665f`: `main` was clean and four commits
+ahead of `origin/main`, with 78 CTests and 136 Python tests passing. The B2b-2 closure evidence
+below supersedes that historical snapshot.
 
 B2b-2 implementation evidence:
 
@@ -871,14 +871,13 @@ B2b-2 implementation evidence:
   lineage, ordering, segment, watermark, result-hash, count, cleanup, and repetition defects fail
   closed;
 - focused B2b-2 validation passes 9 tests, frozen Phase 7 validation passes 42 tests, the 13
-  capture + 17 checkpoint-reader + 17 fixture-integrity tests pass, formatting passes, and all 78
-  CTests pass; and
-- full product-term/Python validation is not currently runnable because 19 tracked retained
-  package files were already deleted in the worktree before B2b-2 implementation. Those deletions
-  are not part of B2b-2 and were not restored or committed.
+  capture + 42 product-term + 17 checkpoint-reader + 17 fixture-integrity tests pass, formatting
+  passes, all 145 Python tests pass, and all 78 CTests pass; and
+- the 17 accidentally deleted retained-package files were restored byte-for-byte from `HEAD`, not
+  regenerated or reacquired. Catalog verification returns the accepted two-entry catalog hash,
+  and the frozen HMONTH and WNBA package-tree tests pass.
 
-Closure rule: do not promote B2c or call B2b-2 complete until those retained-package deletions are
-explicitly resolved and the focused product-term plus full Python gates pass. See
+B2b-2 therefore satisfies its closure rule. See
 [[07 Engineering Notes/Phase 7 Multi-Market Replay and Backtesting]], the explanation, and the
 severity-ranked critique.
 
@@ -1257,31 +1256,29 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | B2b-2 closure validation and retained-package baseline resolution | Implementation exists, but the full product-term/Python gate is blocked by pre-existing deletions. |
-| 2 | B2c retained full-capture regression evidence | Begin only after every B2b-2 closure gate passes. |
-| 3 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
-| 4 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
-| 5 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
-| 6 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
-| 7 | Durable full-run continuation | Required for long and operationally reliable experiments. |
-| 8 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
-| 9 | Predictive models and model registry | Follows held-out baseline evidence and safe fallback design. |
-| 10 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
-| 11 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
-| 12 | Demo exchange integration | Follows stable paper operations and reconciliation. |
-| 13 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
+| 1 | B2c retained full-capture regression evidence | B2b-2 is closed; broader retained counts, hashes, recovery cases, and reproducibility are next. |
+| 2 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
+| 3 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
+| 4 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
+| 5 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
+| 6 | Durable full-run continuation | Required for long and operationally reliable experiments. |
+| 7 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
+| 8 | Predictive models and model registry | Follows held-out baseline evidence and safe fallback design. |
+| 9 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
+| 10 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
+| 11 | Demo exchange integration | Follows stable paper operations and reconciliation. |
+| 12 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
 
 This order is a default, not a prohibition on discovery work. A prototype may explore a later idea,
 but it must remain labelled experimental and must not bypass its promotion gates.
 
 ## Current next package
 
-The next bounded package is **B2b-2 closure validation and retained-package baseline resolution**.
-The implementation exists and its unaffected focused gates pass. The current worktree is missing
-19 tracked files from the two retained product packages, so product-term verification and the full
-Python suite fail before they can validate B2b-2 closure. Resolve those deletions explicitly, rerun
-all required gates, and only then mark B2b-2 complete and promote B2c. Do not hide the blocker by
-weakening package verification or changing frozen package hashes.
+The next bounded package is **B2c retained full-capture regression evidence**. Its first turn must
+be a read-only design gate that defines the retained input, reviewed acquisition boundary, pinned
+counts and hashes, multi-market/recovery cases, repetition evidence, and memory/streaming
+measurement plan. Do not perform a live or retained capture, change B2b-2 semantics, or claim
+continuous venue-global history before that design is approved.
 
 B2a establishes explicit multi-scope capture and reconnect-aware normalization successors. B2a-1
 closes their reviewed truth-contract blockers. B2b-1 now consumes that boundary for complete-input
