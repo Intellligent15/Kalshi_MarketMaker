@@ -27,7 +27,8 @@ complete, this current-state document wins; the older note remains useful histor
 | B2b-2 implementation status | Complete |
 | Last completed package | B2b-2 multi-market replay and backtest integration |
 | B2b-2 implementation and test commits | `a0faa89` and `77cf533` |
-| B2b-2 documentation and review commit | `9f8e3a4` plus the closure update after retained-package restoration |
+| B2b-2 documentation and review commits | `9f8e3a4` and `025508e` |
+| Baseline before B2c roadmap handoff | `025508e`; clean `main`; synchronized with `origin/main` |
 | B2b-1 implementation and test commits | `edf3b44` and `dd3dc74` |
 | B2b-1 documentation and review commit | `fce665f` |
 | B2b-1 closure baseline before this roadmap handoff | `fce665f`; clean `main`; four commits ahead of `origin/main` |
@@ -881,11 +882,92 @@ B2b-2 therefore satisfies its closure rule. See
 [[07 Engineering Notes/Phase 7 Multi-Market Replay and Backtesting]], the explanation, and the
 severity-ranked critique.
 
-#### B2c. Retained full-capture regression evidence — planned
+#### B2c. Retained full-capture regression evidence — next bounded package; design gate pending
 
-After B2b lands and is validated, retain a longer local capture fixture with pinned manifests,
-counts, hashes, multi-market/recovery cases, and repeated offline normalization. Address streaming
-and memory scaling only after that evidence provides measurements.
+Goal: design and, only after approval, retain reviewed longer-duration multi-market Capture V2
+evidence, then exercise the accepted normalization V3, feature V2/manifest V3, and Backtest V4
+chain as far as the observed completeness permits. Pin raw and derived hashes, counts, lineage,
+resource measurements, and repeated offline results without turning deterministic tests into
+network-dependent tests.
+
+The first B2c turn is read-only design work. It must not perform a live capture, acquire or review
+new product-term bytes, edit schemas or code, install dependencies, rewrite retained artifacts, or
+commit. Public-document connectors may support a clearly labelled design question, but they must
+not access a live feed, create retained evidence, or replace accepted ADR authority.
+
+What B2c inherits as complete:
+
+- Capture V2 uses one deterministic multi-ticker request on one WebSocket, explicit request/channel/
+  SID scope identity, global ingress order, reconnect segments, strict usability status, and
+  immutable retained raw evidence;
+- normalization V3 conservatively propagates unknown/shared scope gaps, preserves discontinuity
+  and segment starts in-band, and never treats a later snapshot as recovered history;
+- features V3 and backtest V4 accept only `complete_observed_interval` inputs and preserve exact
+  product, contract, segment, watermark, lineage, configuration, result, and risk-trace identity;
+- B2a-1 closes the correctness blockers required for downstream consumption, while B2A-07 and
+  B2A-10 through B2A-22 remain explicitly classified debt;
+- B2b-2 closes deterministic multi-product replay/backtest integration but has no checked-in
+  retained V4 run and launches one synchronous canonical risk process per contract; and
+- the existing ignored three-hour WNBA capture is single-market V1 evidence, not a checked-in B2c
+  multi-market Capture V2 regression package.
+
+The B2c design gate must resolve:
+
+- the exact evidence claim, duration, market count, market-selection rule, stopping rule, disk
+  budget, and success/refusal criteria for a longer Capture V2 run;
+- whether new contemporaneous reviewed product packages are prerequisites for the selected
+  capture interval, and whether that acquisition/review must be a separately approved prerequisite
+  package rather than being silently folded into capture;
+- the immutable retention layout and ownership for raw frames, metadata, capture configuration,
+  product packages, normalized V3, features V3, Backtest V4 configuration/results, measurement
+  reports, compact checked-in manifests, and any deliberately external large bytes;
+- how a complete observed interval, a natural reconnect/discontinuity, an incomplete prefix,
+  interruption, and operational refusal are retained and reported without recapturing until a
+  preferred outcome or relabelling a later snapshot as continuity;
+- which recovery evidence must remain synthetic because a real reconnect cannot be demanded or
+  injected into an Observed capture, and how synthetic and observed artifacts stay separate;
+- exact pinned counts and SHA-256 identities for records, scopes, products, segments,
+  discontinuities, features, typed backtest outputs, risk traces, and manifests;
+- reproducible measurement of wall time, peak memory, disk growth, duplicate-tracking growth,
+  normalization/features/backtest throughput, and per-contract oracle overhead, including machine
+  and toolchain context and byte-identical repeated offline runs;
+- what small deterministic fixture or manifest is appropriate for version control, given that
+  `data/` and `results/` are ignored by default and large captures must not be committed casually;
+- offline one-defect tests for stale hashes/counts/lineage, truncation, missing members,
+  discontinuity refusal, repeated invocation, output existence, interruption, cleanup, and frozen
+  legacy compatibility; and
+- documentation, critique, validation, and commit boundaries required to close B2c credibly.
+
+Recommended smallest policy: B2c should be an evidence and measurement package, not a capture or
+streaming redesign. Use the existing single-connection Capture V2 and strict complete-input
+consumer chain. Retain any natural discontinuity honestly; do not require or manufacture a venue
+reconnect. If current reviewed product terms do not cover the chosen markets and interval, stop and
+split out an explicitly approved contemporaneous product-evidence prerequisite before capture.
+
+B2c is complete only when:
+
+- the approved capture/evidence specification identifies the exact markets, interval, product-term
+  coverage, storage destination, retention policy, machine context, and expected claims;
+- retained raw bytes and metadata are immutable, hash-pinned, credential-free, and reviewable;
+- every observed completeness or discontinuity outcome remains truthful and downstream strict
+  consumers either run or refuse exactly as specified;
+- eligible input produces normalization V3, features V3, and Backtest V4 artifacts with complete
+  lineage and byte-identical repeated offline results;
+- pinned counts and hashes detect truncation, mutation, missing members, and stale derived output;
+- measurements answer B2A-10/11 and inform B2B2-05 without using performance results to justify an
+  unapproved redesign;
+- deterministic CI remains offline and uses only bounded retained fixtures, manifests, or injected
+  state approved for version control;
+- all accepted capture, normalization, feature, configuration, result, product, conversion, risk,
+  refusal-code, and conformance artifacts retain their original bytes and meanings; and
+- the guide, explanation, severity-ranked critique, README surfaces, and this roadmap distinguish
+  closed B2c evidence from deferred operational, calibration, accounting, and performance work.
+
+B2c must not add multiple concurrent WebSocket connections, infer undocumented venue sequence
+scope, manufacture a reconnect, weaken completeness refusal, add cross-market signals, change fill
+calibration, add fees/PnL/accounting/settlement, change risk or checkpoint semantics, redesign
+streaming for aesthetics, add live orders or authenticated gateways, or make deterministic tests
+network-dependent.
 
 ### B3. Experiment compatibility and reporting — planned
 

@@ -121,8 +121,9 @@ See [[02 Architecture/ADR-013 Multi-Scope Capture and Reconnect-Aware Normalizat
   model.
 - Portfolio risk, account sharing, live gateways, fanout backpressure, retention compaction,
   sharding, and machine-learning models.
-- Multi-market truth-boundary hardening remains B2a-1. Projection/features/backtests and retained
-  long-capture regression evidence remain B2b and B2c respectively.
+- Multi-market capture truth-boundary hardening, per-market features, and deterministic
+  multi-market replay/backtesting are complete within B2a-1, B2b-1, and B2b-2 respectively.
+  Retained long-capture regression evidence remains B2c.
 
 See [[02 Architecture/ADR-007 Deterministic Historical Replay and Backtesting]].
 
@@ -137,16 +138,16 @@ See [[02 Architecture/ADR-007 Deterministic Historical Replay and Backtesting]].
   completeness, limitations, lineage, and artifact hashes.
 - `features-v3` accepts only complete normalization V3 and cleans derived partial output on every
   failure or interruption.
-- Cross-market joins and replay/backtest integration remain outside B2b-1. B2b-2 is the next
-  read-only design gate.
+- Cross-market joins remain outside B2b-1. Replay/backtest integration is complete in B2b-2.
 
-## Multi-market replay and backtesting implemented; closure validation pending
+## Multi-market replay and backtesting implemented
 
 B2b-2 adds one global causal coordinator with independent per-product strategy and execution state,
 explicit latency stages, one canonical C++ projection per contract, additive V4 configuration and
 result contracts, typed product/contract/segment-aware artifacts, complete-input refusal, and
 offline result verification. Cross-market signals and portfolio risk remain excluded.
 
-Focused B2b-2, Phase 7, capture, checkpoint-reader, fixture-integrity, formatting, and CTest gates
-pass. Full product-term/Python closure is pending explicit resolution of pre-existing retained
-product-package deletions.
+Focused B2b-2, Phase 7, capture, product-term, checkpoint-reader, fixture-integrity, formatting,
+full Python, and CTest gates pass. The accidental retained-package deletions were restored exactly
+from Git and B2b-2 is closed. B2c retained full-capture regression evidence is the next read-only
+design gate; no capture or retained acquisition should occur before that design is approved.
