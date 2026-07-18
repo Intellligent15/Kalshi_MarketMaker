@@ -207,3 +207,30 @@ uv run python python/pmm_phase7.py verify-backtest-v4 \
 V4 is complete-input only. It uses one global causal coordinator, independent per-product state,
 and one unchanged C++ risk projection per contract. Per-contract risk is not portfolio
 aggregation. The original `backtest` and `verify-lineage` commands retain V1/V2/V3 behavior.
+
+## B2c retained-evidence tooling
+
+`pmm_phase7_evidence.py` is an offline additive control plane. It verifies a compact
+`pmm.phase7.b2c_evidence_manifest.v1` index alone or, when the external package is mounted, every
+declared member, hash, count, path, product interval, lineage edge, typed V4 artifact, and risk trace.
+
+```sh
+uv run python python/pmm_phase7_evidence.py verify \
+  --manifest path/to/evidence-manifest.json
+
+uv run python python/pmm_phase7_evidence.py verify \
+  --manifest path/to/evidence-manifest.json \
+  --artifact-root path/to/mounted-package \
+  --require-artifacts
+```
+
+Its `measure` command launches one unchanged offline command in a fresh process group, samples
+process-tree RSS/count and disk growth, hashes credential-scrubbed streams, and can interrupt an
+output-budget violation. `normalize-v3 --instrumentation-output` records duplicate-table growth;
+`backtest-v4 --instrumentation-output` records per-contract oracle overhead. These sidecars are
+non-deterministic measurements and never enter canonical normalization, feature, result, or trace
+bytes.
+
+The fixed policy is `configs/phase7/b2c_evidence_policy_v1.json`. It is not capture authorization.
+See `docs/07 Engineering Notes/Phase 7 Retained Capture Evidence.md` before proposing B2c-P product
+acquisition or a live capture.

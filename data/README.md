@@ -20,3 +20,8 @@ consumer cannot silently ignore invalidation. B2b owns feature consumption of th
 
 Data contents are ignored by Git by default. Add small fixtures deliberately beside their
 tests, or document and version an exception when a dataset must be shared.
+
+B2c large raw and derived evidence remains ignored and must have an approved durable owner,
+location, read policy, and backup promise before capture. Git retains only the compact policy,
+evidence index, measurement summaries, review record, and an explicitly approved complete V4 bundle
+of at most 10 MiB. A manifest without mounted bytes is an index claim, not full byte verification.

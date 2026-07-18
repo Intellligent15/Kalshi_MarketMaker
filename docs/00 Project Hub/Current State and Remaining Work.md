@@ -24,8 +24,11 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-18 |
+| B2c tooling status | Complete within its offline evidence/control-plane boundary |
+| B2c retained evidence status | Not acquired; B2A-10/11 and B2B2-05/06 remain open or measurement-pending |
+| B2c tooling implementation and test commits | `e6a211b` and `4f77020` |
 | B2b-2 implementation status | Complete |
-| Last completed package | B2b-2 multi-market replay and backtest integration |
+| Last completed package | B2c offline evidence and measurement tooling |
 | B2b-2 implementation and test commits | `a0faa89` and `77cf533` |
 | B2b-2 documentation and review commits | `9f8e3a4` and `025508e` |
 | Baseline before B2c roadmap handoff | `025508e`; clean `main`; synchronized with `origin/main` |
@@ -42,17 +45,19 @@ complete, this current-state document wins; the older note remains useful histor
 | Recent B1b-1 commits | `902a2df`, `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
 | C++/CTest validation | 78 tests passing |
-| Python validation | 145 tests passing |
-| Focused capture validation | 13 tests passing |
-| Focused Phase 7 validation | 42 tests passing |
+| Python validation | 154 tests passing |
+| Focused capture validation | 15 tests passing |
+| Focused Phase 7 validation | 43 tests passing |
+| Focused B2b-2 validation | 10 tests passing |
+| Focused B2c evidence validation | 5 tests passing |
 | Focused product-term validation | 42 tests passing |
 | Focused checkpoint-reader validation | 17 tests passing |
 | Focused fixture-integrity validation | 17 tests passing |
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | B2c retained full-capture regression evidence |
-| Immediate next action | Read-only B2c design gate; do not perform a retained capture before approval |
+| Next bounded package | B2c-P contemporaneous product evidence and capture-execution gate |
+| Immediate next action | Approve the exact B2c-P selection/acquisition/storage packet before any retained acquisition or capture |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -882,7 +887,7 @@ B2b-2 therefore satisfies its closure rule. See
 [[07 Engineering Notes/Phase 7 Multi-Market Replay and Backtesting]], the explanation, and the
 severity-ranked critique.
 
-#### B2c. Retained full-capture regression evidence — next bounded package; design gate pending
+#### B2c. Retained full-capture regression evidence — tooling implemented; evidence pending
 
 Goal: design and, only after approval, retain reviewed longer-duration multi-market Capture V2
 evidence, then exercise the accepted normalization V3, feature V2/manifest V3, and Backtest V4
@@ -890,10 +895,33 @@ chain as far as the observed completeness permits. Pin raw and derived hashes, c
 resource measurements, and repeated offline results without turning deterministic tests into
 network-dependent tests.
 
-The first B2c turn is read-only design work. It must not perform a live capture, acquire or review
-new product-term bytes, edit schemas or code, install dependencies, rewrite retained artifacts, or
-commit. Public-document connectors may support a clearly labelled design question, but they must
-not access a live feed, create retained evidence, or replace accepted ADR authority.
+The read-only design gate approved a fixed twelve-hour, three-market, single-connection attempt with
+one attempt after the first raw record, a 1 GiB raw budget, a 5 GiB total budget, and a 10 GiB free-
+space preflight. It also split contemporaneous product acquisition/review into B2c-P. No retained
+product bytes or venue capture were acquired while implementing the tooling.
+
+Implemented B2c tooling includes:
+
+- immutable `pmm.phase7.b2c_evidence_policy.v1`, including selection, stopping, anti-bias, outcome,
+  retention, and Git-size rules;
+- additive evidence-index, measurement, normalization-telemetry, and risk-telemetry schemas without
+  changing accepted Capture V2, normalization V3, feature V3, Backtest V4, or Result V4 schemas;
+- an offline index/full-package verifier for exact membership, safe paths, hashes, parsed counts,
+  reviewed interval coverage, lineage, repetition claims, typed V4 artifacts, traces, and credential
+  exclusion;
+- a fresh-process measurement harness for wall time, process-tree RSS/count, disk growth, machine
+  context, scrubbed stream hashes, identities, and output-budget interruption;
+- opt-in duplicate-table and per-contract oracle telemetry that does not change canonical artifact
+  bytes;
+- characterization of Capture V2 output-exists, interruption, failure, retention, and cleanup; and
+- an operator guide, plain-language explanation, and severity-ranked tooling critique.
+
+This implementation does not close the retained-evidence acceptance gate. B2A-10/11 and B2B2-05/06
+remain open or measurement-pending until reviewed artifacts and actual measurements exist.
+
+Tooling validation passes 5 focused B2c evidence tests, 15 capture tests, 43 Phase 7 tests, 10
+focused B2b-2 tests, 42 product-term tests, 17 checkpoint-reader tests, 17 fixture-integrity tests,
+formatting, all 154 Python tests, and all 78 CTests. Every added test is offline and bounded.
 
 What B2c inherits as complete:
 
@@ -1338,7 +1366,7 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | B2c retained full-capture regression evidence | B2b-2 is closed; broader retained counts, hashes, recovery cases, and reproducibility are next. |
+| 1 | B2c-P product evidence and capture execution | Tooling is implemented, but current product intervals do not cover a new run and no durable artifact destination is approved. |
 | 2 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
 | 3 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
 | 4 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
@@ -1356,11 +1384,16 @@ but it must remain labelled experimental and must not bypass its promotion gates
 
 ## Current next package
 
-The next bounded package is **B2c retained full-capture regression evidence**. Its first turn must
-be a read-only design gate that defines the retained input, reviewed acquisition boundary, pinned
-counts and hashes, multi-market/recovery cases, repetition evidence, and memory/streaming
-measurement plan. Do not perform a live or retained capture, change B2b-2 semantics, or claim
-continuous venue-global history before that design is approved.
+The next bounded package is **B2c-P contemporaneous product evidence and capture execution**. Its
+first turn must remain an approval packet, not an acquisition: pin one candidate-selection timestamp,
+one venue activity field, three eligible distinct-series markets, the complete opening/closing source
+plan, reviewer responsibility, durable storage owner/location/read/backup policy, scheduled capture
+window, and operator. Do not acquire bytes or capture until that packet is explicitly approved.
+
+After approval, B2c-P opening evidence must complete before the one fixed capture attempt. Closing
+evidence begins immediately afterward. The strict chain runs only if every reviewed effective
+interval covers the exact capture; otherwise retain the raw outcome honestly and stop at its eligible
+boundary. Do not promote B3 until the applicable B2c evidence gates actually close.
 
 B2a establishes explicit multi-scope capture and reconnect-aware normalization successors. B2a-1
 closes their reviewed truth-contract blockers. B2b-1 now consumes that boundary for complete-input

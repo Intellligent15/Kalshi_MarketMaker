@@ -187,3 +187,23 @@ never becomes evidence that a missing interval was recovered.
 
 Cross-market features and strategies remain excluded. Interleaving supplies deterministic
 visibility order, not an implicit latest-value join.
+
+## B2c retained-evidence tooling amendment
+
+B2c adds an evidence control plane around the accepted successor chain without changing its bytes or
+eligibility rules. A fixed policy declares one twelve-hour, three-market, single-connection attempt,
+one-attempt anti-selection behavior, disk ceilings, truthful outcome retention, and no manufactured
+reconnect. A separately approved B2c-P package must establish contemporaneous reviewed product
+coverage and durable storage ownership before capture.
+
+The additive evidence index binds exact member paths, sizes, hashes, counts, lineage, reviewed
+effective intervals, observed outcome, repetition inventories, measurements, and credential scan.
+Index-only verification does not claim absent large bytes were checked; mounted verification requires
+exact safe membership and reconciles parsed counts and cross-document identities.
+
+Measurement remains outside deterministic artifacts. A fresh-process wrapper measures process-tree
+resources and disk growth. Optional normalization telemetry counts the full-run duplicate table, and
+optional Backtest V4 telemetry measures each synchronous contract oracle. Instrumentation on or off
+must produce identical normalization, feature, result, and risk-trace bytes. Measurements may justify
+a later optimization proposal but do not themselves alter duplicate, reconnect, streaming, or risk
+semantics.

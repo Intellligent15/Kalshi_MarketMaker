@@ -20,7 +20,9 @@ fees, collateral, settlement, durable persistence, and gateways remain intention
 
 Phase 7 now also has an additive multi-market backtest implementation: one global causal schedule,
 independent per-product baseline state, and one canonical C++ risk projection per contract. Its
-focused and full offline closure gates pass; B2c retained full-capture regression evidence is next.
+focused and full offline closure gates pass. B2c now has offline evidence-index, measurement, and
+instrumentation tooling, but no retained capture; B2c-P product evidence and capture execution remain
+the next separately approved gate.
 
 ## Navigation
 
@@ -51,6 +53,9 @@ focused and full offline closure gates pass; B2c retained full-capture regressio
 - [[07 Engineering Notes/Phase 7 Multi-Scope Capture and Recovery|B2a implementation and operator guide]]
 - [[07 Engineering Notes/Phase 7 Multi-Scope Capture Explained|B2a plain-language walkthrough]]
 - [[07 Engineering Notes/Phase 7 Multi-Scope Capture Critique|B2a severity-ranked critique]]
+- [[07 Engineering Notes/Phase 7 Retained Capture Evidence|B2c evidence operator guide]]
+- [[07 Engineering Notes/Phase 7 Retained Capture Evidence Explained|B2c plain-language explanation]]
+- [[07 Engineering Notes/Phase 7 Retained Capture Evidence Critique|B2c tooling critique]]
 - [[07 Engineering Notes/Phase 7 Segment-Aware Features|B2b-1 implementation and operator guide]]
 - [[07 Engineering Notes/Phase 7 Segment-Aware Features Explained|B2b-1 plain-language walkthrough]]
 - [[07 Engineering Notes/Phase 7 Segment-Aware Features Critique|B2b-1 severity-ranked critique]]

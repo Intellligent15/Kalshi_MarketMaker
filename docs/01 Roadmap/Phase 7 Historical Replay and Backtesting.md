@@ -151,3 +151,16 @@ Focused B2b-2, Phase 7, capture, product-term, checkpoint-reader, fixture-integr
 full Python, and CTest gates pass. The accidental retained-package deletions were restored exactly
 from Git and B2b-2 is closed. B2c retained full-capture regression evidence is the next read-only
 design gate; no capture or retained acquisition should occur before that design is approved.
+
+## B2c evidence tooling implemented; retained run pending
+
+The approved B2c design fixes one twelve-hour, three-market, single-connection attempt and adds an
+offline evidence policy/index/verifier, process-tree and disk measurement, output-budget
+interruption, duplicate-table telemetry, per-contract oracle telemetry, and one-defect acceptance
+coverage. These are additive control-plane formats; accepted raw, normalized, feature, backtest,
+result, product, conversion, risk, and refusal contracts retain their meanings.
+
+No B2c product evidence or venue capture has been acquired. B2c-P must separately pin and approve
+the actual candidate snapshot, activity field, three distinct-series markets, opening/closing
+acquisition plan, reviewer, durable storage ownership, capture window, and operator. B3 remains
+blocked until applicable retained-evidence gates actually close.

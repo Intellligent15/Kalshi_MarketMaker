@@ -178,3 +178,20 @@ product-term tests, 17 checkpoint-reader tests, 17 fixture-integrity tests, form
 Python tests, and all 78 CTests pass. Seventeen accidentally deleted retained-package files were
 restored byte-for-byte from `HEAD`; the accepted two-entry catalog and frozen package-tree hashes
 verify without reacquisition or artifact rewriting.
+
+## B2c offline evidence tooling
+
+B2c now has a fixed prospective evidence policy and additive offline control plane. The verifier can
+check a compact index without pretending absent large bytes were mounted, or recheck exact package
+membership, hashes, parsed counts, effective intervals, stage lineage, Result V4 artifacts, and risk
+traces when they are present. A fresh-process measurement wrapper records process-tree RSS/count,
+disk growth, machine context, identities, scrubbed stream hashes, and budget interruption.
+
+Normalization V3 and Backtest V4 gained opt-in telemetry sidecars only. Duplicate-table and
+per-contract oracle measurements do not enter or change canonical artifacts; focused tests compare
+instrumentation-on and instrumentation-off bytes. Capture V2 interruption/failure retention and
+derived-stage partial cleanup remain intentionally different.
+
+No retained product evidence or observed capture was created by this package. B2A-10/11 and
+B2B2-05/06 remain open or measurement-pending. The next package is the separately approved B2c-P
+selection, product-evidence, durable-storage, and capture-execution gate.

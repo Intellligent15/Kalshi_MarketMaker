@@ -91,6 +91,12 @@ one baseline strategy runtime and one canonical C++ risk projection per declared
 derived artifact names its product, contract, segment, and causal watermark. The path has no
 joined signals, portfolio-wide risk, calibrated execution, accounting, fees, PnL, or settlement.
 
+B2c tooling adds a fixed twelve-hour/three-market evidence policy, compact package index and offline
+verifier, process-tree resource measurement with disk-budget interruption, normalization duplicate-
+state telemetry, and per-contract oracle telemetry. It does not contain a retained B2c capture. New
+contemporaneous product evidence, durable storage ownership, and the single observed capture remain
+behind the separately approved B2c-P execution gate.
+
 ## Quick start
 
 Prerequisites: CMake 3.24+, a C++20 compiler, Git (to fetch GoogleTest for test builds),

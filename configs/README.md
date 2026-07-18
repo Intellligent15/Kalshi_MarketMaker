@@ -48,3 +48,9 @@ offline.
 It requires normalization/feature V2 artifacts and names the exact product terms, retained source,
 review, and conversion-policy hashes. It applies neither fees nor settlement. The older V1/V2
 configs remain unchanged compatibility examples and are not silently upgraded.
+
+`phase7/b2c_evidence_policy_v1.json` freezes the prospective B2c capture boundary: one twelve-hour,
+three-market, single-connection attempt; fixed disk budgets; distinct-series selection; no fallback
+selection, substitution, manufactured reconnect, or capture-until-clean behavior; and a 10 MiB
+maximum for any deliberately Git-retained complete V4 bundle. B2c-P must separately pin the actual
+selection metric, markets, evidence acquisitions, storage owner, and storage destination.
