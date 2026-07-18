@@ -21,6 +21,9 @@ Graphify is not architectural authority. Accepted ADRs, source code, tests, and
 ambiguous graph edges. Preserve Graphify's `EXTRACTED`, `INFERRED`, and `AMBIGUOUS` distinctions.
 
 `graphify-out/` is generated local state and must not be committed. Do not edit its files manually.
-After meaningful code or documentation changes, refresh it with the installed Graphify skill's
-incremental workflow (`$graphify . --update`) when available. Do not install Graphify Git hooks or
-make graph freshness a validation/closure claim without explicit approval.
+The user-approved version-controlled `post-commit` and `post-checkout` hooks refresh code navigation
+after commits and branch changes when Graphify is available. They do not semantically extract
+documentation. After meaningful documentation or architecture changes, and before a final handoff
+when the graph predates the working corpus, run the installed Graphify skill's incremental workflow
+(`$graphify . --update`). Report a failed refresh instead of claiming freshness. Do not alter the
+hooks without explicit approval, and never make graph freshness a validation or closure claim.

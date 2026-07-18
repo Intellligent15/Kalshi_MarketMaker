@@ -17,10 +17,14 @@ Graphify writes generated files under `graphify-out/`. The directory is ignored 
 be committed, cited as retained product evidence, or used as a test/roadmap closure artifact. Do not
 edit generated graph files manually.
 
-The repository uses the version-controlled `tools/git-hooks` path. Do not run
-`graphify hook install` without separate approval: it changes repository hook behavior, refreshes
-only code changes, and does not replace the manual update required after material ADR or roadmap
-edits.
+The repository uses the version-controlled `tools/git-hooks` path. With explicit maintainer approval,
+Graphify's `post-commit` and `post-checkout` hooks are installed there. The post-commit hook refreshes
+code navigation after a commit; the post-checkout hook rebuilds code navigation after a branch
+change. Both are convenience automation. They do not semantically extract documentation and do not
+replace the manual update required after material ADR, roadmap, or engineering-note edits.
+
+The graph remains optional: a missing Graphify executable makes the hooks no-ops, and hook failure
+must not block Git. Do not alter or uninstall the hooks without separate approval.
 
 ## Current local snapshot
 
@@ -37,9 +41,8 @@ This snapshot is usable but explicitly incomplete:
   usage counts.
 
 These are health warnings, not repository defects. Keep them visible when using the graph, and
-verify every material result directly. The graph was generated while the repository-local Graphify
-guidance was being added, so run `$graphify . --update` after those documentation changes are
-committed before treating the snapshot as current.
+verify every material result directly. Counts describe the first completed snapshot, not a timeless
+freshness claim.
 
 ## Build and inspect
 
@@ -94,8 +97,14 @@ Use graph results to select files. Before changing code or reporting behavior:
 
 ## Refresh policy
 
-After meaningful code or documentation changes, refresh incrementally in a Graphify-enabled Codex
-chat:
+The normal refresh points are:
+
+- after a code commit, let the installed post-commit hook refresh code navigation;
+- after a branch checkout, let the installed post-checkout hook rebuild code navigation; and
+- after material documentation, ADR, roadmap, or cross-cutting design changes, run the semantic
+  incremental update before final handoff.
+
+Run that semantic update in a Graphify-enabled Codex chat with:
 
 ```text
 $graphify . --update
@@ -115,8 +124,9 @@ To check whether the current corpus differs from Graphify's saved manifest:
 graphify check-update .
 ```
 
-Incremental freshness is a convenience, not a release gate. Formatting and repository test commands
-remain the validation authority.
+If an automatic or manual refresh fails, report the graph as stale and continue using source, tests,
+ADRs, and the living roadmap. Incremental freshness is a convenience, not a release gate. Formatting
+and repository test commands remain the validation authority.
 
 ## Useful maintenance commands
 
@@ -139,7 +149,7 @@ graphify tree \
   --root . \
   --label PM_MarketMaker
 
-# Inspect optional hook state without changing it.
+# Inspect installed hook state without changing it.
 graphify hook status
 ```
 
