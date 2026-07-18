@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
+import io
 import json
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
+import uuid
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "kalshi_capture.py"
@@ -232,6 +236,61 @@ class KalshiCaptureTests(unittest.TestCase):
             {"KX-A": 1, "KX-B": 1},
         )
         self.assertTrue(transport.closed)
+
+    def test_v2_acknowledgement_rejects_sid_reuse_across_channels(self) -> None:
+        binding = kalshi_capture.SubscriptionBinding(
+            1, 1, ("orderbook_delta", "trade"), ("KX-A", "KX-B")
+        )
+        binding.observe_acknowledgement(
+            {"id": 1, "type": "subscribed", "msg": {"channel": "orderbook_delta", "sid": 9}}
+        )
+        with self.assertRaisesRegex(kalshi_capture.CaptureV2Error, "more than one channel"):
+            binding.observe_acknowledgement(
+                {"id": 1, "type": "subscribed", "msg": {"channel": "trade", "sid": 9}}
+            )
+
+    def test_capture_v2_exit_status_separates_completion_from_data_usability(self) -> None:
+        output = (
+            kalshi_capture.REPOSITORY_ROOT
+            / "data"
+            / "raw"
+            / f"capture-v2-cli-test-{uuid.uuid4()}"
+        )
+        config = kalshi_capture.CaptureV2Config(("KX-A", "KX-B"), 1, output)
+
+        async def incomplete_capture(*_args, **_kwargs):
+            return {
+                "connections": 1,
+                "disconnects": 0,
+                "connection_segments": [
+                    {
+                        "connection_segment_id": 1,
+                        "status": "completed",
+                        "request_id": 1,
+                        "channel_sids": {"orderbook_delta": "11", "trade": "12"},
+                        "snapshots_by_ticker": {"KX-A": 1, "KX-B": 0},
+                    }
+                ],
+            }
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        try:
+            with mock.patch.object(kalshi_capture, "parse_capture_v2_config", return_value=config), mock.patch.object(
+                kalshi_capture, "require_environment", return_value=("key", Path("key.pem"))
+            ), mock.patch.object(kalshi_capture, "run_capture_v2", side_effect=incomplete_capture), redirect_stdout(
+                stdout
+            ), redirect_stderr(stderr):
+                status = kalshi_capture.run_capture_v2_command(SimpleNamespace())
+            self.assertEqual(status, 2)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("CaptureDataUnusable", stderr.getvalue())
+            metadata = json.loads((output / kalshi_capture.METADATA_FILE).read_text())
+            self.assertEqual(metadata["shutdown"], {"status": "completed", "clean": True})
+            self.assertEqual(metadata["data_usability"], "unusable")
+            self.assertTrue((output / kalshi_capture.FRAMES_FILE).is_file())
+        finally:
+            shutil.rmtree(output, ignore_errors=True)
 
 
 if __name__ == "__main__":

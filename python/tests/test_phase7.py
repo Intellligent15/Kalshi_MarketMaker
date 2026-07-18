@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+from contextlib import redirect_stderr, redirect_stdout
+import io
 import json
 from pathlib import Path
 import shutil
@@ -84,6 +86,7 @@ class Phase7Tests(unittest.TestCase):
             },
             "sequence_domain": {
                 "status": "fixture_declared",
+                "topology": "shared",
                 "components": ["connection_segment_id", "venue_subscription_id"],
                 "mechanical_validation_key": ["connection_segment_id", "venue_subscription_id"],
                 "limitation": "Synthetic fixture scope.",
@@ -100,6 +103,7 @@ class Phase7Tests(unittest.TestCase):
             "sequence_gaps": [],
             "non_monotonic_sequences": [],
             "capture_continuity": "observed_discontinuous" if reconnect else "continuous_within_recorded_mechanical_scopes",
+            "data_usability": "record_only" if reconnect else "strict_eligible",
             "shutdown": {"status": "completed", "clean": True},
         }
         (capture / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
@@ -796,6 +800,13 @@ class Phase7Tests(unittest.TestCase):
         self.assertEqual(success.returncode, 0)
         self.assertEqual(success.stderr, "")
         self.assertEqual(json.loads(success.stdout)["completeness"], "complete_observed_interval")
+        snapshot = {path.name: path.read_bytes() for path in output.iterdir() if path.is_file()}
+        repeated = subprocess.run(command, text=True, capture_output=True, check=False)
+        self.assertEqual(repeated.returncode, 2)
+        self.assertEqual(repeated.stdout, "")
+        self.assertEqual(
+            snapshot, {path.name: path.read_bytes() for path in output.iterdir() if path.is_file()}
+        )
 
         reconnect = self.make_v2_capture(reconnect=True)
         refused_output = self.generated_root / "cli-refused"
@@ -810,6 +821,336 @@ class Phase7Tests(unittest.TestCase):
         self.assertEqual(refused.stdout, "")
         self.assertIn("DiscontinuousInput", refused.stderr)
         self.assertFalse(refused_output.exists())
+
+    def test_v3_cli_programming_failure_and_interruption_are_distinct(self) -> None:
+        arguments = ["normalize-v3", "--input", "input", "--output", "output"]
+        for error, expected_status, expected_text in (
+            (OSError("disk"), 1, "programming failure"),
+            (KeyboardInterrupt(), 130, "interrupted"),
+        ):
+            with self.subTest(status=expected_status), mock.patch.object(
+                phase7, "normalize_capture_v3", side_effect=error
+            ):
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    status = phase7.main(arguments)
+                self.assertEqual(status, expected_status)
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertIn(expected_text, stderr.getvalue())
+
+    def test_v3_shared_gap_names_and_invalidates_every_possible_market(self) -> None:
+        capture = self.make_v2_capture()
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        target = next(record for record in records if record.get("message_type") == "orderbook_delta")
+        message = json.loads(target["raw_frame_utf8"])
+        message["seq"] = 4
+        target["source_sequence"] = 4
+        target["raw_frame_utf8"] = json.dumps(message)
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+
+        output = self.generated_root / "shared-gap"
+        manifest = phase7.normalize_capture_v3(capture, output, continuity_policy="record")
+        self.assertEqual(manifest["completeness"], "incomplete")
+        normalized = list(phase7.iter_jsonl(output / "records.jsonl"))
+        gap = next(record for record in normalized if record.get("control_type") == "sequence_gap")
+        self.assertIsNone(gap["ticker"])
+        self.assertEqual(gap["details"]["observed_post_gap_ticker"], "KX-A")
+        self.assertEqual(gap["details"]["affected_market_tickers"], ["KX-A", "KX-B"])
+        self.assertIn(
+            "RecoverySnapshotMissing", {reason["code"] for reason in manifest["incomplete_reasons"]}
+        )
+
+    def test_v3_independent_gap_invalidates_only_observed_market(self) -> None:
+        capture = self.make_v2_capture()
+        metadata_path = capture / "metadata.json"
+        metadata = json.loads(metadata_path.read_text())
+        metadata["sequence_domain"]["topology"] = "independent"
+        metadata["sequence_domain"]["mechanical_validation_key"].append("market_ticker")
+        metadata_path.write_text(json.dumps(metadata))
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        target = next(record for record in records if record.get("message_type") == "orderbook_delta")
+        message = json.loads(target["raw_frame_utf8"])
+        message["seq"] = 4
+        target["source_sequence"] = 4
+        target["raw_frame_utf8"] = json.dumps(message)
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        output = self.generated_root / "independent-gap"
+        phase7.normalize_capture_v3(capture, output, continuity_policy="record")
+        gap = next(
+            record
+            for record in phase7.iter_jsonl(output / "records.jsonl")
+            if record.get("control_type") == "sequence_gap"
+        )
+        self.assertEqual(gap["details"]["affected_market_tickers"], ["KX-A"])
+
+    def test_v3_requires_book_sequence_but_allows_sequence_less_trade(self) -> None:
+        for message_type in ("orderbook_snapshot", "orderbook_delta"):
+            with self.subTest(message_type=message_type):
+                capture = self.make_v2_capture()
+                frames = capture / "frames.jsonl"
+                records = [json.loads(line) for line in frames.read_text().splitlines()]
+                target = next(record for record in records if record.get("message_type") == message_type)
+                message = json.loads(target["raw_frame_utf8"])
+                message.pop("seq")
+                target["source_sequence"] = None
+                target["raw_frame_utf8"] = json.dumps(message)
+                frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+                with self.assertRaisesRegex(
+                    phase7.HistoricalDataError, "RequiredSourceSequenceMissing"
+                ):
+                    phase7.normalize_capture_v3(
+                        capture, self.generated_root / f"missing-{message_type}"
+                    )
+
+        capture = self.make_v2_capture()
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        target = next(record for record in records if record.get("message_type") == "trade")
+        message = json.loads(target["raw_frame_utf8"])
+        message.pop("seq")
+        target["source_sequence"] = None
+        target["raw_frame_utf8"] = json.dumps(message)
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        manifest = phase7.normalize_capture_v3(capture, self.generated_root / "trade-without-seq")
+        self.assertEqual(manifest["completeness"], "complete_observed_interval")
+
+    def test_v3_refuses_requested_market_that_never_establishes_identity(self) -> None:
+        capture = self.make_v2_capture()
+        frames = capture / "frames.jsonl"
+        records = [
+            record
+            for record in (json.loads(line) for line in frames.read_text().splitlines())
+            if record.get("market_ticker") is None
+            or (
+                record.get("market_ticker") == "KX-A"
+                and record.get("message_type") == "orderbook_snapshot"
+            )
+        ]
+        for ordinal, record in enumerate(records, start=1):
+            record["raw_ingress_ordinal"] = ordinal
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        for policy in ("refuse", "record"):
+            with self.subTest(policy=policy), self.assertRaisesRegex(
+                phase7.HistoricalDataError, "MarketIdentityMissing"
+            ):
+                phase7.normalize_capture_v3(
+                    capture,
+                    self.generated_root / f"missing-identity-{policy}",
+                    continuity_policy=policy,
+                )
+
+    def test_v3_reproves_logical_ack_identity_and_channel_cardinality(self) -> None:
+        capture = self.make_v2_capture()
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        acknowledgement = next(
+            record for record in records if record.get("kind") == "subscription_acknowledged"
+        )
+        acknowledgement["subscription_request_id"] = "c1:wrong"
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "SubscriptionAckMismatch"):
+            phase7.normalize_capture_v3(capture, self.generated_root / "logical-id")
+
+        capture = self.make_v2_capture()
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        acknowledgement = next(
+            record
+            for record in records
+            if record.get("kind") == "subscription_acknowledged"
+            and record.get("channel") == "orderbook_delta"
+        )
+        duplicate = dict(acknowledgement)
+        duplicate["venue_subscription_id"] = "99"
+        records.insert(records.index(acknowledgement) + 1, duplicate)
+        for ordinal, record in enumerate(records, start=1):
+            record["raw_ingress_ordinal"] = ordinal
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "SubscriptionAckMismatch"):
+            phase7.normalize_capture_v3(capture, self.generated_root / "duplicate-channel")
+
+    def test_v3_disconnect_before_first_snapshot_remains_incomplete_prefix(self) -> None:
+        capture = self.make_v2_capture(reconnect=True)
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        records = [
+            record
+            for record in records
+            if not (
+                record.get("connection_segment_id") == 1
+                and record.get("kind") == "inbound_frame"
+                and record.get("message_type") in {"orderbook_snapshot", "orderbook_delta", "trade"}
+            )
+        ]
+        for ordinal, record in enumerate(records, start=1):
+            record["raw_ingress_ordinal"] = ordinal
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        output = self.generated_root / "incomplete-prefix"
+        manifest = phase7.normalize_capture_v3(capture, output, continuity_policy="record")
+        self.assertEqual(manifest["completeness"], "incomplete")
+        starts = [
+            record
+            for record in phase7.iter_jsonl(output / "records.jsonl")
+            if record["kind"] == "segment_boundary"
+        ]
+        self.assertTrue(starts)
+        self.assertTrue(all(start["start_evidence"] == "initial_snapshot" for start in starts))
+
+    def test_v3_connect_and_pre_ack_failures_are_incomplete_prefixes(self) -> None:
+        for phase in ("connect", "subscribe", "receive"):
+            with self.subTest(phase=phase):
+                capture = self.make_v2_capture(reconnect=True)
+                frames = capture / "frames.jsonl"
+                records = [json.loads(line) for line in frames.read_text().splitlines()]
+                first_gap_index = next(
+                    index
+                    for index, record in enumerate(records)
+                    if record.get("connection_segment_id") == 1
+                    and record.get("kind") == "connection_gap"
+                )
+                first_connection = records[:first_gap_index]
+                if phase == "connect":
+                    first_connection = [
+                        record for record in first_connection if record["kind"] == "connection_attempt"
+                    ]
+                elif phase == "subscribe":
+                    first_connection = [
+                        record
+                        for record in first_connection
+                        if record["kind"] in {"connection_attempt", "connection_opened"}
+                    ]
+                else:
+                    first_connection = [
+                        record
+                        for record in first_connection
+                        if record["kind"]
+                        in {"connection_attempt", "connection_opened", "subscription_sent"}
+                    ]
+                gap = records[first_gap_index]
+                gap["failure_phase"] = phase
+                records = first_connection + [gap] + records[first_gap_index + 1 :]
+                for ordinal, record in enumerate(records, start=1):
+                    record["raw_ingress_ordinal"] = ordinal
+                frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+                output = self.generated_root / f"prefix-{phase}"
+                manifest = phase7.normalize_capture_v3(
+                    capture, output, continuity_policy="record"
+                )
+                self.assertEqual(manifest["completeness"], "incomplete")
+                starts = [
+                    record
+                    for record in phase7.iter_jsonl(output / "records.jsonl")
+                    if record["kind"] == "segment_boundary"
+                ]
+                self.assertTrue(starts)
+                self.assertTrue(
+                    all(start["start_evidence"] == "initial_snapshot" for start in starts)
+                )
+
+    def test_v3_disconnect_after_one_market_snapshot_keeps_other_prefix_incomplete(self) -> None:
+        capture = self.make_v2_capture(reconnect=True)
+        frames = capture / "frames.jsonl"
+        records = [json.loads(line) for line in frames.read_text().splitlines()]
+        records = [
+            record
+            for record in records
+            if not (
+                record.get("connection_segment_id") == 1
+                and record.get("kind") == "inbound_frame"
+                and record.get("market_ticker") in {"KX-A", "KX-B"}
+                and not (
+                    record.get("market_ticker") == "KX-A"
+                    and record.get("message_type") == "orderbook_snapshot"
+                )
+            )
+        ]
+        for ordinal, record in enumerate(records, start=1):
+            record["raw_ingress_ordinal"] = ordinal
+        frames.write_text("".join(json.dumps(record) + "\n" for record in records))
+        output = self.generated_root / "partial-initial-snapshots"
+        manifest = phase7.normalize_capture_v3(capture, output, continuity_policy="record")
+        self.assertEqual(manifest["completeness"], "incomplete")
+        starts = [
+            record
+            for record in phase7.iter_jsonl(output / "records.jsonl")
+            if record["kind"] == "segment_boundary"
+        ]
+        evidence = {(start["ticker"], start["start_evidence"]) for start in starts}
+        self.assertIn(("KX-A", "recovery_snapshot"), evidence)
+        self.assertIn(("KX-B", "initial_snapshot"), evidence)
+
+    def test_v3_successor_schema_one_defect_negative_matrix(self) -> None:
+        capture = self.make_v2_capture()
+        output = self.generated_root / "schema-matrix"
+        phase7.normalize_capture_v3(capture, output)
+        schema_root = phase7.HISTORICAL_SCHEMA_ROOT
+
+        config = {
+            "schema": "pmm.kalshi.capture_config.v2",
+            "market_tickers": ["KX-A", "KX-B"],
+            "channels": ["orderbook_delta", "trade"],
+            "connection_strategy": "single_connection_v1",
+            "use_yes_price": True,
+            "duration_seconds": 30,
+        }
+        bad_config = dict(config)
+        bad_config["market_tickers"] = ["KX-A", "KX-A"]
+        self.assertFalse(
+            Draft202012Validator(
+                json.loads((schema_root / "capture-config-v2.schema.json").read_text())
+            ).is_valid(bad_config)
+        )
+
+        cases: list[tuple[str, dict[str, object], str]] = []
+        metadata = json.loads((capture / "metadata.json").read_text())
+        del metadata["sequence_domain"]["topology"]
+        cases.append(("raw-capture-v2.schema.json", metadata, "CaptureSchemaMismatch"))
+
+        raw_record = next(
+            record
+            for record in phase7.iter_jsonl(capture / "frames.jsonl")
+            if record["kind"] == "subscription_sent"
+        )
+        del raw_record["subscription_request_id"]
+        cases.append(
+            ("raw-capture-record-v2.schema.json", raw_record, "CaptureRecordSchemaMismatch")
+        )
+
+        scope_map = json.loads((output / "source_scopes.json").read_text())
+        del scope_map["scopes"][0]["sequence_domain_topology"]
+        cases.append(("source-scope-map-v1.schema.json", scope_map, "SourceScopeSchemaMismatch"))
+
+        product_map = json.loads((output / "product.json").read_text())
+        product_map["products"][0]["venue_market_id"] = None
+        cases.append(("product-map-v3.schema.json", product_map, "ProductMapSchemaMismatch"))
+
+        normalized_record = next(
+            record
+            for record in phase7.iter_jsonl(output / "records.jsonl")
+            if record["kind"] == "market_event"
+        )
+        del normalized_record["event_type"]
+        cases.append(
+            ("normalized-record-v2.schema.json", normalized_record, "NormalizedRecordSchemaMismatch")
+        )
+
+        manifest = json.loads((output / "manifest.json").read_text())
+        manifest["incomplete_reasons"] = [{"code": "UnknownReason"}]
+        cases.append(
+            ("normalization-manifest-v3.schema.json", manifest, "NormalizationManifestSchemaMismatch")
+        )
+
+        for schema_name, document, expected_code in cases:
+            with self.subTest(schema=schema_name):
+                validator = Draft202012Validator(
+                    json.loads((schema_root / schema_name).read_text())
+                )
+                self.assertFalse(validator.is_valid(document))
+                with self.assertRaisesRegex(phase7.HistoricalDataError, expected_code):
+                    phase7.validate_historical_schema(document, schema_name, expected_code)
 
 
 if __name__ == "__main__":
