@@ -1152,6 +1152,159 @@ class Phase7Tests(unittest.TestCase):
                 with self.assertRaisesRegex(phase7.HistoricalDataError, expected_code):
                     phase7.validate_historical_schema(document, schema_name, expected_code)
 
+    def test_feature_v3_projects_two_products_and_segments_independently(self) -> None:
+        normalized = self.generated_root / "normalized-v3"
+        phase7.normalize_capture_v3(self.make_v2_capture(), normalized)
+        first = self.generated_root / "features-v3-one"
+        second = self.generated_root / "features-v3-two"
+        first_manifest = phase7.materialize_features_v3(normalized, first)
+        second_manifest = phase7.materialize_features_v3(normalized, second)
+        self.assertEqual(first_manifest, second_manifest)
+        for filename in ("features.jsonl", "manifest.json"):
+            self.assertEqual((first / filename).read_bytes(), (second / filename).read_bytes())
+        self.assertEqual(first_manifest["schema"], phase7.FEATURE_MANIFEST_V3_SCHEMA)
+        self.assertEqual(first_manifest["output"]["feature_row_count"], 4)
+        rows = list(phase7.iter_jsonl(first / "features.jsonl"))
+        self.assertEqual(
+            [row["product_identity"]["ticker"] for row in rows],
+            ["KX-A", "KX-B", "KX-A", "KX-B"],
+        )
+        a_rows = [row for row in rows if row["product_identity"]["ticker"] == "KX-A"]
+        b_rows = [row for row in rows if row["product_identity"]["ticker"] == "KX-B"]
+        self.assertEqual(a_rows[-1]["values"]["best_bid_quantity_contracts"], "4")
+        self.assertEqual(b_rows[0]["values"]["best_bid_quantity_contracts"], "3")
+        self.assertEqual(b_rows[-1]["values"]["last_trade_yes_price_dollars"], "0.50")
+        self.assertIsNone(a_rows[-1]["values"]["last_trade_yes_price_dollars"])
+        self.assertEqual(
+            rows[0]["segment_identity"]["snapshot_seed_watermark"]["raw_ingress_ordinal"],
+            rows[0]["segment_identity"]["valid_from_watermark"]["raw_ingress_ordinal"],
+        )
+        self.assertLess(
+            rows[0]["segment_identity"]["snapshot_seed_watermark"]["normalization_ordinal"],
+            rows[0]["segment_identity"]["valid_from_watermark"]["normalization_ordinal"],
+        )
+
+    def test_feature_v3_refuses_discontinuous_and_incomplete_inputs_without_output(self) -> None:
+        for name, kwargs in (
+            ("discontinuous", {"reconnect": True}),
+            ("incomplete", {"reconnect": True, "missing_recovery_snapshot": True}),
+        ):
+            with self.subTest(name=name):
+                normalized = self.generated_root / f"normalized-{name}"
+                phase7.normalize_capture_v3(
+                    self.make_v2_capture(**kwargs), normalized, continuity_policy="record"
+                )
+                output = self.generated_root / f"features-{name}"
+                with self.assertRaisesRegex(
+                    phase7.HistoricalDataError, "FeatureInputContinuityRequired"
+                ):
+                    phase7.materialize_features_v3(normalized, output)
+                self.assertFalse(output.exists())
+                self.assertFalse(output.with_name(f"{output.name}.partial").exists())
+
+    def test_segment_cursor_rejects_cross_segment_delta_and_ignores_invalid_trade(self) -> None:
+        cursor = phase7.SegmentAwareProductCursor("KX-A", "market-a")
+        boundary = {
+            "ticker": "KX-A", "book_segment_id": "KX-A:segment:1",
+            "start_evidence": "initial_snapshot", "continuity_claim": "valid_from_observed_snapshot_only",
+            "source_scope_id": "scope", "raw_ingress_ordinal": 1, "normalization_ordinal": 1,
+        }
+        snapshot = {
+            "ticker": "KX-A", "venue_market_id": "market-a", "book_segment_id": "KX-A:segment:1",
+            "source_scope_id": "scope", "raw_ingress_ordinal": 1, "normalization_ordinal": 2,
+            "event_type": "book_snapshot", "book_state_valid": True,
+            "payload": {"yes_bids": [{"price_dollars": "0.50", "quantity_contracts": "1"}],
+                        "yes_asks": [{"price_dollars": "0.51", "quantity_contracts": "1"}]},
+        }
+        cursor.start_segment(boundary)
+        self.assertTrue(cursor.apply_market_event(snapshot))
+        gap = {"raw_ingress_ordinal": 2, "normalization_ordinal": 3}
+        cursor.invalidate(gap)
+        trade = {
+            "ticker": "KX-A", "venue_market_id": "market-a", "book_segment_id": "KX-A:segment:1",
+            "raw_ingress_ordinal": 3, "normalization_ordinal": 4, "event_type": "trade",
+            "book_state_valid": False, "payload": {"yes_price_dollars": "0.49"},
+        }
+        self.assertFalse(cursor.apply_market_event(trade))
+        self.assertEqual(cursor.state, "invalid_awaiting_recovery")
+        self.assertIsNone(cursor.projection.last_trade_price)
+        delta = {**trade, "normalization_ordinal": 5, "event_type": "book_delta", "book_state_valid": True,
+                 "payload": {"book_side": "yes", "price_dollars": "0.50", "quantity_delta_contracts": "1"}}
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "FeatureBookStateInvalid"):
+            cursor.apply_market_event(delta)
+
+    def test_feature_v3_schema_runtime_parity_and_hash_refusal(self) -> None:
+        normalized = self.generated_root / "normalized-v3"
+        phase7.normalize_capture_v3(self.make_v2_capture(), normalized)
+        output = self.generated_root / "features-v3"
+        phase7.materialize_features_v3(normalized, output)
+        schema_root = phase7.REPOSITORY_ROOT / "schemas" / "historical"
+        row = next(phase7.iter_jsonl(output / "features.jsonl"))
+        manifest = json.loads((output / "manifest.json").read_text())
+        for schema_name, document in (
+            ("feature-row-v2.schema.json", row),
+            ("feature-manifest-v3.schema.json", manifest),
+        ):
+            validator = Draft202012Validator(json.loads((schema_root / schema_name).read_text()))
+            self.assertTrue(validator.is_valid(document), list(validator.iter_errors(document)))
+            mutated = json.loads(json.dumps(document))
+            mutated["schema"] = "wrong"
+            self.assertFalse(validator.is_valid(mutated))
+            with self.assertRaises(phase7.HistoricalDataError):
+                phase7.validate_historical_schema(mutated, schema_name, "FeatureSchemaMismatch")
+        records = normalized / "records.jsonl"
+        records.write_text(records.read_text() + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "FeatureInputHashMismatch"):
+            phase7.materialize_features_v3(normalized, self.generated_root / "stale")
+
+    def test_feature_v3_cli_status_cleanup_output_exists_and_legacy_refusal(self) -> None:
+        normalized = self.generated_root / "normalized-v3"
+        phase7.normalize_capture_v3(self.make_v2_capture(), normalized)
+        output = self.generated_root / "features-v3"
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = phase7.main(["features-v3", "--input", str(normalized), "--output", str(output)])
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(json.loads(stdout.getvalue())["schema"], phase7.FEATURE_MANIFEST_V3_SCHEMA)
+        before = {path.name: path.read_bytes() for path in output.iterdir()}
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = phase7.main(["features-v3", "--input", str(normalized), "--output", str(output)])
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("output already exists", stderr.getvalue())
+        self.assertEqual(before, {path.name: path.read_bytes() for path in output.iterdir()})
+        with self.assertRaisesRegex(phase7.HistoricalDataError, "DownstreamContinuityRequired"):
+            phase7.materialize_features(normalized, self.generated_root / "legacy-refusal")
+
+    def test_feature_v3_cli_programming_failure_and_interruption_clean_partial(self) -> None:
+        normalized = self.generated_root / "normalized-v3"
+        phase7.normalize_capture_v3(self.make_v2_capture(), normalized)
+        for exception, expected_status, diagnostic in (
+            (OSError("boom"), 1, "programming failure"),
+            (KeyboardInterrupt(), 130, "interrupted"),
+        ):
+            output = self.generated_root / f"failure-{expected_status}"
+            original = phase7.validate_historical_schema
+            calls = 0
+
+            def fail_after_creation(*args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls > 4:
+                    raise exception
+                return original(*args, **kwargs)
+
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with mock.patch.object(phase7, "validate_historical_schema", side_effect=fail_after_creation), redirect_stdout(stdout), redirect_stderr(stderr):
+                status = phase7.main(["features-v3", "--input", str(normalized), "--output", str(output)])
+            self.assertEqual(status, expected_status)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn(diagnostic, stderr.getvalue())
+            self.assertFalse(output.exists())
+            self.assertFalse(output.with_name(f"{output.name}.partial").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

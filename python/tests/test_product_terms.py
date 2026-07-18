@@ -1755,6 +1755,17 @@ Settlement Rules
             (output / "product_terms" / TICKER / "product_terms.json").read_bytes(),
             (package.path / "product_terms.json").read_bytes(),
         )
+        features = self.generated_root / "features-v3"
+        feature_manifest = phase7.materialize_features_v3(output, features)
+        reviewed = feature_manifest["products"][0]["reviewed_lineage"]
+        self.assertEqual(reviewed["ticker"], TICKER)
+        self.assertEqual(reviewed["product_terms_sha256"], package.terms.payload_sha256)
+        self.assertEqual(reviewed["source_manifest_sha256"], package.evidence.payload_sha256)
+        self.assertEqual(reviewed["review_sha256"], package.review.payload_sha256)
+        self.assertEqual(reviewed["conversion_policy_sha256"], policy.payload_sha256)
+        row = next(phase7.iter_jsonl(features / "features.jsonl"))
+        self.assertEqual(row["lineage"]["product_terms_sha256"], package.terms.payload_sha256)
+        self.assertEqual(row["lineage"]["conversion_policy_sha256"], policy.payload_sha256)
 
     def test_hmonth_two_market_selection_normalizes_and_features_offline(self) -> None:
         catalog = terms.ProductCatalog.load(CATALOG_ROOT)
