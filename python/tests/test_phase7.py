@@ -532,6 +532,39 @@ class Phase7Tests(unittest.TestCase):
         )
         self.assertTrue(all(record["truth_category"] == "Synthetic" for record in records))
 
+    def test_v3_b2c_telemetry_measures_duplicate_state_without_changing_artifacts(self) -> None:
+        capture = self.make_v2_capture()
+        without_telemetry = self.generated_root / "normalized-v3-without-telemetry"
+        with_telemetry = self.generated_root / "normalized-v3-with-telemetry"
+        telemetry_path = self.generated_root / "normalization-telemetry.json"
+        phase7.normalize_capture_v3(capture, without_telemetry)
+        phase7.normalize_capture_v3(
+            capture,
+            with_telemetry,
+            instrumentation_output=telemetry_path,
+        )
+        for filename in ("records.jsonl", "source_scopes.json", "product.json", "manifest.json"):
+            self.assertEqual(
+                (without_telemetry / filename).read_bytes(),
+                (with_telemetry / filename).read_bytes(),
+            )
+        telemetry = json.loads(telemetry_path.read_text())
+        self.assertEqual(telemetry["schema"], "pmm.phase7.b2c_normalization_telemetry.v1")
+        self.assertGreater(telemetry["processed_raw_records"], 0)
+        self.assertGreater(telemetry["sequenced_unique_identities"], 0)
+        self.assertEqual(
+            telemetry["peak_sequenced_unique_identities"],
+            telemetry["sequenced_unique_identities"],
+        )
+        self.assertTrue(telemetry["samples"])
+        with self.assertRaisesRegex(ValueError, "InstrumentationOutputExists"):
+            phase7.normalize_capture_v3(
+                capture,
+                self.generated_root / "normalization-telemetry-refused",
+                instrumentation_output=telemetry_path,
+            )
+        self.assertFalse((self.generated_root / "normalization-telemetry-refused").exists())
+
     def test_v3_retained_offline_scenario_matrix(self) -> None:
         fixture = json.loads(
             (

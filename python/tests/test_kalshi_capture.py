@@ -292,6 +292,75 @@ class KalshiCaptureTests(unittest.TestCase):
         finally:
             shutil.rmtree(output, ignore_errors=True)
 
+    def test_capture_v2_output_exists_is_expected_refusal_without_mutation(self) -> None:
+        output = (
+            kalshi_capture.REPOSITORY_ROOT
+            / "data"
+            / "raw"
+            / f"capture-v2-output-exists-{uuid.uuid4()}"
+        )
+        output.mkdir(parents=True)
+        sentinel = output / "sentinel"
+        sentinel.write_bytes(b"preserve")
+        stdout, stderr = io.StringIO(), io.StringIO()
+        try:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                status = kalshi_capture.main(
+                    [
+                        "capture-v2",
+                        "--ticker",
+                        "KX-A",
+                        "--duration",
+                        "1",
+                        "--output",
+                        str(output),
+                    ]
+                )
+            self.assertEqual(status, 2)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("CaptureOutputExists", stderr.getvalue())
+            self.assertEqual(sentinel.read_bytes(), b"preserve")
+        finally:
+            shutil.rmtree(output, ignore_errors=True)
+
+    def test_capture_v2_interruption_failure_and_recorder_failure_own_distinct_cleanup(self) -> None:
+        cases = (
+            ("interrupted", KeyboardInterrupt(), 130, True),
+            ("failed", RuntimeError("boom"), 1, True),
+            ("recorder", OSError("cannot create recorder"), 1, False),
+        )
+        for name, failure, expected_status, retained in cases:
+            with self.subTest(outcome=name):
+                output = (
+                    kalshi_capture.REPOSITORY_ROOT
+                    / "data"
+                    / "raw"
+                    / f"capture-v2-{name}-{uuid.uuid4()}"
+                )
+                config = kalshi_capture.CaptureV2Config(("KX-A",), 1, output)
+                stdout, stderr = io.StringIO(), io.StringIO()
+                try:
+                    patches = [
+                        mock.patch.object(kalshi_capture, "parse_capture_v2_config", return_value=config),
+                        mock.patch.object(
+                            kalshi_capture, "require_environment", return_value=("key", Path("key.pem"))
+                        ),
+                    ]
+                    if name == "recorder":
+                        patches.append(mock.patch.object(kalshi_capture, "JsonlCaptureV2", side_effect=failure))
+                    else:
+                        patches.append(mock.patch.object(kalshi_capture, "run_capture_v2", side_effect=failure))
+                    with patches[0], patches[1], patches[2], redirect_stdout(stdout), redirect_stderr(stderr):
+                        status = kalshi_capture.run_capture_v2_command(SimpleNamespace())
+                    self.assertEqual(status, expected_status)
+                    self.assertEqual(output.exists(), retained)
+                    if retained:
+                        metadata = json.loads((output / kalshi_capture.METADATA_FILE).read_text())
+                        self.assertEqual(metadata["shutdown"]["status"], name)
+                        self.assertTrue((output / kalshi_capture.FRAMES_FILE).is_file())
+                finally:
+                    shutil.rmtree(output, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

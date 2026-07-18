@@ -134,6 +134,27 @@ class MultiMarketBacktestTests(unittest.TestCase):
         ordinals = [row["artifact_ordinal"] for row in all_rows]
         self.assertEqual(len(ordinals), len(set(ordinals)))
 
+    def test_opt_in_risk_telemetry_does_not_change_v4_artifacts(self) -> None:
+        config_path, _ = self.make_config()
+        without_telemetry = self.generated_root / "run-without-telemetry"
+        with_telemetry = self.generated_root / "run-with-telemetry"
+        telemetry_path = self.generated_root / "risk-telemetry.json"
+        multimarket.run_backtest_v4(config_path, without_telemetry)
+        multimarket.run_backtest_v4(
+            config_path,
+            with_telemetry,
+            instrumentation_output=telemetry_path,
+        )
+        self.assertEqual(
+            {path.name: path.read_bytes() for path in without_telemetry.iterdir()},
+            {path.name: path.read_bytes() for path in with_telemetry.iterdir()},
+        )
+        telemetry = json.loads(telemetry_path.read_text())
+        self.assertEqual(telemetry["schema"], "pmm.phase7.b2c_risk_telemetry.v1")
+        self.assertEqual([item["contract_id"] for item in telemetry["products"]], [1, 2])
+        self.assertTrue(all(item["commands_sent"] > 0 for item in telemetry["products"]))
+        self.assertTrue(all(item["responses_received"] > 0 for item in telemetry["products"]))
+
     def test_one_defect_input_hash_and_completeness_refuse_without_output(self) -> None:
         for name, mutate, code in (
             ("hash", lambda config: config["inputs"]["features"].__setitem__("rows_sha256", "0" * 64), "BacktestInputHashMismatch"),
