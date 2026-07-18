@@ -24,12 +24,12 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-18 |
-| B2c tooling status | Implemented offline; deeper review found operator-readiness hardening blockers |
+| B2c tooling status | Offline V1 tooling implemented; B2c-H design proposed, approval and implementation pending |
 | B2c retained evidence status | Not acquired; B2A-10/11 and B2B2-05/06 remain open or measurement-pending |
 | B2c tooling implementation and test commits | `e6a211b` and `4f77020` |
 | B2c deeper review commit | `bdb5ea1` |
 | Graphify workflow integration commit | `39b57c0` |
-| Baseline before B2c-H handoff | `39b57c0`; clean `main`; six commits ahead of `origin/main` |
+| Baseline before B2c-H design review | `343cbbc`; clean `main`; seven commits ahead of `origin/main` |
 | B2b-2 implementation status | Complete |
 | Last completed package | B2c offline evidence and measurement tooling implementation |
 | B2b-2 implementation and test commits | `a0faa89` and `77cf533` |
@@ -61,7 +61,7 @@ complete, this current-state document wins; the older note remains useful histor
 | Local Graphify navigation | 6,062 nodes, 9,165 built edges, 462 communities; advisory only, with 421 dangling edges, 166 collapsed edges, and 111 AST-empty files |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
 | Next bounded package | B2c-H evidence-verifier and measurement-lifecycle hardening |
-| Immediate next action | Close the impact-5 B2c review findings before any retained acquisition or live capture |
+| Immediate next action | Review/approve the B2c-H design, then implement it; do not acquire or capture |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -95,6 +95,9 @@ Use these documents to verify or deepen a claim in this roadmap:
 - [[02 Architecture/ADR-009 Canonical Risk Conformance and Research Oracle Migration|Canonical C++ risk migration]]
 - [[02 Architecture/ADR-010 Authoritative Product Terms and Artifact Lineage|Authoritative product terms and lineage]]
 - [[02 Architecture/ADR-013 Multi-Scope Capture and Reconnect-Aware Normalization|Multi-scope capture and recovery boundary]]
+- [[07 Engineering Notes/Phase 7 B2c-H Hardening Design|Reviewed B2c-H implementation design]]
+- [[07 Engineering Notes/Phase 7 B2c-H Hardening Explained|B2c-H plain-language explanation]]
+- [[07 Engineering Notes/Phase 7 B2c-H Hardening Critique|B2c-H design critique and debt register]]
 - [[02 Architecture/ADR-011 Bracketed Product Evidence and Review Responsibility|Bracketed evidence and review responsibility]]
 - [[02 Architecture/ADR-012 Deterministic Document Evidence and Completeness Profiles|Deterministic document evidence and completeness profiles]]
 - [[07 Engineering Notes/Phase 7 Critique|Original Phase 7 critique]]
@@ -932,6 +935,14 @@ hardening. These findings do not invalidate the additive architecture or passing
 mean the documented live command is not operator-ready. B2c-H must close the impact-5 findings and
 their directly supporting impact-4 controls before B2c-P acquisition or capture approval.
 
+The proposed B2c-H design is now documented in
+[[07 Engineering Notes/Phase 7 B2c-H Hardening Design]], its plain-language explanation, and its
+severity-ranked design critique. The design selects one bounded process supervisor, additive V2
+control-plane documents, independent repetition and lineage reconstruction, exact stage/outcome
+membership, explicit sampler validity, complete storage accounting, and a retained deterministic
+credential-scan result. These are proposed implementation requirements, not current behavior. No
+B2c-H code, schema, or acceptance test has been added, and no finding is closed by the design alone.
+
 Tooling validation passes 5 focused B2c evidence tests, 15 capture tests, 43 Phase 7 tests, 10
 focused B2b-2 tests, 42 product-term tests, 17 checkpoint-reader tests, 17 fixture-integrity tests,
 formatting, all 154 Python tests, and all 78 CTests. Every added test is offline and bounded.
@@ -952,7 +963,7 @@ What B2c inherits as complete:
 - the existing ignored three-hour WNBA capture is single-market V1 evidence, not a checked-in B2c
   multi-market Capture V2 regression package.
 
-The B2c design gate must resolve:
+The original B2c design gate resolved:
 
 - the exact evidence claim, duration, market count, market-selection rule, stopping rule, disk
   budget, and success/refusal criteria for a longer Capture V2 run;
@@ -1406,17 +1417,18 @@ free-space and aggregate-budget rules; distinguish invalid sampling from real ze
 specified credential scan to retained evidence. Each defect requires a named offline test. Do not
 acquire product bytes or start a venue capture during B2c-H.
 
-The B2c-H first turn is a read-only design gate. It must reconcile the impact-5 process-lifecycle
-and independent-verification findings with the existing CLI/refusal contracts, then present one
-bounded implementation design for approval. No schema, code, test, retained artifact, Graphify
-output, or live/external state should change before that approval. Graphify may accelerate
-navigation, but its current health warnings require every material edge to be checked against source
-and accepted ADRs.
+The read-only B2c-H review produced a consolidated design awaiting approval. It preserves existing artifact and
+refusal meanings while fixing the proposed process-ownership, schema, lineage, repetition, storage,
+sampling, credential, CLI, test, and documentation boundaries. The explanation makes the reasoning
+operator-readable; the critique rates implementation risks and deferred debt. B2c-H implementation
+remains the next bounded package and must not start without explicit approval. Its closure still
+requires implemented named tests, compatibility gates, validation evidence, updated operator docs,
+and a post-implementation critique.
 
-The handoff baseline is `39b57c0`. The local Graphify index was generated before that workflow
-commit and therefore needs one incremental `$graphify . --update` in a Graphify-enabled chat before
-the next agent treats it as current. That refresh is local generated state, not a repository change
-or design approval.
+Graphify is advisory navigation only. Version-controlled hooks now refresh code navigation after
+commits and branch changes, while material documentation changes still require a manual semantic
+`$graphify . --update` before final handoff. A refresh does not approve implementation or close a
+roadmap gate.
 
 After B2c-H closes, **B2c-P contemporaneous product evidence and capture execution** becomes next.
 Its first turn must remain an approval packet, not an acquisition: pin one candidate-selection

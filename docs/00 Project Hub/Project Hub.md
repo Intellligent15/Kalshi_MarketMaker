@@ -22,8 +22,9 @@ Phase 7 now also has an additive multi-market backtest implementation: one globa
 independent per-product baseline state, and one canonical C++ risk projection per contract. Its
 focused and full offline closure gates pass. B2c now has offline evidence-index, measurement, and
 instrumentation tooling, but no retained capture. Its deeper review found operator-interrupt and
-independent-verification blockers; B2c-H hardening is next, followed by the separately approved
-B2c-P product-evidence and capture gate.
+independent-verification blockers. The proposed B2c-H hardening design is documented, but its code,
+schemas, and tests are not implemented; B2c-H implementation remains next, followed by the
+separately approved B2c-P product-evidence and capture gate.
 
 A local Graphify navigation index is available for repository discovery. Its first snapshot has
 6,062 nodes and 9,165 built edges, but also reports dangling, collapsed, and AST-empty coverage
@@ -63,6 +64,9 @@ authoritative.
 - [[07 Engineering Notes/Phase 7 Retained Capture Evidence|B2c evidence operator guide]]
 - [[07 Engineering Notes/Phase 7 Retained Capture Evidence Explained|B2c plain-language explanation]]
 - [[07 Engineering Notes/Phase 7 Retained Capture Evidence Critique|B2c tooling critique]]
+- [[07 Engineering Notes/Phase 7 B2c-H Hardening Design|B2c-H reviewed implementation design]]
+- [[07 Engineering Notes/Phase 7 B2c-H Hardening Explained|B2c-H plain-language explanation]]
+- [[07 Engineering Notes/Phase 7 B2c-H Hardening Critique|B2c-H design critique and debt register]]
 - [[07 Engineering Notes/Phase 7 Segment-Aware Features|B2b-1 implementation and operator guide]]
 - [[07 Engineering Notes/Phase 7 Segment-Aware Features Explained|B2b-1 plain-language walkthrough]]
 - [[07 Engineering Notes/Phase 7 Segment-Aware Features Critique|B2b-1 severity-ranked critique]]

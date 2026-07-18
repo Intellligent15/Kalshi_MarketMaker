@@ -168,3 +168,10 @@ sampler validity, and credential-scan binding first. B2c-P must then separately 
 the actual candidate snapshot, activity field, three distinct-series markets, opening/closing
 acquisition plan, reviewer, durable storage ownership, capture window, and operator. B3 remains
 blocked until applicable retained-evidence gates actually close.
+
+The B2c-H design packet is recorded in the hardening design, explanation, and critique and awaits
+approval.
+That documentation fixes the intended process state machine, additive schema boundary, independent
+inventory and lineage reconstruction, role matrix, scanner contract, and acceptance gates. It does
+not implement or close B2c-H; implementation remains the next bounded package and still requires
+explicit approval.

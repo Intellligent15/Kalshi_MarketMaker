@@ -197,3 +197,8 @@ B2B2-05/06 remain open or measurement-pending. The deeper review found that wrap
 does not yet guarantee child-process teardown and that lineage/repetition claims are not fully
 reconstructed from mounted bytes. B2c-H hardening is next; the separately approved B2c-P selection,
 product-evidence, durable-storage, and capture-execution gate follows it.
+
+The proposed B2c-H design is now recorded separately with a plain-language explanation and a
+severity-ranked critique. It fixes the proposed lifecycle, evidence, schema, storage, sampler, and
+credential boundaries without claiming implementation. B2c-H code and acceptance tests remain the
+next work; no product evidence or observed capture is authorized by those design documents.
