@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.historical.feature_manifest.v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "feature_version", "input", "ordering", "truth", "completeness", "limitations", "feature_definitions", "products", "output"],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "watermarkOrNull": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["raw_ingress_ordinal", "normalization_ordinal"],
+          "properties": {
+            "raw_ingress_ordinal": {"type": "integer", "minimum": 1},
+            "normalization_ordinal": {"type": "integer", "minimum": 1}
+          }
+        }
+      ]
+    }
+  },
+  "properties": {
+    "schema": {"const": "pmm.historical.feature_manifest.v3"},
+    "feature_version": {"const": "observed-l2-per-market-segment.v2"},
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normalization_schema", "normalization_manifest_sha256", "records_sha256", "source_scopes_sha256", "product_map_sha256", "capture_identity", "completeness", "market_tickers"],
+      "properties": {
+        "normalization_schema": {"const": "pmm.historical.normalization_manifest.v3"},
+        "normalization_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "records_sha256": {"$ref": "#/$defs/sha256"},
+        "source_scopes_sha256": {"$ref": "#/$defs/sha256"},
+        "product_map_sha256": {"$ref": "#/$defs/sha256"},
+        "capture_identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["frames_sha256", "metadata_sha256"],
+          "properties": {
+            "frames_sha256": {"$ref": "#/$defs/sha256"},
+            "metadata_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "completeness": {"const": "complete_observed_interval"},
+        "market_tickers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "product_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "conversion_policy_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "allOf": [
+        {
+          "if": {"anyOf": [{"required": ["product_catalog_sha256"]}, {"required": ["conversion_policy_sha256"]}]},
+          "then": {"required": ["product_catalog_sha256", "conversion_policy_sha256"]}
+        }
+      ]
+    },
+    "ordering": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output"],
+      "properties": {
+        "input": {"const": "normalization_ordinal_ascending"},
+        "output": {"const": ["normalization_ordinal", "ticker"]}
+      }
+    },
+    "truth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["truth_category", "input_truth_category", "source_fidelity"],
+      "properties": {
+        "truth_category": {"enum": ["Reconstructed", "Synthetic"]},
+        "input_truth_category": {"enum": ["Observed", "Synthetic"]},
+        "source_fidelity": {"const": "level_2"}
+      }
+    },
+    "completeness": {"const": "complete_observed_interval"},
+    "limitations": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "feature_definitions": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "unit", "formula", "lookback", "warmup", "nullable"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "unit": {"enum": ["dollars", "contracts", "ratio"]},
+          "formula": {"type": "string", "minLength": 1},
+          "lookback": {"enum": ["current_projected_segment_state", "last_observed_trade_in_current_segment"]},
+          "warmup": {"const": "observed_snapshot_required"},
+          "nullable": {"const": true}
+        }
+      }
+    },
+    "products": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["product_identity", "input_product_entry_sha256", "segments", "row_count", "first_product_applied_watermark", "last_product_applied_watermark"],
+        "properties": {
+          "product_identity": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ticker", "venue_market_id", "venue_market_id_authority", "source_fidelity"],
+            "properties": {
+              "ticker": {"type": "string", "minLength": 1},
+              "venue_market_id": {"type": "string", "minLength": 1},
+              "venue_market_id_authority": {"const": "capture_only_not_in_terms_source"},
+              "source_fidelity": {"const": "level_2"},
+              "authoritative_identity": {"type": "object"},
+              "product_terms_sha256": {"$ref": "#/$defs/sha256"},
+              "source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+              "review_sha256": {"$ref": "#/$defs/sha256"},
+              "conversion_policy_sha256": {"$ref": "#/$defs/sha256"}
+            },
+            "allOf": [
+              {
+                "if": {"anyOf": [{"required": ["authoritative_identity"]}, {"required": ["product_terms_sha256"]}, {"required": ["source_manifest_sha256"]}, {"required": ["review_sha256"]}, {"required": ["conversion_policy_sha256"]}]},
+                "then": {"required": ["authoritative_identity", "product_terms_sha256", "source_manifest_sha256", "review_sha256", "conversion_policy_sha256"]}
+              }
+            ]
+          },
+          "input_product_entry_sha256": {"$ref": "#/$defs/sha256"},
+          "segments": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "row_count": {"type": "integer", "minimum": 0},
+          "first_product_applied_watermark": {"$ref": "#/$defs/watermarkOrNull"},
+          "last_product_applied_watermark": {"$ref": "#/$defs/watermarkOrNull"},
+          "reviewed_lineage": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ticker", "product_terms_sha256", "source_manifest_sha256", "review_sha256", "conversion_policy_sha256"],
+            "properties": {
+              "ticker": {"type": "string", "minLength": 1},
+              "product_terms_sha256": {"$ref": "#/$defs/sha256"},
+              "source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+              "review_sha256": {"$ref": "#/$defs/sha256"},
+              "conversion_policy_sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["feature_rows_sha256", "feature_row_count"],
+      "properties": {
+        "feature_rows_sha256": {"$ref": "#/$defs/sha256"},
+        "feature_row_count": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

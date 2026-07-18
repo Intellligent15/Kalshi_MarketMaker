@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pmm.historical.feature_row.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "feature_version", "product_identity", "segment_identity", "as_of", "trigger", "truth", "completeness", "limitations", "lineage", "values"],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "watermark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw_ingress_ordinal", "normalization_ordinal"],
+      "properties": {
+        "raw_ingress_ordinal": {"type": "integer", "minimum": 1},
+        "normalization_ordinal": {"type": "integer", "minimum": 1}
+      }
+    },
+    "decimalOrNull": {"type": ["string", "null"], "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$"}
+  },
+  "properties": {
+    "schema": {"const": "pmm.historical.feature_row.v2"},
+    "feature_version": {"const": "observed-l2-per-market-segment.v2"},
+    "product_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["venue", "environment", "ticker", "venue_market_id", "venue_market_id_authority", "input_product_entry_sha256"],
+      "properties": {
+        "venue": {"const": "kalshi"},
+        "environment": {"const": "production"},
+        "ticker": {"type": "string", "minLength": 1},
+        "venue_market_id": {"type": "string", "minLength": 1},
+        "venue_market_id_authority": {"const": "capture_only_not_in_terms_source"},
+        "input_product_entry_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "segment_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["book_segment_id", "start_evidence", "continuity_claim", "snapshot_seed_watermark", "valid_from_watermark"],
+      "properties": {
+        "book_segment_id": {"type": "string", "minLength": 1},
+        "start_evidence": {"enum": ["initial_snapshot", "recovery_snapshot"]},
+        "continuity_claim": {"const": "valid_from_observed_snapshot_only"},
+        "snapshot_seed_watermark": {"$ref": "#/$defs/watermark"},
+        "valid_from_watermark": {"$ref": "#/$defs/watermark"}
+      }
+    },
+    "as_of": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logical_time_utc_ns", "capture_raw_ingress_watermark", "normalization_watermark", "product_applied_watermark"],
+      "properties": {
+        "logical_time_utc_ns": {"type": "integer", "minimum": 0},
+        "capture_raw_ingress_watermark": {"type": "integer", "minimum": 1},
+        "normalization_watermark": {"type": "integer", "minimum": 1},
+        "product_applied_watermark": {"$ref": "#/$defs/watermark"}
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "event_type"],
+      "properties": {
+        "kind": {"const": "market_event"},
+        "event_type": {"enum": ["book_snapshot", "book_delta", "trade"]}
+      }
+    },
+    "truth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["truth_category", "input_truth_category", "source_fidelity", "derivation"],
+      "properties": {
+        "truth_category": {"enum": ["Reconstructed", "Synthetic"]},
+        "input_truth_category": {"enum": ["Observed", "Synthetic"]},
+        "source_fidelity": {"const": "level_2"},
+        "derivation": {"const": "deterministic_from_normalized_market_events"}
+      }
+    },
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "segment"],
+      "properties": {
+        "input": {"const": "complete_observed_interval"},
+        "segment": {"const": "valid_from_observed_snapshot_only"}
+      }
+    },
+    "limitations": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_normalization_manifest_sha256", "input_records_sha256", "input_source_scopes_sha256", "input_product_map_sha256", "input_product_entry_sha256"],
+      "properties": {
+        "input_normalization_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "input_records_sha256": {"$ref": "#/$defs/sha256"},
+        "input_source_scopes_sha256": {"$ref": "#/$defs/sha256"},
+        "input_product_map_sha256": {"$ref": "#/$defs/sha256"},
+        "input_product_entry_sha256": {"$ref": "#/$defs/sha256"},
+        "product_terms_sha256": {"$ref": "#/$defs/sha256"},
+        "source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "review_sha256": {"$ref": "#/$defs/sha256"},
+        "conversion_policy_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "allOf": [
+        {
+          "if": {"anyOf": [{"required": ["product_terms_sha256"]}, {"required": ["source_manifest_sha256"]}, {"required": ["review_sha256"]}, {"required": ["conversion_policy_sha256"]}]},
+          "then": {"required": ["product_terms_sha256", "source_manifest_sha256", "review_sha256", "conversion_policy_sha256"]}
+        }
+      ]
+    },
+    "values": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["best_yes_bid_dollars", "best_yes_ask_dollars", "best_bid_quantity_contracts", "best_ask_quantity_contracts", "midpoint_dollars", "spread_dollars", "top_of_book_imbalance", "last_trade_yes_price_dollars"],
+      "properties": {
+        "best_yes_bid_dollars": {"$ref": "#/$defs/decimalOrNull"},
+        "best_yes_ask_dollars": {"$ref": "#/$defs/decimalOrNull"},
+        "best_bid_quantity_contracts": {"$ref": "#/$defs/decimalOrNull"},
+        "best_ask_quantity_contracts": {"$ref": "#/$defs/decimalOrNull"},
+        "midpoint_dollars": {"$ref": "#/$defs/decimalOrNull"},
+        "spread_dollars": {"$ref": "#/$defs/decimalOrNull"},
+        "top_of_book_imbalance": {"$ref": "#/$defs/decimalOrNull"},
+        "last_trade_yes_price_dollars": {"$ref": "#/$defs/decimalOrNull"}
+      }
+    }
+  }
+}

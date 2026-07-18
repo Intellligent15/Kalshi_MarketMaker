@@ -57,6 +57,9 @@ NORMALIZER_VERSION = "kalshi-l2-normalizer.v1"
 NORMALIZER_V2_VERSION = "kalshi-multi-scope-normalizer.v2"
 FEATURE_SCHEMA = "pmm.historical.feature_row.v1"
 FEATURE_VERSION = "observed-l2-top-of-book.v1"
+FEATURE_ROW_V2_SCHEMA = "pmm.historical.feature_row.v2"
+FEATURE_MANIFEST_V3_SCHEMA = "pmm.historical.feature_manifest.v3"
+FEATURE_V2_VERSION = "observed-l2-per-market-segment.v2"
 BACKTEST_SCHEMA = "pmm.backtest.v1"
 BACKTEST_V2_SCHEMA = "pmm.backtest.v2"
 BACKTEST_V3_SCHEMA = "pmm.backtest.v3"
@@ -1329,6 +1332,411 @@ class ObservedMarketCursor:
         return cls(projection=ObservedMarketProjection.restore(checkpoint))
 
 
+@dataclass(frozen=True)
+class CausalWatermark:
+    raw_ingress_ordinal: int
+    normalization_ordinal: int
+
+    def document(self) -> dict[str, int]:
+        return {
+            "raw_ingress_ordinal": self.raw_ingress_ordinal,
+            "normalization_ordinal": self.normalization_ordinal,
+        }
+
+
+@dataclass
+class SegmentAwareProductCursor:
+    """One product-owned projection whose mutable book never crosses a segment."""
+
+    ticker: str
+    venue_market_id: str
+    state: str = "awaiting_initial_snapshot"
+    segment_id: str | None = None
+    segment_start_evidence: str | None = None
+    projection: ObservedMarketProjection = field(default_factory=ObservedMarketProjection)
+    product_applied_watermark: CausalWatermark | None = None
+    snapshot_seed_watermark: CausalWatermark | None = None
+    valid_from_watermark: CausalWatermark | None = None
+    invalidated_by_watermark: CausalWatermark | None = None
+    pending_boundary: dict[str, Any] | None = None
+    seen_segments: set[str] = field(default_factory=set)
+
+    @staticmethod
+    def _watermark(record: dict[str, Any]) -> CausalWatermark:
+        return CausalWatermark(
+            int_value(record.get("raw_ingress_ordinal"), "raw_ingress_ordinal"),
+            int_value(record.get("normalization_ordinal"), "normalization_ordinal"),
+        )
+
+    def start_segment(self, record: dict[str, Any]) -> None:
+        if self.pending_boundary is not None:
+            raise HistoricalDataError("FeatureSegmentInvalid", f"{self.ticker} has an unmatched segment boundary")
+        segment_id = record.get("book_segment_id")
+        evidence = record.get("start_evidence")
+        expected_evidence = (
+            "initial_snapshot" if self.state == "awaiting_initial_snapshot" else "recovery_snapshot"
+        )
+        if (
+            not isinstance(segment_id, str)
+            or not segment_id
+            or segment_id in self.seen_segments
+            or record.get("ticker") != self.ticker
+            or evidence != expected_evidence
+            or record.get("continuity_claim") != "valid_from_observed_snapshot_only"
+        ):
+            raise HistoricalDataError("FeatureSegmentInvalid", f"invalid segment boundary for {self.ticker}")
+        self.pending_boundary = dict(record)
+        self.product_applied_watermark = self._watermark(record)
+
+    def invalidate(self, record: dict[str, Any]) -> None:
+        self.product_applied_watermark = self._watermark(record)
+        self.invalidated_by_watermark = self.product_applied_watermark
+        self.state = (
+            "invalid_awaiting_recovery"
+            if self.segment_id is not None or self.state == "valid"
+            else "awaiting_initial_snapshot"
+        )
+        self.segment_id = None
+        self.segment_start_evidence = None
+        self.snapshot_seed_watermark = None
+        self.valid_from_watermark = None
+        self.pending_boundary = None
+        self.projection = ObservedMarketProjection()
+
+    def apply_market_event(self, record: dict[str, Any]) -> bool:
+        if record.get("ticker") != self.ticker or record.get("venue_market_id") != self.venue_market_id:
+            raise HistoricalDataError("FeatureProductIdentityMismatch", f"market event identity changed for {self.ticker}")
+        event_type = record.get("event_type")
+        watermark = self._watermark(record)
+        if event_type == "book_snapshot":
+            boundary = self.pending_boundary
+            if boundary is None:
+                raise HistoricalDataError("FeatureSegmentInvalid", f"snapshot for {self.ticker} has no segment boundary")
+            if any(
+                record.get(field) != boundary.get(field)
+                for field in ("ticker", "book_segment_id", "source_scope_id", "raw_ingress_ordinal")
+            ) or record.get("book_state_valid") is not True:
+                raise HistoricalDataError("FeatureSegmentInvalid", f"snapshot does not match boundary for {self.ticker}")
+            self.projection = ObservedMarketProjection()
+            legacy_event = dict(record)
+            legacy_event["ingress_order"] = 1
+            self.projection.apply(legacy_event)
+            self.segment_id = str(record["book_segment_id"])
+            self.segment_start_evidence = str(boundary["start_evidence"])
+            self.seen_segments.add(self.segment_id)
+            self.snapshot_seed_watermark = self._watermark(boundary)
+            self.valid_from_watermark = watermark
+            self.product_applied_watermark = watermark
+            self.pending_boundary = None
+            self.state = "valid"
+            return True
+        if self.pending_boundary is not None:
+            raise HistoricalDataError("FeatureSegmentInvalid", f"segment boundary for {self.ticker} is not followed by its snapshot")
+        if event_type == "trade" and self.state != "valid":
+            self.product_applied_watermark = watermark
+            return False
+        if (
+            self.state != "valid"
+            or record.get("book_state_valid") is not True
+            or record.get("book_segment_id") != self.segment_id
+        ):
+            raise HistoricalDataError("FeatureBookStateInvalid", f"{event_type} cannot apply to {self.ticker}")
+        legacy_event = dict(record)
+        legacy_event["ingress_order"] = self.projection.last_ingress_order + 1
+        try:
+            self.projection.apply(legacy_event)
+        except ValueError as error:
+            raise HistoricalDataError("FeatureProjectionInvalid", str(error)) from error
+        self.product_applied_watermark = watermark
+        return True
+
+
+def _feature_v3_definitions() -> list[dict[str, Any]]:
+    definitions = [
+        ("best_yes_bid_dollars", "dollars", "maximum displayed YES bid", "current_projected_segment_state"),
+        ("best_yes_ask_dollars", "dollars", "minimum displayed YES ask", "current_projected_segment_state"),
+        ("best_bid_quantity_contracts", "contracts", "displayed quantity at best YES bid", "current_projected_segment_state"),
+        ("best_ask_quantity_contracts", "contracts", "displayed quantity at best YES ask", "current_projected_segment_state"),
+        ("midpoint_dollars", "dollars", "(best_yes_bid + best_yes_ask) / 2", "current_projected_segment_state"),
+        ("spread_dollars", "dollars", "best_yes_ask - best_yes_bid", "current_projected_segment_state"),
+        ("top_of_book_imbalance", "ratio", "(bid_quantity - ask_quantity) / (bid_quantity + ask_quantity)", "current_projected_segment_state"),
+        ("last_trade_yes_price_dollars", "dollars", "last observed YES trade price in current segment", "last_observed_trade_in_current_segment"),
+    ]
+    return [
+        {
+            "name": name,
+            "unit": unit,
+            "formula": formula,
+            "lookback": lookback,
+            "warmup": "observed_snapshot_required",
+            "nullable": True,
+        }
+        for name, unit, formula, lookback in definitions
+    ]
+
+
+def _feature_v3_limitations(normalization_limitations: Any) -> list[str]:
+    limitations = list(normalization_limitations) if isinstance(normalization_limitations, list) else []
+    limitations.extend(
+        [
+            "Level-2 state does not identify queue position, individual orders, cancellations, or hidden liquidity.",
+            "A segment is valid only from its observed snapshot; a later segment never recovers a missing interval.",
+            "Feature rows contain one product only and make no cross-market causality claim.",
+        ]
+    )
+    return sorted(set(str(item) for item in limitations))
+
+
+def materialize_features_v3(input_dir: Path, output_dir: Path) -> dict[str, Any]:
+    input_dir = input_dir.resolve()
+    manifest_path = input_dir / "manifest.json"
+    records_path = input_dir / "records.jsonl"
+    scopes_path = input_dir / "source_scopes.json"
+    product_path = input_dir / "product.json"
+    if not all(path.is_file() for path in (manifest_path, records_path, scopes_path, product_path)):
+        raise HistoricalDataError("FeatureInputMissing", "input must contain V3 manifest, records, scopes, and product map")
+    normalized = read_json(manifest_path)
+    if normalized.get("schema") != NORMALIZATION_MANIFEST_V3_SCHEMA:
+        raise HistoricalDataError("FeatureInputSchemaMismatch", "features-v3 requires normalization manifest V3")
+    validate_historical_schema(normalized, "normalization-manifest-v3.schema.json", "FeatureInputSchemaMismatch")
+    if normalized.get("completeness") != "complete_observed_interval":
+        raise HistoricalDataError("FeatureInputContinuityRequired", "features-v3 accepts only complete_observed_interval input")
+    expected_hashes = {
+        records_path: normalized.get("output_records_sha256"),
+        scopes_path: normalized.get("output_source_scopes_sha256"),
+        product_path: normalized.get("output_product_sha256"),
+    }
+    if any(expected != sha256_file(path) for path, expected in expected_hashes.items()):
+        raise HistoricalDataError("FeatureInputHashMismatch", "normalization V3 input hash is stale")
+    scopes = read_json(scopes_path)
+    product_map = read_json(product_path)
+    validate_historical_schema(scopes, "source-scope-map-v1.schema.json", "FeatureInputSchemaMismatch")
+    validate_historical_schema(product_map, "product-map-v3.schema.json", "FeatureInputSchemaMismatch")
+    products_value = product_map.get("products")
+    if not isinstance(products_value, list):
+        raise HistoricalDataError("FeatureProductIdentityMismatch", "product map has no products")
+    products = {str(item.get("ticker")): item for item in products_value if isinstance(item, dict)}
+    tickers = normalized.get("market_tickers")
+    if not isinstance(tickers, list) or list(products) != tickers:
+        raise HistoricalDataError("FeatureProductIdentityMismatch", "product map order differs from manifest")
+    lineage_by_ticker = {
+        str(item.get("ticker")): item
+        for item in normalized.get("product_lineage", [])
+        if isinstance(item, dict)
+    }
+    conversion_hash = normalized.get("conversion_policy_sha256")
+    for ticker, reviewed in lineage_by_ticker.items():
+        entry = products.get(ticker)
+        if entry is None or conversion_hash is None or any(
+            entry.get(field) != reviewed.get(field)
+            for field in ("product_terms_sha256", "source_manifest_sha256", "review_sha256")
+        ) or entry.get("conversion_policy_sha256") != conversion_hash:
+            raise HistoricalDataError(
+                "FeatureProductLineageMismatch", f"reviewed lineage is inconsistent for {ticker}"
+            )
+    limitations = _feature_v3_limitations(normalized.get("limitations"))
+
+    output_dir = ensure_new_output(output_dir)
+    temporary = output_dir.with_name(f"{output_dir.name}.partial")
+    if temporary.exists():
+        raise HistoricalDataError("PartialOutputExists", f"temporary feature output already exists: {temporary}")
+    temporary.mkdir(parents=True)
+    features_path = temporary / "features.jsonl"
+    cursors = {
+        ticker: SegmentAwareProductCursor(ticker, str(products[ticker].get("venue_market_id")))
+        for ticker in tickers
+    }
+    product_rows: Counter[str] = Counter()
+    product_segments: dict[str, list[str]] = {ticker: [] for ticker in tickers}
+    first_watermarks: dict[str, dict[str, int]] = {}
+    last_watermarks: dict[str, dict[str, int]] = {}
+    last_normalization_ordinal = 0
+    last_raw_ordinal = 0
+    feature_count = 0
+    try:
+        with features_path.open("x", encoding="utf-8") as destination:
+            for record in iter_jsonl(records_path):
+                if record.get("schema") != NORMALIZED_RECORD_V2_SCHEMA:
+                    raise HistoricalDataError("FeatureRecordSchemaMismatch", "records input is not normalized record V2")
+                validate_historical_schema(record, "normalized-record-v2.schema.json", "FeatureRecordSchemaMismatch")
+                normalization_ordinal = int_value(record.get("normalization_ordinal"), "normalization_ordinal")
+                raw_ordinal = int_value(record.get("raw_ingress_ordinal"), "raw_ingress_ordinal")
+                if normalization_ordinal != last_normalization_ordinal + 1 or raw_ordinal < last_raw_ordinal:
+                    raise HistoricalDataError("FeatureOrderingInvalid", "normalized records are not in canonical order")
+                last_normalization_ordinal = normalization_ordinal
+                last_raw_ordinal = raw_ordinal
+                kind = record.get("kind")
+                pending = [cursor for cursor in cursors.values() if cursor.pending_boundary is not None]
+                if pending:
+                    if len(pending) != 1:
+                        raise HistoricalDataError("FeatureSegmentInvalid", "multiple segment boundaries are pending")
+                    boundary = pending[0].pending_boundary
+                    if not (
+                        kind == "market_event"
+                        and record.get("event_type") == "book_snapshot"
+                        and record.get("ticker") == boundary.get("ticker")
+                        and record.get("book_segment_id") == boundary.get("book_segment_id")
+                        and record.get("source_scope_id") == boundary.get("source_scope_id")
+                        and raw_ordinal == boundary.get("raw_ingress_ordinal")
+                    ):
+                        raise HistoricalDataError(
+                            "FeatureSegmentInvalid", "segment boundary is not immediately followed by its snapshot"
+                        )
+                if kind == "segment_boundary":
+                    ticker = str(record.get("ticker"))
+                    if ticker not in cursors:
+                        raise HistoricalDataError("FeatureProductIdentityMismatch", "segment names an unknown product")
+                    cursors[ticker].start_segment(record)
+                    continue
+                if kind == "discontinuity":
+                    affected = (
+                        record.get("details", {}).get("affected_market_tickers")
+                        if record.get("control_type") == "sequence_gap"
+                        else [record.get("ticker")]
+                    )
+                    if not isinstance(affected, list) or any(ticker not in cursors for ticker in affected):
+                        raise HistoricalDataError("FeatureDiscontinuityInvalid", "discontinuity has invalid affected products")
+                    for ticker in affected:
+                        cursors[str(ticker)].invalidate(record)
+                    raise HistoricalDataError("FeatureInputContinuityRequired", "complete feature input contains a discontinuity")
+                ticker = str(record.get("ticker"))
+                if ticker not in cursors:
+                    raise HistoricalDataError("FeatureProductIdentityMismatch", "market event names an unknown product")
+                cursor = cursors[ticker]
+                if not cursor.apply_market_event(record):
+                    continue
+                assert cursor.segment_id is not None
+                assert cursor.product_applied_watermark is not None
+                assert cursor.snapshot_seed_watermark is not None
+                assert cursor.valid_from_watermark is not None
+                if cursor.segment_id not in product_segments[ticker]:
+                    product_segments[ticker].append(cursor.segment_id)
+                product_entry_hash = hashlib.sha256(canonical_json(products[ticker]).encode()).hexdigest()
+                lineage = {
+                    "input_normalization_manifest_sha256": sha256_file(manifest_path),
+                    "input_records_sha256": sha256_file(records_path),
+                    "input_source_scopes_sha256": sha256_file(scopes_path),
+                    "input_product_map_sha256": sha256_file(product_path),
+                    "input_product_entry_sha256": product_entry_hash,
+                }
+                reviewed = lineage_by_ticker.get(ticker)
+                if reviewed is not None:
+                    lineage.update(
+                        {
+                            "product_terms_sha256": reviewed.get("product_terms_sha256"),
+                            "source_manifest_sha256": reviewed.get("source_manifest_sha256"),
+                            "review_sha256": reviewed.get("review_sha256"),
+                            "conversion_policy_sha256": conversion_hash,
+                        }
+                    )
+                row = {
+                    "schema": FEATURE_ROW_V2_SCHEMA,
+                    "feature_version": FEATURE_V2_VERSION,
+                    "product_identity": {
+                        "venue": product_map.get("venue"),
+                        "environment": product_map.get("environment"),
+                        "ticker": ticker,
+                        "venue_market_id": products[ticker].get("venue_market_id"),
+                        "venue_market_id_authority": products[ticker].get("venue_market_id_authority"),
+                        "input_product_entry_sha256": product_entry_hash,
+                    },
+                    "segment_identity": {
+                        "book_segment_id": cursor.segment_id,
+                        "start_evidence": cursor.segment_start_evidence,
+                        "continuity_claim": "valid_from_observed_snapshot_only",
+                        "snapshot_seed_watermark": cursor.snapshot_seed_watermark.document(),
+                        "valid_from_watermark": cursor.valid_from_watermark.document(),
+                    },
+                    "as_of": {
+                        "logical_time_utc_ns": int_value(record.get("logical_time_utc_ns"), "logical_time_utc_ns"),
+                        "capture_raw_ingress_watermark": raw_ordinal,
+                        "normalization_watermark": normalization_ordinal,
+                        "product_applied_watermark": cursor.product_applied_watermark.document(),
+                    },
+                    "trigger": {"kind": "market_event", "event_type": record.get("event_type")},
+                    "truth": {
+                        "truth_category": "Synthetic" if normalized.get("truth_category") == "Synthetic" else "Reconstructed",
+                        "input_truth_category": normalized.get("truth_category"),
+                        "source_fidelity": "level_2",
+                        "derivation": "deterministic_from_normalized_market_events",
+                    },
+                    "completeness": {
+                        "input": "complete_observed_interval",
+                        "segment": "valid_from_observed_snapshot_only",
+                    },
+                    "limitations": limitations,
+                    "lineage": lineage,
+                    "values": cursor.projection.feature_values(),
+                }
+                validate_historical_schema(row, "feature-row-v2.schema.json", "FeatureRowSchemaMismatch")
+                destination.write(canonical_json(row) + "\n")
+                feature_count += 1
+                product_rows[ticker] += 1
+                first_watermarks.setdefault(ticker, cursor.product_applied_watermark.document())
+                last_watermarks[ticker] = cursor.product_applied_watermark.document()
+        if any(cursor.pending_boundary is not None for cursor in cursors.values()):
+            raise HistoricalDataError("FeatureSegmentInvalid", "input ends with an unmatched segment boundary")
+        manifest_products = []
+        for ticker in tickers:
+            entry = products[ticker]
+            item = {
+                "product_identity": entry,
+                "input_product_entry_sha256": hashlib.sha256(canonical_json(entry).encode()).hexdigest(),
+                "segments": product_segments[ticker],
+                "row_count": product_rows[ticker],
+                "first_product_applied_watermark": first_watermarks.get(ticker),
+                "last_product_applied_watermark": last_watermarks.get(ticker),
+            }
+            reviewed = lineage_by_ticker.get(ticker)
+            if reviewed is not None:
+                item["reviewed_lineage"] = {**reviewed, "conversion_policy_sha256": conversion_hash}
+            manifest_products.append(item)
+        manifest = {
+            "schema": FEATURE_MANIFEST_V3_SCHEMA,
+            "feature_version": FEATURE_V2_VERSION,
+            "input": {
+                "normalization_schema": NORMALIZATION_MANIFEST_V3_SCHEMA,
+                "normalization_manifest_sha256": sha256_file(manifest_path),
+                "records_sha256": sha256_file(records_path),
+                "source_scopes_sha256": sha256_file(scopes_path),
+                "product_map_sha256": sha256_file(product_path),
+                "capture_identity": {
+                    "frames_sha256": normalized.get("input_frames_sha256"),
+                    "metadata_sha256": normalized.get("input_capture_metadata_sha256"),
+                },
+                "completeness": "complete_observed_interval",
+                "market_tickers": tickers,
+            },
+            "ordering": {
+                "input": "normalization_ordinal_ascending",
+                "output": ["normalization_ordinal", "ticker"],
+            },
+            "truth": {
+                "truth_category": "Synthetic" if normalized.get("truth_category") == "Synthetic" else "Reconstructed",
+                "input_truth_category": normalized.get("truth_category"),
+                "source_fidelity": "level_2",
+            },
+            "completeness": "complete_observed_interval",
+            "limitations": limitations,
+            "feature_definitions": _feature_v3_definitions(),
+            "products": manifest_products,
+            "output": {
+                "feature_rows_sha256": sha256_file(features_path),
+                "feature_row_count": feature_count,
+            },
+        }
+        if normalized.get("product_catalog_sha256") is not None:
+            manifest["input"]["product_catalog_sha256"] = normalized["product_catalog_sha256"]
+            manifest["input"]["conversion_policy_sha256"] = conversion_hash
+        validate_historical_schema(manifest, "feature-manifest-v3.schema.json", "FeatureManifestSchemaMismatch")
+        write_json(temporary / "manifest.json", manifest)
+        temporary.rename(output_dir)
+        return manifest
+    except BaseException:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
+
+
 def materialize_features(input_dir: Path, output_dir: Path) -> dict[str, Any]:
     input_dir = input_dir.resolve()
     events_path = input_dir / "events.jsonl"
@@ -2187,6 +2595,11 @@ def build_parser() -> argparse.ArgumentParser:
     features = commands.add_parser("features", help="Materialize causal observed-L2 feature rows.")
     features.add_argument("--input", required=True, type=Path)
     features.add_argument("--output", required=True, type=Path)
+    features_v3 = commands.add_parser(
+        "features-v3", help="Materialize segment-aware per-market features from normalization V3."
+    )
+    features_v3.add_argument("--input", required=True, type=Path)
+    features_v3.add_argument("--output", required=True, type=Path)
     backtest = commands.add_parser("backtest", help="Run an explicit deterministic research backtest.")
     backtest.add_argument("--config", required=True, type=Path)
     backtest.add_argument("--output", required=True, type=Path)
@@ -2232,6 +2645,16 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "features":
             result = materialize_features(args.input, args.output)
+        elif args.command == "features-v3":
+            try:
+                result = materialize_features_v3(args.input, args.output)
+            except (HistoricalDataError, ValueError, ProductTermsError, KeyboardInterrupt):
+                raise
+            except Exception as error:
+                print(
+                    f"programming failure: {type(error).__name__}: {error}", file=sys.stderr
+                )
+                return 1
         elif args.command == "verify-lineage":
             result = verify_lineage(args.config, args.result)
         else:
