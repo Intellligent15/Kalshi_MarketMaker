@@ -27,6 +27,9 @@ complete, this current-state document wins; the older note remains useful histor
 | B2c tooling status | Implemented offline; deeper review found operator-readiness hardening blockers |
 | B2c retained evidence status | Not acquired; B2A-10/11 and B2B2-05/06 remain open or measurement-pending |
 | B2c tooling implementation and test commits | `e6a211b` and `4f77020` |
+| B2c deeper review commit | `bdb5ea1` |
+| Graphify workflow integration commit | `39b57c0` |
+| Baseline before B2c-H handoff | `39b57c0`; clean `main`; six commits ahead of `origin/main` |
 | B2b-2 implementation status | Complete |
 | Last completed package | B2c offline evidence and measurement tooling implementation |
 | B2b-2 implementation and test commits | `a0faa89` and `77cf533` |
@@ -1409,6 +1412,11 @@ bounded implementation design for approval. No schema, code, test, retained arti
 output, or live/external state should change before that approval. Graphify may accelerate
 navigation, but its current health warnings require every material edge to be checked against source
 and accepted ADRs.
+
+The handoff baseline is `39b57c0`. The local Graphify index was generated before that workflow
+commit and therefore needs one incremental `$graphify . --update` in a Graphify-enabled chat before
+the next agent treats it as current. That refresh is local generated state, not a repository change
+or design approval.
 
 After B2c-H closes, **B2c-P contemporaneous product evidence and capture execution** becomes next.
 Its first turn must remain an approval packet, not an acquisition: pin one candidate-selection
