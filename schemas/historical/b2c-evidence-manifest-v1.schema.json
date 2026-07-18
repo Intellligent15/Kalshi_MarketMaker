@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "payload", "payload_sha256"],
+  "properties": {
+    "schema": {"const": "pmm.phase7.b2c_evidence_manifest.v1"},
+    "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id", "capture_spec", "capture_outcome", "market_tickers",
+        "retention", "product_lineage", "members", "lineage_edges",
+        "repetitions", "credential_scan"
+      ],
+      "properties": {
+        "evidence_id": {"type": "string", "minLength": 1},
+        "capture_spec": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["policy_sha256", "started_at_utc", "ended_at_utc", "duration_seconds", "market_count", "raw_budget_bytes", "total_budget_bytes"],
+          "properties": {
+            "policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "started_at_utc": {"type": "string", "format": "date-time"},
+            "ended_at_utc": {"type": "string", "format": "date-time"},
+            "duration_seconds": {"const": 43200},
+            "market_count": {"const": 3},
+            "raw_budget_bytes": {"const": 1073741824},
+            "total_budget_bytes": {"const": 5368709120}
+          }
+        },
+        "capture_outcome": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["exit_code", "shutdown_status", "capture_continuity", "data_usability", "furthest_eligible_stage"],
+          "properties": {
+            "exit_code": {"enum": [0, 1, 2, 130]},
+            "shutdown_status": {"enum": ["completed", "interrupted", "failed"]},
+            "capture_continuity": {"enum": ["continuous_within_recorded_mechanical_scopes", "observed_discontinuous", "incomplete"]},
+            "data_usability": {"enum": ["strict_eligible", "record_only", "unusable"]},
+            "furthest_eligible_stage": {"enum": ["raw", "normalization_record_only", "normalization_v3", "features_v3", "backtest_v4"]}
+          }
+        },
+        "market_tickers": {
+          "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "retention": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["owner", "durable_location", "large_bytes_in_git"],
+          "properties": {
+            "owner": {"type": "string", "minLength": 1},
+            "durable_location": {"type": "string", "minLength": 1},
+            "large_bytes_in_git": {"const": false}
+          }
+        },
+        "product_lineage": {
+          "type": "array", "minItems": 3, "maxItems": 3,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["ticker", "status"],
+            "properties": {
+              "ticker": {"type": "string", "minLength": 1},
+              "status": {"enum": ["reviewed", "unavailable"]},
+              "reason": {"type": "string", "minLength": 1},
+              "effective_from_utc": {"type": "string", "format": "date-time"},
+              "effective_until_utc": {"type": "string", "format": "date-time"},
+              "product_terms_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "source_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "review_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "conversion_policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            },
+            "allOf": [
+              {
+                "if": {"properties": {"status": {"const": "reviewed"}}},
+                "then": {"required": ["effective_from_utc", "effective_until_utc", "product_terms_sha256", "source_manifest_sha256", "review_sha256", "conversion_policy_sha256"]},
+                "else": {"required": ["reason"]}
+              }
+            ]
+          }
+        },
+        "members": {
+          "type": "array", "minItems": 2,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["role", "path", "retention_class", "byte_length", "sha256"],
+            "properties": {
+              "role": {"type": "string", "pattern": "^[a-z0-9_-]+$"},
+              "path": {"type": "string", "minLength": 1},
+              "retention_class": {"enum": ["git", "external"]},
+              "schema": {"type": ["string", "null"]},
+              "byte_length": {"type": "integer", "minimum": 0},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "record_count": {"type": "integer", "minimum": 0},
+              "contract_id": {"type": "integer", "minimum": 1}
+            }
+          }
+        },
+        "lineage_edges": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["from_role", "to_role"],
+            "properties": {
+              "from_role": {"type": "string", "minLength": 1},
+              "to_role": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "repetitions": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["stage", "first_inventory_sha256", "second_inventory_sha256", "byte_identical"],
+            "properties": {
+              "stage": {"enum": ["normalization_v3", "features_v3", "backtest_v4"]},
+              "first_inventory_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "second_inventory_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "byte_identical": {"type": "boolean"}
+            }
+          }
+        },
+        "credential_scan": {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "scanner_version"],
+          "properties": {
+            "status": {"const": "passed"},
+            "scanner_version": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    }
+  }
+}

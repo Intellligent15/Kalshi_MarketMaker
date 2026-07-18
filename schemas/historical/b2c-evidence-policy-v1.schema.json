@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "capture", "selection", "outcomes", "retention"],
+  "properties": {
+    "schema": {"const": "pmm.phase7.b2c_evidence_policy.v1"},
+    "capture": {
+      "type": "object", "additionalProperties": false,
+      "required": ["duration_seconds", "market_count", "connection_strategy", "attempts_after_first_raw_record", "closing_acquisition_margin_seconds", "minimum_free_bytes", "raw_budget_bytes", "total_budget_bytes"],
+      "properties": {
+        "duration_seconds": {"const": 43200},
+        "market_count": {"const": 3},
+        "connection_strategy": {"const": "single_connection_v1"},
+        "attempts_after_first_raw_record": {"const": 1},
+        "closing_acquisition_margin_seconds": {"const": 1800},
+        "minimum_free_bytes": {"const": 10737418240},
+        "raw_budget_bytes": {"const": 1073741824},
+        "total_budget_bytes": {"const": 5368709120}
+      }
+    },
+    "selection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["environment", "contract_kind", "distinct_series_required", "activity_order", "tie_breaker", "metric_must_be_pinned_by_b2c_p", "fallback_selection_allowed", "substitution_after_opening_allowed"],
+      "properties": {
+        "environment": {"const": "production"},
+        "contract_kind": {"const": "binary"},
+        "distinct_series_required": {"const": true},
+        "activity_order": {"const": "descending"},
+        "tie_breaker": {"const": "market_ticker_ascending"},
+        "metric_must_be_pinned_by_b2c_p": {"const": true},
+        "fallback_selection_allowed": {"const": false},
+        "substitution_after_opening_allowed": {"const": false}
+      }
+    },
+    "outcomes": {
+      "type": "object", "additionalProperties": false,
+      "required": ["natural_reconnect_required", "manufactured_reconnect_allowed", "recapture_for_preferred_outcome_allowed", "later_snapshot_recovers_missing_history", "retain_finalized_non_strict_raw_evidence"],
+      "properties": {
+        "natural_reconnect_required": {"const": false},
+        "manufactured_reconnect_allowed": {"const": false},
+        "recapture_for_preferred_outcome_allowed": {"const": false},
+        "later_snapshot_recovers_missing_history": {"const": false},
+        "retain_finalized_non_strict_raw_evidence": {"const": true}
+      }
+    },
+    "retention": {
+      "type": "object", "additionalProperties": false,
+      "required": ["large_bytes_in_git", "maximum_git_v4_bundle_bytes", "durable_owner_and_location_required_before_capture"],
+      "properties": {
+        "large_bytes_in_git": {"const": false},
+        "maximum_git_v4_bundle_bytes": {"const": 10485760},
+        "durable_owner_and_location_required_before_capture": {"const": true}
+      }
+    }
+  }
+}

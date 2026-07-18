@@ -17,6 +17,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 from typing import Any, Iterable
 
 from jsonschema import Draft202012Validator
@@ -479,6 +480,7 @@ def normalize_capture_v3(
     continuity_policy: str = "refuse",
     product_catalog: ProductCatalog | None = None,
     conversion_policy: ConversionPolicy | None = None,
+    instrumentation_output: Path | None = None,
 ) -> dict[str, Any]:
     if continuity_policy not in {"refuse", "record"}:
         raise HistoricalDataError(
@@ -561,6 +563,27 @@ def normalize_capture_v3(
     scope_path = temporary / "source_scopes.json"
     product_path = temporary / "product.json"
     manifest_path = temporary / "manifest.json"
+    instrumentation_path = None if instrumentation_output is None else instrumentation_output.resolve()
+    instrumentation_partial = (
+        None
+        if instrumentation_path is None
+        else instrumentation_path.with_name(f"{instrumentation_path.name}.partial")
+    )
+    if instrumentation_path is not None and (
+        instrumentation_path.exists() or (instrumentation_partial is not None and instrumentation_partial.exists())
+    ):
+        raise HistoricalDataError(
+            "InstrumentationOutputExists", f"instrumentation output already exists: {instrumentation_path}"
+        )
+    if instrumentation_path is not None:
+        try:
+            instrumentation_path.relative_to(output_dir)
+        except ValueError:
+            pass
+        else:
+            raise HistoricalDataError(
+                "InstrumentationPathInvalid", "instrumentation output must be outside normalization output"
+            )
 
     next_normalized_ordinal = 1
     last_raw_ordinal = 0
@@ -589,6 +612,9 @@ def normalize_capture_v3(
     late_source_events = 0
     has_discontinuity = False
     incomplete_reasons: list[dict[str, Any]] = []
+    processed_raw_records = 0
+    sequence_payloads_peak = 0
+    sequence_samples: list[dict[str, int]] = []
 
     def write_record(destination: Any, record: dict[str, Any]) -> None:
         nonlocal next_normalized_ordinal
@@ -650,6 +676,7 @@ def normalize_capture_v3(
                     "raw-capture-record-v2.schema.json",
                     "CaptureRecordSchemaMismatch",
                 )
+                processed_raw_records += 1
                 raw_ordinal = int_value(
                     raw_record.get("raw_ingress_ordinal"), "raw_ingress_ordinal"
                 )
@@ -915,6 +942,14 @@ def normalize_capture_v3(
                                 )
                     sequence_previous[sequence_validation_scope] = current_sequence
                     sequence_payloads[duplicate_key] = payload_hash
+                    sequence_payloads_peak = max(sequence_payloads_peak, len(sequence_payloads))
+                    if len(sequence_payloads) & (len(sequence_payloads) - 1) == 0:
+                        sequence_samples.append(
+                            {
+                                "raw_ingress_ordinal": raw_ordinal,
+                                "sequenced_unique_identities": len(sequence_payloads),
+                            }
+                        )
 
                 state = market_state[ticker]
                 if parsed_type == "orderbook_snapshot":
@@ -1172,10 +1207,32 @@ def normalize_capture_v3(
             "NormalizationManifestSchemaMismatch",
         )
         write_json(manifest_path, manifest)
+        if instrumentation_path is not None and instrumentation_partial is not None:
+            instrumentation_path.parent.mkdir(parents=True, exist_ok=True)
+            telemetry = {
+                "schema": "pmm.phase7.b2c_normalization_telemetry.v1",
+                "input_frames_sha256": sha256_file(frames),
+                "input_capture_metadata_sha256": sha256_file(metadata_path),
+                "processed_raw_records": processed_raw_records,
+                "sequenced_unique_identities": len(sequence_payloads),
+                "peak_sequenced_unique_identities": sequence_payloads_peak,
+                "identical_duplicates_skipped": identical_duplicates,
+                "samples": sequence_samples,
+            }
+            validate_historical_schema(
+                telemetry,
+                "b2c-normalization-telemetry-v1.schema.json",
+                "NormalizationTelemetrySchemaMismatch",
+            )
+            write_json(instrumentation_partial, telemetry)
         temporary.rename(output_dir)
+        if instrumentation_path is not None and instrumentation_partial is not None:
+            instrumentation_partial.rename(instrumentation_path)
         return manifest
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
+        if instrumentation_partial is not None:
+            instrumentation_partial.unlink(missing_ok=True)
         raise
 
 
@@ -1878,12 +1935,19 @@ class CxxRiskOracle:
     """Minimal deterministic bridge to the canonical C++ AccountRiskProjection."""
 
     def __init__(self, config: dict[str, Any], *, canonical_trace: bool = False) -> None:
+        self._measurement_started_ns = time.perf_counter_ns()
+        self._commands_sent = 0
+        self._responses_received = 0
+        self._blocking_receive_ns = 0
         self.canonical_trace = canonical_trace
         self.trace: list[dict[str, Any]] = []
+        resolution_started = time.perf_counter_ns()
         executable = self._resolve_executable(config)
+        self._executable_resolution_ns = time.perf_counter_ns() - resolution_started
         risk = config.get("limits")
         if not isinstance(risk, dict):
             raise ValueError("risk.limits is required for cxx_oracle_v1")
+        spawn_started = time.perf_counter_ns()
         self.process = subprocess.Popen(
             [str(executable)], text=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, bufsize=1,
@@ -1910,6 +1974,7 @@ class CxxRiskOracle:
         )
         if self._receive() != "READY":
             raise ValueError("C++ risk oracle did not initialize")
+        self._spawn_to_ready_ns = time.perf_counter_ns() - spawn_started
         self._record("init", {"engine": "cxx_oracle_v2" if canonical_trace else "cxx_oracle_v1"},
                      "ready")
 
@@ -1970,11 +2035,15 @@ class CxxRiskOracle:
             raise ValueError("C++ risk oracle stdin is unavailable")
         self.process.stdin.write(line + "\n")
         self.process.stdin.flush()
+        self._commands_sent += 1
 
     def _receive(self) -> str:
         if self.process.stdout is None:
             raise ValueError("C++ risk oracle stdout is unavailable")
+        started = time.perf_counter_ns()
         line = self.process.stdout.readline().strip()
+        self._blocking_receive_ns += time.perf_counter_ns() - started
+        self._responses_received += 1
         if not line:
             raise ValueError("C++ risk oracle terminated without a response")
         if line.startswith("ERROR "):
@@ -2099,6 +2168,18 @@ class CxxRiskOracle:
             self.process.stderr.close()
         if return_code != 0:
             raise ValueError(f"C++ risk oracle exited with status {return_code}")
+
+    def measurement_summary(self) -> dict[str, int]:
+        """Return non-deterministic B2c telemetry without changing canonical trace bytes."""
+        return {
+            "executable_resolution_ns": self._executable_resolution_ns,
+            "spawn_to_ready_ns": self._spawn_to_ready_ns,
+            "lifetime_ns": time.perf_counter_ns() - self._measurement_started_ns,
+            "commands_sent": self._commands_sent,
+            "responses_received": self._responses_received,
+            "blocking_receive_ns": self._blocking_receive_ns,
+            "trace_rows": len(self.trace),
+        }
 
 
 @dataclass
@@ -2626,6 +2707,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     normalize_v3.add_argument("--catalog", type=Path)
     normalize_v3.add_argument("--conversion-policy", type=Path)
+    normalize_v3.add_argument("--instrumentation-output", type=Path)
     features = commands.add_parser("features", help="Materialize causal observed-L2 feature rows.")
     features.add_argument("--input", required=True, type=Path)
     features.add_argument("--output", required=True, type=Path)
@@ -2642,6 +2724,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backtest_v4.add_argument("--config", required=True, type=Path)
     backtest_v4.add_argument("--output", required=True, type=Path)
+    backtest_v4.add_argument("--instrumentation-output", type=Path)
     verify_v4 = commands.add_parser(
         "verify-backtest-v4", help="Verify an additive multi-market result bundle offline."
     )
@@ -2686,6 +2769,7 @@ def main(argv: list[str] | None = None) -> int:
                     if args.conversion_policy is None
                     else ConversionPolicy.load(args.conversion_policy)
                 ),
+                instrumentation_output=args.instrumentation_output,
             )
         elif args.command == "features":
             result = materialize_features(args.input, args.output)
@@ -2705,7 +2789,11 @@ def main(argv: list[str] | None = None) -> int:
             from pmm_phase7_multimarket import run_backtest_v4
 
             try:
-                result = run_backtest_v4(args.config, args.output)
+                result = run_backtest_v4(
+                    args.config,
+                    args.output,
+                    instrumentation_output=args.instrumentation_output,
+                )
             except (HistoricalDataError, ValueError, ProductTermsError, KeyboardInterrupt):
                 raise
             except Exception as error:

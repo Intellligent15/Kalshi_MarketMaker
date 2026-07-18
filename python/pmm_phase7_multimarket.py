@@ -334,13 +334,38 @@ def _preflight(config_path: Path) -> Preflight:
     )
 
 
-def run_backtest_v4(config_path: Path, output_dir: Path) -> dict[str, Any]:
+def run_backtest_v4(
+    config_path: Path, output_dir: Path, *, instrumentation_output: Path | None = None
+) -> dict[str, Any]:
     preflight = _preflight(config_path)
     output_dir = phase7.ensure_new_output(output_dir)
     temporary = output_dir.with_name(f"{output_dir.name}.partial")
     if temporary.exists():
         raise phase7.HistoricalDataError("PartialOutputExists", f"temporary output already exists: {temporary}")
     temporary.mkdir(parents=True)
+    instrumentation_path = None if instrumentation_output is None else instrumentation_output.resolve()
+    instrumentation_partial = (
+        None
+        if instrumentation_path is None
+        else instrumentation_path.with_name(f"{instrumentation_path.name}.partial")
+    )
+    if instrumentation_path is not None and (
+        instrumentation_path.exists() or (instrumentation_partial is not None and instrumentation_partial.exists())
+    ):
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise phase7.HistoricalDataError(
+            "InstrumentationOutputExists", f"instrumentation output already exists: {instrumentation_path}"
+        )
+    if instrumentation_path is not None:
+        try:
+            instrumentation_path.relative_to(output_dir)
+        except ValueError:
+            pass
+        else:
+            shutil.rmtree(temporary, ignore_errors=True)
+            raise phase7.HistoricalDataError(
+                "InstrumentationPathInvalid", "instrumentation output must be outside backtest output"
+            )
     runtimes: dict[str, ProductRuntime] = {}
     artifacts: dict[str, list[dict[str, Any]]] = {name: [] for name in ARTIFACT_SCHEMAS}
     action_heap: list[tuple[int, int, int, int, int, int, str, dict[str, Any]]] = []
@@ -777,7 +802,29 @@ def run_backtest_v4(config_path: Path, output_dir: Path) -> dict[str, Any]:
         }
         phase7.validate_historical_schema(manifest, "backtest-result-manifest-v4.schema.json", "BacktestResultSchemaMismatch")
         phase7.write_json(temporary / "manifest.json", manifest)
+        if instrumentation_path is not None and instrumentation_partial is not None:
+            instrumentation_path.parent.mkdir(parents=True, exist_ok=True)
+            telemetry = {
+                "schema": "pmm.phase7.b2c_risk_telemetry.v1",
+                "config_sha256": preflight.config_sha256,
+                "products": [
+                    {
+                        "ticker": ticker,
+                        "contract_id": runtime.contract_id,
+                        **runtime.risk.measurement_summary(),
+                    }
+                    for ticker, runtime in runtimes.items()
+                ],
+            }
+            phase7.validate_historical_schema(
+                telemetry,
+                "b2c-risk-telemetry-v1.schema.json",
+                "RiskTelemetrySchemaMismatch",
+            )
+            phase7.write_json(instrumentation_partial, telemetry)
         temporary.rename(output_dir)
+        if instrumentation_path is not None and instrumentation_partial is not None:
+            instrumentation_partial.rename(instrumentation_path)
         for runtime in runtimes.values():
             runtime.risk.close()
         return manifest
@@ -788,6 +835,8 @@ def run_backtest_v4(config_path: Path, output_dir: Path) -> dict[str, Any]:
             except Exception:
                 pass
         shutil.rmtree(temporary, ignore_errors=True)
+        if instrumentation_partial is not None:
+            instrumentation_partial.unlink(missing_ok=True)
         raise
 
 

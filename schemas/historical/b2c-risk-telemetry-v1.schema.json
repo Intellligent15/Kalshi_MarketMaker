@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "config_sha256", "products"],
+  "properties": {
+    "schema": {"const": "pmm.phase7.b2c_risk_telemetry.v1"},
+    "config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "products": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["ticker", "contract_id", "executable_resolution_ns", "spawn_to_ready_ns", "lifetime_ns", "commands_sent", "responses_received", "blocking_receive_ns", "trace_rows"],
+        "properties": {
+          "ticker": {"type": "string", "minLength": 1},
+          "contract_id": {"type": "integer", "minimum": 1},
+          "executable_resolution_ns": {"type": "integer", "minimum": 0},
+          "spawn_to_ready_ns": {"type": "integer", "minimum": 0},
+          "lifetime_ns": {"type": "integer", "minimum": 0},
+          "commands_sent": {"type": "integer", "minimum": 1},
+          "responses_received": {"type": "integer", "minimum": 1},
+          "blocking_receive_ns": {"type": "integer", "minimum": 0},
+          "trace_rows": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "schema": "pmm.phase7.b2c_evidence_policy.v1",
+  "capture": {
+    "duration_seconds": 43200,
+    "market_count": 3,
+    "connection_strategy": "single_connection_v1",
+    "attempts_after_first_raw_record": 1,
+    "closing_acquisition_margin_seconds": 1800,
+    "minimum_free_bytes": 10737418240,
+    "raw_budget_bytes": 1073741824,
+    "total_budget_bytes": 5368709120
+  },
+  "selection": {
+    "environment": "production",
+    "contract_kind": "binary",
+    "distinct_series_required": true,
+    "activity_order": "descending",
+    "tie_breaker": "market_ticker_ascending",
+    "metric_must_be_pinned_by_b2c_p": true,
+    "fallback_selection_allowed": false,
+    "substitution_after_opening_allowed": false
+  },
+  "outcomes": {
+    "natural_reconnect_required": false,
+    "manufactured_reconnect_allowed": false,
+    "recapture_for_preferred_outcome_allowed": false,
+    "later_snapshot_recovers_missing_history": false,
+    "retain_finalized_non_strict_raw_evidence": true
+  },
+  "retention": {
+    "large_bytes_in_git": false,
+    "maximum_git_v4_bundle_bytes": 10485760,
+    "durable_owner_and_location_required_before_capture": true
+  }
+}

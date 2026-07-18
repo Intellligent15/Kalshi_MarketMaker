@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "stage", "command_sha256", "started_at_utc", "finished_at_utc", "wall_time_seconds", "exit_code", "stdout_sha256", "stderr_sha256", "resources", "machine", "inputs", "outputs", "identity_files"],
+  "properties": {
+    "schema": {"const": "pmm.phase7.b2c_measurement.v1"},
+    "stage": {"type": "string", "minLength": 1},
+    "command_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "started_at_utc": {"type": "string", "format": "date-time"},
+    "finished_at_utc": {"type": "string", "format": "date-time"},
+    "wall_time_seconds": {"type": "number", "minimum": 0},
+    "exit_code": {"type": "integer"},
+    "stdout_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "stderr_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "resources": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sample_interval_seconds", "output_budget_bytes", "output_budget_exceeded", "termination_reason", "peak_process_count", "peak_rss_kib", "input_bytes", "initial_output_bytes", "peak_output_bytes", "final_output_bytes"],
+      "properties": {
+        "sample_interval_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "output_budget_bytes": {"type": ["integer", "null"], "minimum": 1},
+        "output_budget_exceeded": {"type": "boolean"},
+        "termination_reason": {"enum": ["completed", "output_budget_exceeded"]},
+        "peak_process_count": {"type": "integer", "minimum": 0},
+        "peak_rss_kib": {"type": "integer", "minimum": 0},
+        "input_bytes": {"type": "integer", "minimum": 0},
+        "initial_output_bytes": {"type": "integer", "minimum": 0},
+        "peak_output_bytes": {"type": "integer", "minimum": 0},
+        "final_output_bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "machine": {"type": "object", "minProperties": 1},
+    "inputs": {"type": "array", "items": {"type": "string"}},
+    "outputs": {"type": "array", "items": {"type": "string"}},
+    "identity_files": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}

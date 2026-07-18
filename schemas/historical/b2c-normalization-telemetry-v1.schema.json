@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "input_frames_sha256", "input_capture_metadata_sha256", "processed_raw_records", "sequenced_unique_identities", "peak_sequenced_unique_identities", "identical_duplicates_skipped", "samples"],
+  "properties": {
+    "schema": {"const": "pmm.phase7.b2c_normalization_telemetry.v1"},
+    "input_frames_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "input_capture_metadata_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "processed_raw_records": {"type": "integer", "minimum": 0},
+    "sequenced_unique_identities": {"type": "integer", "minimum": 0},
+    "peak_sequenced_unique_identities": {"type": "integer", "minimum": 0},
+    "identical_duplicates_skipped": {"type": "integer", "minimum": 0},
+    "samples": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["raw_ingress_ordinal", "sequenced_unique_identities"],
+        "properties": {
+          "raw_ingress_ordinal": {"type": "integer", "minimum": 0},
+          "sequenced_unique_identities": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}
