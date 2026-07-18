@@ -55,6 +55,7 @@ complete, this current-state document wins; the older note remains useful histor
 | Focused fixture-integrity validation | 17 tests passing |
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
+| Local Graphify navigation | 6,062 nodes, 9,165 built edges, 462 communities; advisory only, with 421 dangling edges, 166 collapsed edges, and 111 AST-empty files |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
 | Next bounded package | B2c-H evidence-verifier and measurement-lifecycle hardening |
 | Immediate next action | Close the impact-5 B2c review findings before any retained acquisition or live capture |
@@ -1402,6 +1403,13 @@ free-space and aggregate-budget rules; distinguish invalid sampling from real ze
 specified credential scan to retained evidence. Each defect requires a named offline test. Do not
 acquire product bytes or start a venue capture during B2c-H.
 
+The B2c-H first turn is a read-only design gate. It must reconcile the impact-5 process-lifecycle
+and independent-verification findings with the existing CLI/refusal contracts, then present one
+bounded implementation design for approval. No schema, code, test, retained artifact, Graphify
+output, or live/external state should change before that approval. Graphify may accelerate
+navigation, but its current health warnings require every material edge to be checked against source
+and accepted ADRs.
+
 After B2c-H closes, **B2c-P contemporaneous product evidence and capture execution** becomes next.
 Its first turn must remain an approval packet, not an acquisition: pin one candidate-selection
 timestamp, one venue activity field, three eligible distinct-series markets, the complete
@@ -1488,6 +1496,11 @@ A handoff prompt should include:
 - non-goals and deferred follow-ups;
 - expected logical commits; and
 - instruction to update this document after completion.
+
+When `graphify-out/graph.json` is available, a handoff may also recommend a focused Graphify query
+for initial navigation and `$graphify . --update` after meaningful code or documentation changes.
+The prompt must still require direct inspection of named source files and authoritative ADR/roadmap
+documents; graph output is never completion evidence by itself.
 
 ## How to place a new idea on the roadmap
 

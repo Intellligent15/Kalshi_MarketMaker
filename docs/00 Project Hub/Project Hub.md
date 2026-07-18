@@ -25,9 +25,15 @@ instrumentation tooling, but no retained capture. Its deeper review found operat
 independent-verification blockers; B2c-H hardening is next, followed by the separately approved
 B2c-P product-evidence and capture gate.
 
+A local Graphify navigation index is available for repository discovery. Its first snapshot has
+6,062 nodes and 9,165 built edges, but also reports dangling, collapsed, and AST-empty coverage
+warnings. It is an advisory map only; source, tests, accepted ADRs, and the living roadmap remain
+authoritative.
+
 ## Navigation
 
 - [[00 Project Hub/Current State and Remaining Work|Authoritative current state and remaining work]]
+- [[00 Project Hub/Graphify Workflow|Local Graphify navigation and update workflow]]
 - [[01 Roadmap/Phase 1 Plan|Roadmap and Phase 1 plan]]
 - [[01 Roadmap/Phase 2 Core Domain Types|Phase 2 plan and scope]]
 - [[01 Roadmap/Phase 3 Limit Order Book|Phase 3 plan and scope]]

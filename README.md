@@ -122,6 +122,10 @@ To validate formatting:
 ./scripts/check_format.sh
 ```
 
+For optional local architecture navigation, see the
+[Graphify workflow](docs/00%20Project%20Hub/Graphify%20Workflow.md). Generated `graphify-out/`
+artifacts remain local and are not part of repository validation or architectural authority.
+
 `pmm_demo` is a small deterministic Phase 6 walkthrough. It prints market-maker quotes, fills,
 inventory, risk admissions, cancellations, and displayed depth. Run `pmm_demo --help` for options.
 

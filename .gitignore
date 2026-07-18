@@ -29,6 +29,9 @@
 *.profdata
 /coverage/
 
+# Local generated code/document knowledge graph.
+/graphify-out/
+
 # Generated research artifacts; keep directory markers only.
 /data/raw/*
 !/data/raw/.gitkeep
