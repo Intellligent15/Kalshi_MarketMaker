@@ -23,9 +23,11 @@ complete, this current-state document wins; the older note remains useful histor
 
 | Field | Current value |
 | --- | --- |
-| Last reviewed | 2026-07-17 |
+| Last reviewed | 2026-07-18 |
 | Last completed package | B2b-1 segment-aware multi-market projection and feature artifacts |
 | B2b-1 implementation and test commits | `edf3b44` and `dd3dc74` |
+| B2b-1 documentation and review commit | `fce665f` |
+| B2b-1 closure baseline before this roadmap handoff | `fce665f`; clean `main`; four commits ahead of `origin/main` |
 | B2a-1 implementation and test commits | `b68f42b` and `981f744` |
 | B2a implementation commits | `520d0a0`, `399e500`, `48f2a25`, and `a04b0c1` |
 | B2a documentation and review commits | `8036eb9`, `17e15bc`, and `0c1da77` |
@@ -775,6 +777,83 @@ Goal: consume the approved B2b-1 projection/feature successors through additive 
 result formats with explicit per-product/per-segment causality, latency, compatibility, and
 incomplete-interval refusal. Its first turn must also be a read-only design gate. It must not be
 folded into B2b-1 merely because the legacy single-market orchestration already exists.
+
+What B2b-2 inherits as complete:
+
+- normalization V3 supplies one deterministic ingress-ordered stream, explicit source scopes,
+  product-map V3, discontinuities, affected-market sets, and snapshot-seeded book segments;
+- feature row V2 belongs to exactly one product and segment and carries logical time, capture-global
+  raw ingress, normalization ordinal, product-local applied position, snapshot seed, valid-from
+  position, truth/fidelity, completeness, limitations, hashes, and reviewed lineage;
+- feature manifest V3 binds exact normalization, records, scope-map, product-map, capture, product,
+  feature-definition, ordering, and output identity;
+- `features-v3` publishes only from `complete_observed_interval`; discontinuous and incomplete
+  normalization V3 remains ineligible;
+- existing replay/backtest accepts only the frozen single-product normalized/feature/configuration
+  chain and intentionally refuses the B2b-1 successors; and
+- accepted normalization V1/V2, feature row V1, feature manifest V1/V2, configuration V1/V2/V3,
+  result V1/V2/V3, product packages, conversion policies, and refusal meanings are compatibility
+  surfaces, not migration targets.
+
+The B2b-2 design gate must resolve:
+
+- the smallest additive multi-product backtest configuration and result-manifest successors;
+- whether B2b-2 initially runs one declared per-market strategy instance per product, a portfolio
+  coordinator with no cross-market signals, or a still smaller replay-only orchestration boundary;
+- exact scheduling across interleaved product rows, including equal logical times, raw-ingress and
+  normalization-order ties, per-product feature availability, and deterministic decision order;
+- how market-data, decision, order, acknowledgement, and fill latency is expressed per product
+  without creating cross-product time travel;
+- whether orders, cancellations, model-derived fills, inventory, risk admission, and result rows
+  require additive product and segment identity, and how those identities propagate end to end;
+- account-risk ownership across multiple contracts without changing `AccountRiskProjection`, its
+  checkpoint formats, rejection enums/ordinals, or first-failure ordering;
+- behavior at segment starts and any impossible discontinuity evidence, including refusal rather
+  than treating a later snapshot as recovered history;
+- exact product-lineage, conversion-policy, feature-definition, configuration, risk-trace, and
+  result-artifact hashes for every product;
+- public CLI success, expected refusal, programming failure, interruption, cleanup, output-exists,
+  and repeated-invocation behavior; and
+- an offline one-defect acceptance matrix plus frozen legacy compatibility evidence.
+
+Recommended smallest policy: keep B2b-2 per-market and configuration-explicit. Reuse the current
+baseline strategy and execution assumptions independently per product only if deterministic
+scheduling, product/segment identity, and account-risk ownership are proven. Do not add cross-
+market signals or implicit latest-value joins. Accept only complete normalization V3 plus matching
+feature row V2/manifest V3, and fail closed on every hash, lineage, product, segment, watermark, or
+completeness mismatch.
+
+B2b-2 is complete only when:
+
+- additive configuration and result successors represent every product and retain exact upstream
+  normalization/feature/product/policy identity;
+- replay consumes feature rows in one documented deterministic order without merging product or
+  segment state;
+- strategy decisions and model-derived execution artifacts name their exact product, contract,
+  segment, and causal feature watermark;
+- latency never exposes a feature, trade, order, acknowledgement, or fill before its declared
+  product-local and global availability;
+- discontinuous/incomplete input and every cross-artifact mismatch refuse before final publication;
+- risk behavior remains canonical and product-aware without changing the accepted risk contract;
+- repeated offline runs are byte-identical and cleanup/status behavior is exact;
+- generated-positive and one-defect-negative schema/runtime parity covers every new discriminator;
+- all accepted legacy artifacts, examples, commands, and refusal codes retain their bytes and
+  meanings; and
+- ADRs, guides, explanation, critique, README surfaces, and this roadmap are updated after complete
+  focused and full validation.
+
+B2b-2 must not implement cross-market strategies or joined features, new fill calibration, queue
+position, hidden liquidity, fees, accounting, PnL, collateral, margin, settlement, B2c retained
+capture, B3 experiment reporting, Phase 8 ML, paper trading, authenticated gateways, live orders,
+multiple concurrent WebSocket connections, performance redesign, matching changes, core
+`Price`/`Quantity` replacement, `AccountRiskProjection` semantic changes, checkpoint rejection
+changes, weakened exact-conversion refusal, or rewrites of accepted product packages/artifacts.
+
+The B2b-1 closure baseline before this roadmap-only handoff is `fce665f`: `main` was clean and four
+commits ahead of `origin/main`. The last validated baseline is 78 CTests, 136 Python tests, 13
+focused capture tests, 42 focused Phase 7 tests, 42 focused product-term tests, 17 focused
+checkpoint-reader tests, and 17 focused fixture-integrity tests. Verify the current handoff commit
+and state rather than copying this snapshot forward.
 
 #### B2c. Retained full-capture regression evidence — planned
 
