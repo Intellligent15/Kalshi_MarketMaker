@@ -146,3 +146,21 @@ Focused validation passes 13 capture tests, 36 Phase 7 tests, 42 product-term te
 reader tests, and 17 fixture-integrity tests. The complete Python suite passes 130 tests and all 78
 CTest tests pass. Every added acceptance test is deterministic and network-free. B2b multi-market
 segment-aware projection, features, and replay is now the next design-only package.
+
+## B2b-1 segment-aware multi-market features
+
+Commits `edf3b44` and `dd3dc74` add the first normalization-V3 feature consumer and its offline
+acceptance matrix. One product-owned cursor holds one mutable valid segment; boundary/snapshot
+adjacency, stable identity, delta ownership, invalidation, and segment-local trade state are
+revalidated rather than inferred from a segment string alone.
+
+Feature row V2 and feature manifest V3 carry raw, normalization, product-local, snapshot-seed, and
+valid-from watermarks plus exact upstream hashes and optional reviewed product lineage. The
+additive `features-v3` command publishes only for `complete_observed_interval`, refuses
+discontinuous/incomplete evidence, cleans partial derived output, and repeats byte-identically.
+Legacy feature, configuration, result, and product artifacts remain unchanged. Replay/backtest
+continues to refuse normalization V3 pending the separate B2b-2 design gate.
+
+Focused Phase 7 validation passes 42 tests and the complete Python suite passes 136 tests. The
+capture, product-term, checkpoint-reader, fixture-integrity, and 78-CTest baselines remain part of
+the closure validation rather than becoming network-dependent.

@@ -162,3 +162,17 @@ Operationally completed but record-only or unusable evidence is retained with fi
 an explicit `data_usability` value, a diagnostic on stderr, empty stdout, and exit two. Unexpected
 programming failure remains one and interruption remains 130. `normalize-v3` retains the same
 0/2/1/130 distinction and removes derived partial output on every failure or interruption.
+
+## B2b-1 downstream-consumer amendment
+
+The additive `features-v3` consumer revalidates the V3 cross-record state machine instead of
+trusting segment strings as sufficient proof. It preserves normalization order, binds every event
+to its product-map identity, requires boundary/snapshot adjacency, consumes conservative affected
+market sets, and clears mutable book and last-trade state on invalidation. A recovery snapshot may
+start a new segment but never changes the missing interval into continuous evidence.
+
+Initial publication is deliberately narrower than the representational V3 boundary:
+`features-v3` accepts only `complete_observed_interval`. `observed_discontinuous` and `incomplete`
+artifacts remain inspectable normalization evidence but are not feature-eligible. This does not
+reinterpret normalization V3, and accepted raw, normalized, feature, configuration, result, or
+product artifacts remain unchanged.

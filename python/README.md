@@ -121,6 +121,10 @@ uv run python python/pmm_phase7.py features \
   --input data/processed/kalshi/wsh-tor-wsh2-normalized-v2-product-terms \
   --output data/processed/kalshi/wsh-tor-wsh2-features-v2-product-terms
 
+uv run python python/pmm_phase7.py features-v3 \
+  --input data/processed/kalshi/two-market-normalized-v3 \
+  --output data/processed/kalshi/two-market-features-v3
+
 uv run python python/pmm_phase7.py backtest \
   --config configs/phase7/kalshi_wsh_tor_no_fill_product_terms_v3.json \
   --output results/kalshi/wsh-tor-wsh2-no-fill-product-terms-v3
@@ -129,6 +133,13 @@ uv run python python/pmm_phase7.py verify-lineage \
   --config configs/phase7/kalshi_wsh_tor_no_fill_product_terms_v3.json \
   --result results/kalshi/wsh-tor-wsh2-no-fill-product-terms-v3
 ```
+
+`features-v3` is additive. It accepts only normalization V3 artifacts whose completeness is
+`complete_observed_interval`, verifies the normalization, records, scope-map, and product-map
+hashes, and writes one segment-aware feature row per valid product event. It refuses discontinuous
+or incomplete V3 evidence with exit 2, removes its own partial output on failure or interruption,
+and never overwrites a final directory. The legacy `features` command and replay/backtest paths
+retain their existing meanings; replay/backtest still does not accept normalization V3.
 
 `pmm_product_terms.py` also provides explicit `fetch`, `build`, `review`, `inspect`, `compare`,
 `diff`, and `assess-legacy` operator commands. Only `fetch` uses the network. Deterministic runtime

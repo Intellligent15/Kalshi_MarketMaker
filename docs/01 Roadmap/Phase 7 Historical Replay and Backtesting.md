@@ -125,3 +125,17 @@ See [[02 Architecture/ADR-013 Multi-Scope Capture and Reconnect-Aware Normalizat
   long-capture regression evidence remain B2b and B2c respectively.
 
 See [[02 Architecture/ADR-007 Deterministic Historical Replay and Backtesting]].
+
+## Segment-aware multi-market features implemented
+
+- One product-owned cursor consumes each ticker without sharing mutable book or last-trade state.
+- Normalized segment boundaries are revalidated and snapshots seed only their named product and
+  segment.
+- Raw ingress, normalization ordinal, product-local applied watermark, snapshot seed, and valid-
+  from positions remain distinct.
+- Feature row V2 and feature manifest V3 bind exact product/segment identity, definitions, units,
+  completeness, limitations, lineage, and artifact hashes.
+- `features-v3` accepts only complete normalization V3 and cleans derived partial output on every
+  failure or interruption.
+- Cross-market joins and replay/backtest integration remain outside B2b-1. B2b-2 is the next
+  read-only design gate.

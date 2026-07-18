@@ -75,8 +75,15 @@ B2a-1 hardens that successor boundary before downstream adoption. Shared or unkn
 invalidate every possibly affected book, required order-book sequence evidence and exact
 acknowledgement transactions are enforced, missing market identity fails closed, pre-snapshot
 disconnects remain incomplete prefixes, successor schemas are runtime-validated, and capture exit
-status distinguishes strict data usability from operational finalization. Feature and backtest
-support for normalization V3 remains deferred to B2b.
+status distinguishes strict data usability from operational finalization. At that package boundary,
+feature and backtest support for normalization V3 remained deferred to B2b.
+
+B2b-1 adds the first normalization-V3 feature consumer without widening replay or backtesting.
+Each requested product owns independent snapshot-seeded state for one valid book segment at a
+time. Feature row V2 and feature manifest V3 bind product identity, segment identity, global and
+product-local causal watermarks, completeness, limitations, source hashes, and reviewed lineage.
+Only `complete_observed_interval` input is publishable; discontinuous or incomplete input refuses,
+and cross-market joined features remain deferred.
 
 ## Quick start
 

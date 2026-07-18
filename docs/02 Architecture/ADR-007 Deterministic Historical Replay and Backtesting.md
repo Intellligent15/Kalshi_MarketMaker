@@ -106,3 +106,21 @@ their accounting policy is separately defined and tested.
   recovery, schema migration beyond version rejection, or cross-process locking.
 - Backtest results cannot claim venue-equivalent execution, paper-trading safety, or economic PnL
   realism unless their source fidelity and assumptions support it.
+
+## B2b-1 segment-aware feature amendment
+
+B2b-1 implements the first projection consumer for normalization V3. One ordered scanner preserves
+normalization ordinal and raw-ingress order while exactly one product cursor owns each ticker's
+mutable Level-2 state. Cursor identity includes the normalized book segment. A segment boundary
+must be immediately followed by its matching observed snapshot; deltas cannot cross products or
+segments, and invalid-period trades cannot manufacture book continuity.
+
+Feature row V2 and feature manifest V3 distinguish capture-global raw ingress, normalization
+ordinal, product-local applied position, snapshot seed, and valid-from snapshot. Logical/source
+time remains metadata and never reorders the stream. Rows contain per-market features only and
+declare their definitions, units, lookback, warmup, fidelity, truth, completeness, limitations,
+lineage, and hashes.
+
+B2b-1 publishes only from `complete_observed_interval` normalization V3 input. It understands and
+fails closed on discontinuity records but does not publish discontinuous features. Replay and
+backtesting remain on the accepted legacy formats until B2b-2 is separately designed and approved.
