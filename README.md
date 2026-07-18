@@ -85,6 +85,12 @@ product-local causal watermarks, completeness, limitations, source hashes, and r
 Only `complete_observed_interval` input is publishable; discontinuous or incomplete input refuses,
 and cross-market joined features remain deferred.
 
+B2b-2 adds an isolated multi-market backtest successor. `pmm.backtest.v4` consumes only complete
+normalization V3 plus feature row V2/manifest V3, preserves one global causal schedule, and owns
+one baseline strategy runtime and one canonical C++ risk projection per declared contract. Every
+derived artifact names its product, contract, segment, and causal watermark. The path has no
+joined signals, portfolio-wide risk, calibrated execution, accounting, fees, PnL, or settlement.
+
 ## Quick start
 
 Prerequisites: CMake 3.24+, a C++20 compiler, Git (to fetch GoogleTest for test builds),

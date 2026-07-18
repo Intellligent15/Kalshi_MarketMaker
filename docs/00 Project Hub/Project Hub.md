@@ -18,6 +18,10 @@ data projections. `pmm_risk` adds external event-fed inventory/exposure and comm
 `pmm_market_maker` adds deterministic passive fixed-spread and inventory-aware quoting. PnL,
 fees, collateral, settlement, durable persistence, and gateways remain intentionally separate.
 
+Phase 7 now also has an additive multi-market backtest implementation: one global causal schedule,
+independent per-product baseline state, and one canonical C++ risk projection per contract. Its
+full closure validation is pending resolution of pre-existing retained product-package deletions.
+
 ## Navigation
 
 - [[00 Project Hub/Current State and Remaining Work|Authoritative current state and remaining work]]

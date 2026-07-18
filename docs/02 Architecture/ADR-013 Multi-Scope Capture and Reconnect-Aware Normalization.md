@@ -176,3 +176,14 @@ Initial publication is deliberately narrower than the representational V3 bounda
 artifacts remain inspectable normalization evidence but are not feature-eligible. This does not
 reinterpret normalization V3, and accepted raw, normalized, feature, configuration, result, or
 product artifacts remain unchanged.
+
+## B2b-2 replay-consumer amendment
+
+The V4 replay path revalidates normalization order, nondecreasing raw ingress and logical time,
+boundary/snapshot adjacency, product membership, feature-row bijection, segment identity, global
+and product-local watermarks, completeness, and every declared input hash. It refuses any
+discontinuity or incomplete input before publication. A later snapshot remains a new segment and
+never becomes evidence that a missing interval was recovered.
+
+Cross-market features and strategies remain excluded. Interleaving supplies deterministic
+visibility order, not an implicit latest-value join.

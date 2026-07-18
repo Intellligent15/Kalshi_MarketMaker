@@ -180,3 +180,15 @@ This is an intentional semantic tightening of restore, not a serialization-schem
 documents remain reviewed test evidence rather than durable production checkpoints. The invariant
 is deliberately narrow: it proves that individual restored record quantities respect admission,
 not that an authored checkpoint's complete event history is reconstructible.
+
+## Amendment: B2b-2 per-contract research ownership
+
+`AccountRiskProjection` remains contract-bound. Multi-market research uses one orchestration owner
+managing one unchanged canonical projection per declared contract. Each projection has explicit
+stable account, strategy, trader, and contract identifiers plus a contiguous local event sequence.
+Result V4 binds each unchanged V2 trace to its product and contract; separate V1 risk-event rows
+add product and segment audit identity.
+
+This is independent per-contract risk, not account-global or portfolio risk. No checkpoint,
+rejection category, enum ordinal, first-failure order, V1 oracle command, or reviewed conformance
+artifact changes.

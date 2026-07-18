@@ -164,3 +164,16 @@ continues to refuse normalization V3 pending the separate B2b-2 design gate.
 Focused Phase 7 validation passes 42 tests and the complete Python suite passes 136 tests. The
 capture, product-term, checkpoint-reader, fixture-integrity, and 78-CTest baselines remain part of
 the closure validation rather than becoming network-dependent.
+
+## B2b-2 multi-market replay and backtesting
+
+B2b-2 adds the V4 complete-input consumer with one global causal coordinator, independent
+per-product strategy/execution state, explicit lifecycle latency, one canonical C++ projection per
+contract, typed product/contract/segment-aware results, and offline verification. It preserves all
+legacy replay paths and refuses discontinuity, lineage, ordering, segment, watermark, hash, count,
+and cleanup defects before final publication.
+
+The implementation's focused 9-test matrix, frozen 42 Phase 7 tests, 47 combined
+capture/checkpoint-reader/fixture-integrity tests, formatting, and 78 CTests pass. The full
+product-term/Python closure gate remains blocked by the 19 tracked retained-package files that
+were already deleted in the worktree; those bytes are outside B2b-2 ownership.

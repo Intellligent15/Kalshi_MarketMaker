@@ -139,3 +139,14 @@ See [[02 Architecture/ADR-007 Deterministic Historical Replay and Backtesting]].
   failure or interruption.
 - Cross-market joins and replay/backtest integration remain outside B2b-1. B2b-2 is the next
   read-only design gate.
+
+## Multi-market replay and backtesting implemented; closure validation pending
+
+B2b-2 adds one global causal coordinator with independent per-product strategy and execution state,
+explicit latency stages, one canonical C++ projection per contract, additive V4 configuration and
+result contracts, typed product/contract/segment-aware artifacts, complete-input refusal, and
+offline result verification. Cross-market signals and portfolio risk remain excluded.
+
+Focused B2b-2, Phase 7, capture, checkpoint-reader, fixture-integrity, formatting, and CTest gates
+pass. Full product-term/Python closure is pending explicit resolution of pre-existing retained
+product-package deletions.

@@ -189,3 +189,21 @@ UV_CACHE_DIR=/tmp/pmm-uv-cache \
 
 See `docs/07 Engineering Notes/Product Terms Refusal Codes.md` for stable codes, exit statuses,
 and stdout/stderr ownership.
+
+## Multi-market replay and backtesting
+
+The additive B2b-2 path consumes the approved normalization/feature successors:
+
+```sh
+uv run python python/pmm_phase7.py backtest-v4 \
+  --config path/to/multi-market-v4.json \
+  --output results/kalshi/multi-market-v4
+
+uv run python python/pmm_phase7.py verify-backtest-v4 \
+  --config path/to/multi-market-v4.json \
+  --result results/kalshi/multi-market-v4
+```
+
+V4 is complete-input only. It uses one global causal coordinator, independent per-product state,
+and one unchanged C++ risk projection per contract. Per-contract risk is not portfolio
+aggregation. The original `backtest` and `verify-lineage` commands retain V1/V2/V3 behavior.

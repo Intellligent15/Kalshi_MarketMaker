@@ -124,3 +124,21 @@ lineage, and hashes.
 B2b-1 publishes only from `complete_observed_interval` normalization V3 input. It understands and
 fails closed on discontinuity records but does not publish discontinuous features. Replay and
 backtesting remain on the accepted legacy formats until B2b-2 is separately designed and approved.
+
+## B2b-2 multi-market replay amendment
+
+B2b-2 selects one global causal replay coordinator with an independent baseline runtime per
+declared product. Normalization ordinal remains the input order; raw ingress remains inherited
+capture evidence; logical time never invents cross-market causality. Derived actions use effective
+time, causal normalization ordinal, stage, product declaration order, and stable local/global
+ordinals as a total key. An action is ineligible until both its global record and product-local
+watermark are available.
+
+Market-data, decision, order, acknowledgement, cancellation, and fill latencies are explicit per
+product. A public trade reaches the fill model only after it is visible and can fill only an
+already acknowledged order for the same product, contract, and segment. Segment changes
+invalidate old state. The last canonical input time is the replay horizon: no later decision or
+fill is created, and remaining model state is terminally cancelled.
+
+`pmm.backtest.v4` and `pmm.backtest_result_manifest.v4` are additive. V1/V2/V3 behavior is
+unchanged.

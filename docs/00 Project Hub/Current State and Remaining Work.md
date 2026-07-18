@@ -24,6 +24,7 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-18 |
+| B2b-2 implementation status | Implemented and focused-valid; full closure blocked by pre-existing retained product-package deletions |
 | Last completed package | B2b-1 segment-aware multi-market projection and feature artifacts |
 | B2b-1 implementation and test commits | `edf3b44` and `dd3dc74` |
 | B2b-1 documentation and review commit | `fce665f` |
@@ -47,8 +48,8 @@ complete, this current-state document wins; the older note remains useful histor
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | B2b-2 multi-market replay and backtest integration |
-| Immediate next action | Read-only B2b-2 design gate; wait for approval before implementation |
+| Next bounded package | B2b-2 closure validation and retained-package baseline resolution |
+| Immediate next action | Resolve the 19 pre-existing retained-package deletions, then rerun product-term and full Python validation |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -771,7 +772,7 @@ The post-implementation critique intentionally leaves B2b-2 replay/backtest inte
 discontinuous feature publication, cross-market joins, module extraction, durable feature
 checkpoints, and measured performance outside this package.
 
-##### B2b-2. Multi-market replay and backtest integration — next bounded package
+##### B2b-2. Multi-market replay and backtest integration — implemented; closure validation blocked
 
 Goal: consume the approved B2b-1 projection/feature successors through additive configuration and
 result formats with explicit per-product/per-segment causality, latency, compatibility, and
@@ -854,6 +855,32 @@ commits ahead of `origin/main`. The last validated baseline is 78 CTests, 136 Py
 focused capture tests, 42 focused Phase 7 tests, 42 focused product-term tests, 17 focused
 checkpoint-reader tests, and 17 focused fixture-integrity tests. Verify the current handoff commit
 and state rather than copying this snapshot forward.
+
+B2b-2 implementation evidence:
+
+- `pmm.backtest.v4` and Result V4 are additive schemas with a separate `backtest-v4` and
+  `verify-backtest-v4` command;
+- one global coordinator preserves causal interleaving while each product owns independent
+  strategy, segment, pending/live order, latency, and execution state;
+- one unchanged canonical C++ projection is launched per declared contract, with explicit stable
+  bindings and separate contract-bound V2 traces;
+- typed decisions, submissions, cancellations, acknowledgements, rejections, fills, exposure,
+  risk events, and summaries carry product, contract, segment, causal watermark, truth/fidelity,
+  configuration, and feature-definition identity;
+- only complete normalization V3 plus matching feature row V2/manifest V3 is eligible; input,
+  lineage, ordering, segment, watermark, result-hash, count, cleanup, and repetition defects fail
+  closed;
+- focused B2b-2 validation passes 9 tests, frozen Phase 7 validation passes 42 tests, the 13
+  capture + 17 checkpoint-reader + 17 fixture-integrity tests pass, formatting passes, and all 78
+  CTests pass; and
+- full product-term/Python validation is not currently runnable because 19 tracked retained
+  package files were already deleted in the worktree before B2b-2 implementation. Those deletions
+  are not part of B2b-2 and were not restored or committed.
+
+Closure rule: do not promote B2c or call B2b-2 complete until those retained-package deletions are
+explicitly resolved and the focused product-term plus full Python gates pass. See
+[[07 Engineering Notes/Phase 7 Multi-Market Replay and Backtesting]], the explanation, and the
+severity-ranked critique.
 
 #### B2c. Retained full-capture regression evidence — planned
 
@@ -1230,8 +1257,8 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | B2b-2 multi-market replay and backtest integration | Consumes only the approved projection and feature successors. |
-| 2 | B2c retained full-capture regression evidence | Pins broader counts, hashes, recovery cases, and reproducibility before B2 closes. |
+| 1 | B2b-2 closure validation and retained-package baseline resolution | Implementation exists, but the full product-term/Python gate is blocked by pre-existing deletions. |
+| 2 | B2c retained full-capture regression evidence | Begin only after every B2b-2 closure gate passes. |
 | 3 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
 | 4 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
 | 5 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
@@ -1249,13 +1276,12 @@ but it must remain labelled experimental and must not bypass its promotion gates
 
 ## Current next package
 
-The next bounded package is **B2b-2 multi-market replay and backtest integration**. Its first turn
-is a read-only design gate for consuming only the approved normalization V3, feature row V2, and
-feature manifest V3 contracts through additive configuration and result successors. It must
-preserve per-product/per-segment causality, latency, completeness refusal, product lineage, and
-legacy behavior. It must stop for approval before implementation and must not combine B2c retained
-capture, cross-market strategy research, execution calibration, accounting, settlement, B3
-reporting, ML, or operational gateway work into the package.
+The next bounded package is **B2b-2 closure validation and retained-package baseline resolution**.
+The implementation exists and its unaffected focused gates pass. The current worktree is missing
+19 tracked files from the two retained product packages, so product-term verification and the full
+Python suite fail before they can validate B2b-2 closure. Resolve those deletions explicitly, rerun
+all required gates, and only then mark B2b-2 complete and promote B2c. Do not hide the blocker by
+weakening package verification or changing frozen package hashes.
 
 B2a establishes explicit multi-scope capture and reconnect-aware normalization successors. B2a-1
 closes their reviewed truth-contract blockers. B2b-1 now consumes that boundary for complete-input

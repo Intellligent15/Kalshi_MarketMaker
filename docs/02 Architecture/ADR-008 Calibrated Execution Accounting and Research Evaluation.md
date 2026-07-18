@@ -71,3 +71,8 @@ not implement the accounting work described by this ADR.
   cancellation, and view traces. It does not imply a production IPC or live gateway protocol.
 - Persisted full-run checkpoints, calibrated/queue models, collateral, settlement, markouts, and
   PnL remain separate increments with their own tests.
+
+B2b-2 applies `no_fill_v1` and `trade_touch_v1` independently per product. V4 artifacts identify
+the exact product, contract, segment, causal feature, and public trade used by a model-derived
+fill. This improves auditability but does not calibrate execution or add queue position, fees,
+accounting, PnL, collateral, margin, or settlement.

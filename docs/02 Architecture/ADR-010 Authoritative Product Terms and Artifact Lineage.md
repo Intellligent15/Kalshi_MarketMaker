@@ -210,3 +210,11 @@ See [[07 Engineering Notes/Authoritative Product Terms Explained]] for the plain
 walkthrough, [[07 Engineering Notes/Product Terms Source and Review Guide]] for the operator and
 evidence boundary, and [[07 Engineering Notes/Authoritative Product Terms Critique]] for the
 severity-ranked remaining debt.
+
+## B2b-2 result-lineage amendment
+
+V4 names the exact normalization V3 manifest, records, source-scope map, product map, feature
+manifest, feature rows, canonical feature definitions, and each product's
+terms/source/review/conversion hashes. Result V4 repeats those identities, binds every per-contract
+risk trace, hashes every typed result artifact, and verifies aggregate counts. No accepted package
+or V1/V2/V3 artifact is rewritten or assigned a stronger meaning.
