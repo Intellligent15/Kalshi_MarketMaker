@@ -16,9 +16,39 @@
     "ordering_policy": {"type": "string", "minLength": 1},
     "continuity_policy": {"enum": ["refuse", "record"]},
     "completeness": {"enum": ["complete_observed_interval", "observed_discontinuous", "incomplete"]},
-    "incomplete_reasons": {"type": "array", "items": {"type": "object"}},
-    "event_counts": {"type": "object"},
-    "discontinuity_counts": {"type": "object"},
+    "incomplete_reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code"],
+        "properties": {
+          "code": {"enum": ["RequiredSourceSequenceMissing", "UnsupportedBinaryFrame", "DeltaBeforeRecovery", "SubscriptionAckMissing", "SnapshotCardinalityMismatch", "SubscriptionRequestMissing", "RecoverySnapshotMissing", "IncompletePrefix"]},
+          "ticker": {"type": "string", "minLength": 1},
+          "message_type": {"enum": ["orderbook_snapshot", "orderbook_delta"]},
+          "raw_ingress_ordinal": {"type": "integer", "minimum": 1},
+          "connection_segment_id": {"type": "integer", "minimum": 1},
+          "count": {"type": "integer", "minimum": 0}
+        },
+        "additionalProperties": false
+      }
+    },
+    "event_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "book_snapshot": {"type": "integer", "minimum": 0},
+        "book_delta": {"type": "integer", "minimum": 0},
+        "trade": {"type": "integer", "minimum": 0}
+      }
+    },
+    "discontinuity_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "connection_gap": {"type": "integer", "minimum": 0},
+        "sequence_gap": {"type": "integer", "minimum": 0}
+      }
+    },
     "identical_duplicates_skipped": {"type": "integer", "minimum": 0},
     "late_source_events": {"type": "integer", "minimum": 0},
     "truth_category": {"enum": ["Observed", "Synthetic"]},
@@ -26,7 +56,20 @@
     "limitations": {"type": "array", "items": {"type": "string"}},
     "product_catalog_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "conversion_policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "product_lineage": {"type": "array", "items": {"type": "object"}}
+    "product_lineage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ticker", "product_terms_sha256", "source_manifest_sha256", "review_sha256"],
+        "properties": {
+          "ticker": {"type": "string", "minLength": 1},
+          "product_terms_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "source_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "review_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
   },
   "additionalProperties": false
 }

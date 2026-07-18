@@ -19,6 +19,8 @@ import subprocess
 import sys
 from typing import Any, Iterable
 
+from jsonschema import Draft202012Validator
+
 try:
     from .pmm_product_terms import (
         ConversionPolicy,
@@ -43,6 +45,7 @@ except ImportError:
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+HISTORICAL_SCHEMA_ROOT = REPOSITORY_ROOT / "schemas" / "historical"
 NORMALIZED_SCHEMA = "pmm.historical.normalized_event.v1"
 NORMALIZED_RECORD_V2_SCHEMA = "pmm.historical.normalized_record.v2"
 NORMALIZATION_MANIFEST_V3_SCHEMA = "pmm.historical.normalization_manifest.v3"
@@ -64,6 +67,14 @@ class HistoricalDataError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(f"{code}: {message}")
         self.code = code
+
+
+def validate_historical_schema(document: dict[str, Any], filename: str, code: str) -> None:
+    schema = read_json(HISTORICAL_SCHEMA_ROOT / filename)
+    errors = sorted(Draft202012Validator(schema).iter_errors(document), key=lambda item: list(item.path))
+    if errors:
+        location = ".".join(str(part) for part in errors[0].absolute_path) or "document"
+        raise HistoricalDataError(code, f"{filename} rejects {location}: {errors[0].message}")
 
 
 def canonical_json(value: Any) -> str:
@@ -483,6 +494,7 @@ def normalize_capture_v3(
     metadata = read_json(metadata_path)
     if metadata.get("schema") != RAW_CAPTURE_V2_SCHEMA:
         raise HistoricalDataError("CaptureSchemaMismatch", "normalize-v3 requires raw capture V2")
+    validate_historical_schema(metadata, "raw-capture-v2.schema.json", "CaptureSchemaMismatch")
     tickers_value = metadata.get("market_tickers")
     if (
         not isinstance(tickers_value, list)
@@ -502,6 +514,22 @@ def normalize_capture_v3(
     }:
         raise HistoricalDataError(
             "SequenceDomainMissing", "capture must represent sequence-domain status explicitly"
+        )
+    sequence_topology = sequence_domain.get("topology")
+    if sequence_topology not in {"shared", "independent", "unknown"}:
+        raise HistoricalDataError(
+            "SequenceDomainMissing", "capture must declare shared, independent, or unknown topology"
+        )
+    if sequence_domain["status"] == "unknown" and sequence_topology != "unknown":
+        raise HistoricalDataError(
+            "SequenceDomainInvalid", "unknown sequence evidence must use unknown topology"
+        )
+    expected_sequence_key = ["connection_segment_id", "venue_subscription_id"]
+    if sequence_topology == "independent":
+        expected_sequence_key.append("market_ticker")
+    if sequence_domain.get("mechanical_validation_key") != expected_sequence_key:
+        raise HistoricalDataError(
+            "SequenceDomainInvalid", "mechanical validation key does not match sequence topology"
         )
     source_truth = metadata.get("truth_category", "Observed")
     if source_truth not in {"Observed", "Synthetic"}:
@@ -534,13 +562,20 @@ def normalize_capture_v3(
     last_raw_ordinal = 0
     last_logical_time = -1
     last_scope_time: dict[str, int] = {}
-    request_membership: dict[tuple[int, int], tuple[str, ...]] = {}
+    requests: dict[int, dict[str, Any]] = {}
     scopes: dict[tuple[int, str], dict[str, Any]] = {}
+    acknowledgements: dict[tuple[int, str], str] = {}
+    logical_request_ids: set[str] = set()
     sequence_previous: dict[str, int] = {}
     sequence_payloads: dict[tuple[str, int], str] = {}
     market_ids: dict[str, str] = {}
     market_state = {
-        ticker: {"segment": 0, "valid": False, "awaiting": "initial_snapshot"}
+        ticker: {
+            "segment": 0,
+            "valid": False,
+            "awaiting": "initial_snapshot",
+            "ever_valid": False,
+        }
         for ticker in tickers
     }
     snapshot_counts: Counter[tuple[int, str]] = Counter()
@@ -556,6 +591,9 @@ def normalize_capture_v3(
         record["schema"] = NORMALIZED_RECORD_V2_SCHEMA
         record["normalization_ordinal"] = next_normalized_ordinal
         next_normalized_ordinal += 1
+        validate_historical_schema(
+            record, "normalized-record-v2.schema.json", "NormalizedRecordSchemaMismatch"
+        )
         destination.write(canonical_json(record) + "\n")
 
     def control_record(
@@ -603,6 +641,11 @@ def normalize_capture_v3(
                     raise HistoricalDataError(
                         "CaptureRecordSchemaMismatch", f"raw line {line_number} is not a V2 record"
                     )
+                validate_historical_schema(
+                    raw_record,
+                    "raw-capture-record-v2.schema.json",
+                    "CaptureRecordSchemaMismatch",
+                )
                 raw_ordinal = int_value(
                     raw_record.get("raw_ingress_ordinal"), "raw_ingress_ordinal"
                 )
@@ -619,59 +662,112 @@ def normalize_capture_v3(
                 connection_id = raw_record.get("connection_segment_id")
                 if kind == "subscription_sent":
                     connection = int_value(connection_id, "connection_segment_id")
+                    if connection in requests:
+                        raise HistoricalDataError(
+                            "SubscriptionRequestInvalid", "connection has more than one subscription request"
+                        )
                     subscription = raw_record.get("subscription")
                     if not isinstance(subscription, dict):
                         raise HistoricalDataError(
                             "SubscriptionRequestInvalid", "subscription_sent has no request"
                         )
                     wire_id = int_value(subscription.get("id"), "subscription.id")
+                    top_level_wire_id = int_value(
+                        raw_record.get("wire_request_id"), "wire_request_id"
+                    )
+                    logical_id = raw_record.get("subscription_request_id")
+                    expected_logical_id = f"c{connection}:r1"
+                    if (
+                        wire_id != top_level_wire_id
+                        or wire_id != connection
+                        or logical_id != expected_logical_id
+                        or logical_id in logical_request_ids
+                        or subscription.get("cmd") != "subscribe"
+                    ):
+                        raise HistoricalDataError(
+                            "SubscriptionRequestInvalid",
+                            "subscription logical or wire request identity is invalid",
+                        )
                     params = subscription.get("params")
                     membership = params.get("market_tickers") if isinstance(params, dict) else None
                     channels = params.get("channels") if isinstance(params, dict) else None
-                    if membership != list(tickers) or channels != ["orderbook_delta", "trade"]:
+                    if (
+                        membership != list(tickers)
+                        or channels != ["orderbook_delta", "trade"]
+                        or params.get("use_yes_price") is not True
+                    ):
                         raise HistoricalDataError(
                             "SubscriptionRequestInvalid",
                             "subscription request differs from canonical capture membership",
                         )
-                    request_membership[(connection, wire_id)] = tickers
+                    logical_request_ids.add(logical_id)
+                    requests[connection] = {
+                        "logical_id": logical_id,
+                        "wire_id": wire_id,
+                        "membership": tickers,
+                    }
                     continue
                 if kind == "subscription_acknowledged":
                     connection = int_value(connection_id, "connection_segment_id")
                     wire_id = int_value(raw_record.get("wire_request_id"), "wire_request_id")
-                    if (connection, wire_id) not in request_membership:
+                    request = requests.get(connection)
+                    if request is None or wire_id != request["wire_id"]:
                         raise HistoricalDataError(
                             "SubscriptionAckMismatch", "acknowledgement has no matching request"
                         )
                     channel = raw_record.get("channel")
                     sid = raw_record.get("venue_subscription_id")
-                    if channel not in {"orderbook_delta", "trade"} or sid is None:
+                    logical_id = raw_record.get("subscription_request_id")
+                    membership = raw_record.get("requested_market_tickers")
+                    membership_claim = raw_record.get("membership_claim")
+                    if (
+                        channel not in {"orderbook_delta", "trade"}
+                        or sid is None
+                        or not str(sid)
+                        or logical_id != request["logical_id"]
+                        or membership != list(request["membership"])
+                        or membership_claim != "request_bound_not_echoed_by_acknowledgement"
+                    ):
                         raise HistoricalDataError(
                             "SubscriptionAckMismatch", "acknowledgement channel or sid is invalid"
                         )
+                    acknowledgement_key = (connection, str(channel))
                     key = (connection, str(sid))
-                    if key in scopes:
+                    if acknowledgement_key in acknowledgements or key in scopes:
                         raise HistoricalDataError(
                             "SubscriptionAckMismatch", "duplicate or conflicting sid binding"
                         )
+                    acknowledgements[acknowledgement_key] = str(sid)
                     scopes[key] = {
                         "source_scope_id": f"c{connection}:sid{sid}",
                         "connection_segment_id": connection,
-                        "subscription_request_id": raw_record.get("subscription_request_id"),
+                        "subscription_request_id": logical_id,
                         "wire_request_id": wire_id,
                         "channel": channel,
                         "venue_subscription_id": str(sid),
-                        "requested_market_tickers": list(tickers),
-                        "membership_claim": "request_bound_not_echoed_by_acknowledgement",
+                        "requested_market_tickers": list(request["membership"]),
+                        "membership_claim": membership_claim,
                         "sequence_domain_status": sequence_domain["status"],
                         "sequence_domain_components": sequence_domain.get("components", []),
+                        "sequence_domain_topology": sequence_topology,
                     }
                     continue
                 if kind == "connection_gap":
                     connection = int_value(connection_id, "connection_segment_id")
                     for ticker in tickers:
                         state = market_state[ticker]
+                        if not state["ever_valid"]:
+                            incomplete_reasons.append(
+                                {
+                                    "code": "IncompletePrefix",
+                                    "ticker": ticker,
+                                    "raw_ingress_ordinal": raw_ordinal,
+                                }
+                            )
                         state["valid"] = False
-                        state["awaiting"] = "recovery_snapshot"
+                        state["awaiting"] = (
+                            "recovery_snapshot" if state["ever_valid"] else "initial_snapshot"
+                        )
                         control_record(
                             destination,
                             raw_ordinal=raw_ordinal,
@@ -683,7 +779,9 @@ def normalize_capture_v3(
                                 "connection_segment_id": connection,
                                 "failure_phase": raw_record.get("failure_phase"),
                                 "error_code": raw_record.get("error_code"),
-                                "prior_book_state": "invalidated",
+                                "prior_book_state": (
+                                    "invalidated" if state["ever_valid"] else "not_yet_established"
+                                ),
                             },
                         )
                     continue
@@ -742,10 +840,30 @@ def normalize_capture_v3(
                     )
 
                 source_scope_id = scope["source_scope_id"]
+                sequence_validation_scope = (
+                    f"{source_scope_id}:ticker:{ticker}"
+                    if sequence_topology == "independent"
+                    else source_scope_id
+                )
                 source_sequence_value = raw_record.get("source_sequence", message.get("seq"))
+                sequence_required = parsed_type in {"orderbook_snapshot", "orderbook_delta"}
+                if source_sequence_value is None and sequence_required:
+                    incomplete_reasons.append(
+                        {
+                            "code": "RequiredSourceSequenceMissing",
+                            "ticker": ticker,
+                            "message_type": parsed_type,
+                            "raw_ingress_ordinal": raw_ordinal,
+                        }
+                    )
+                    if continuity_policy == "refuse":
+                        raise HistoricalDataError(
+                            "RequiredSourceSequenceMissing",
+                            f"{parsed_type} for {ticker} has no required source sequence",
+                        )
                 if source_sequence_value is not None:
                     current_sequence = int_value(source_sequence_value, "source_sequence")
-                    duplicate_key = (source_scope_id, current_sequence)
+                    duplicate_key = (sequence_validation_scope, current_sequence)
                     payload_hash = hashlib.sha256(canonical_json(message).encode()).hexdigest()
                     prior_hash = sequence_payloads.get(duplicate_key)
                     if prior_hash is not None:
@@ -756,30 +874,42 @@ def normalize_capture_v3(
                             )
                         identical_duplicates += 1
                         continue
-                    previous_sequence = sequence_previous.get(source_scope_id)
+                    previous_sequence = sequence_previous.get(sequence_validation_scope)
                     if previous_sequence is not None and current_sequence < previous_sequence:
                         raise HistoricalDataError(
                             "SourceSequenceRegression", f"sequence regressed at raw line {line_number}"
                         )
                     if previous_sequence is not None and current_sequence > previous_sequence + 1:
+                        if sequence_topology == "independent":
+                            affected_tickers = [ticker]
+                        else:
+                            affected_tickers = list(scope["requested_market_tickers"])
                         control_record(
                             destination,
                             raw_ordinal=raw_ordinal,
                             received_at=received_at,
                             control_type="sequence_gap",
-                            ticker=ticker,
+                            ticker=None,
                             source_scope_id=source_scope_id,
                             details={
                                 "expected_sequence": previous_sequence + 1,
                                 "received_sequence": current_sequence,
                                 "scope_status": sequence_domain["status"],
+                                "scope_topology": sequence_topology,
+                                "observed_post_gap_ticker": ticker,
+                                "affected_market_tickers": affected_tickers,
                             },
                         )
                         if scope["channel"] == "orderbook_delta":
-                            state = market_state[ticker]
-                            state["valid"] = False
-                            state["awaiting"] = "recovery_snapshot"
-                    sequence_previous[source_scope_id] = current_sequence
+                            for affected_ticker in affected_tickers:
+                                affected_state = market_state[affected_ticker]
+                                affected_state["valid"] = False
+                                affected_state["awaiting"] = (
+                                    "recovery_snapshot"
+                                    if affected_state["ever_valid"]
+                                    else "initial_snapshot"
+                                )
+                    sequence_previous[sequence_validation_scope] = current_sequence
                     sequence_payloads[duplicate_key] = payload_hash
 
                 state = market_state[ticker]
@@ -791,6 +921,7 @@ def normalize_capture_v3(
                         )
                     state["segment"] += 1
                     state["valid"] = True
+                    state["ever_valid"] = True
                     recovery_kind = state["awaiting"]
                     state["awaiting"] = None
                     snapshot_counts[(connection, ticker)] += 1
@@ -893,13 +1024,12 @@ def normalize_capture_v3(
                     },
                 )
 
-        channels_by_connection: dict[int, set[str]] = {}
-        for scope in scopes.values():
-            channels_by_connection.setdefault(scope["connection_segment_id"], set()).add(
-                scope["channel"]
-            )
-        for connection, _ in request_membership:
-            if channels_by_connection.get(connection) != {"orderbook_delta", "trade"}:
+        for connection in requests:
+            acknowledged_channels = {
+                channel for candidate_connection, channel in acknowledgements
+                if candidate_connection == connection
+            }
+            if acknowledged_channels != {"orderbook_delta", "trade"}:
                 incomplete_reasons.append(
                     {"code": "SubscriptionAckMissing", "connection_segment_id": connection}
                 )
@@ -913,13 +1043,20 @@ def normalize_capture_v3(
                             "count": snapshot_counts[(connection, ticker)],
                         }
                     )
-        if not request_membership:
+        if not requests:
             incomplete_reasons.append({"code": "SubscriptionRequestMissing"})
         for ticker, state in market_state.items():
             if not state["valid"]:
                 incomplete_reasons.append(
                     {"code": "RecoverySnapshotMissing", "ticker": ticker}
                 )
+
+        missing_market_ids = [ticker for ticker in tickers if ticker not in market_ids]
+        if missing_market_ids:
+            raise HistoricalDataError(
+                "MarketIdentityMissing",
+                f"requested markets have no stable capture identity: {', '.join(missing_market_ids)}",
+            )
 
         if incomplete_reasons:
             completeness = "incomplete"
@@ -939,6 +1076,9 @@ def normalize_capture_v3(
             "sequence_domain": sequence_domain,
             "scopes": sorted(scopes.values(), key=lambda value: value["source_scope_id"]),
         }
+        validate_historical_schema(
+            scope_document, "source-scope-map-v1.schema.json", "SourceScopeSchemaMismatch"
+        )
         write_json(scope_path, scope_document)
         product_entries: list[dict[str, Any]] = []
         for ticker in tickers:
@@ -968,6 +1108,9 @@ def normalize_capture_v3(
             "environment": "production",
             "products": product_entries,
         }
+        validate_historical_schema(
+            product_document, "product-map-v3.schema.json", "ProductMapSchemaMismatch"
+        )
         write_json(product_path, product_document)
         if packages:
             terms_root = temporary / "product_terms"
@@ -1019,6 +1162,11 @@ def normalize_capture_v3(
                 }
                 for ticker, package in sorted(packages.items())
             ]
+        validate_historical_schema(
+            manifest,
+            "normalization-manifest-v3.schema.json",
+            "NormalizationManifestSchemaMismatch",
+        )
         write_json(manifest_path, manifest)
         temporary.rename(output_dir)
         return manifest
@@ -2096,9 +2244,12 @@ def main(argv: list[str] | None = None) -> int:
     except HistoricalDataError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    except (OSError, ValueError, InvalidOperation, ProductTermsError) as error:
+    except (ValueError, ProductTermsError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
+    except (OSError, InvalidOperation) as error:
+        print(f"programming failure: {type(error).__name__}: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

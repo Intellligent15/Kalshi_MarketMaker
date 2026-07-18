@@ -14,8 +14,8 @@
     "wire_request_id": {"type": "integer"},
     "subscription": {"type": "object"},
     "message_type": {"type": "string"},
-    "subscription_id": {},
-    "source_sequence": {},
+    "subscription_id": {"type": ["string", "integer", "null"]},
+    "source_sequence": {"type": ["integer", "null"]},
     "market_ticker": {"type": ["string", "null"]},
     "venue_market_id": {"type": ["string", "null"]},
     "raw_frame_utf8": {"type": "string"},
@@ -31,5 +31,15 @@
     "clean": {"type": "boolean"},
     "byte_length": {"type": "integer", "minimum": 0}
   },
+  "allOf": [
+    {"if": {"properties": {"kind": {"const": "connection_attempt"}}}, "then": {"required": ["connection_segment_id", "websocket_url"], "not": {"anyOf": [{"required": ["subscription"]}, {"required": ["raw_frame_utf8"]}]}}},
+    {"if": {"properties": {"kind": {"const": "connection_opened"}}}, "then": {"required": ["connection_segment_id", "websocket_url"]}},
+    {"if": {"properties": {"kind": {"const": "subscription_sent"}}}, "then": {"required": ["connection_segment_id", "subscription_request_id", "wire_request_id", "subscription"]}},
+    {"if": {"properties": {"kind": {"const": "inbound_frame"}}}, "then": {"required": ["connection_segment_id", "message_type", "subscription_id", "source_sequence", "market_ticker", "venue_market_id", "raw_frame_utf8"], "not": {"anyOf": [{"required": ["subscription"]}, {"required": ["failure_phase"]}, {"required": ["close_reason"]}]}}},
+    {"if": {"properties": {"kind": {"const": "subscription_acknowledged"}}}, "then": {"required": ["connection_segment_id", "subscription_request_id", "wire_request_id", "channel", "venue_subscription_id", "requested_market_tickers", "membership_claim"]}},
+    {"if": {"properties": {"kind": {"const": "connection_gap"}}}, "then": {"required": ["connection_segment_id", "failure_phase", "error_type", "error_code", "reconnect_delay_seconds"]}},
+    {"if": {"properties": {"kind": {"const": "connection_closed"}}}, "then": {"required": ["connection_segment_id", "close_reason", "clean"]}},
+    {"if": {"properties": {"kind": {"const": "binary_frame_rejected"}}}, "then": {"required": ["connection_segment_id", "byte_length"]}}
+  ],
   "additionalProperties": false
 }

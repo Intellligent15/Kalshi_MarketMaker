@@ -17,7 +17,7 @@
     "event_time_basis": {"enum": ["source_ts_ms", "local_receive_time"]},
     "source_time_late": {"type": "boolean"},
     "source_scope_time_late": {"type": "boolean"},
-    "source_sequence": {},
+    "source_sequence": {"type": ["integer", "null"]},
     "source_scope_id": {"type": ["string", "null"]},
     "sequence_domain_status": {"enum": ["documented", "fixture_declared", "unknown"]},
     "connection_segment_id": {"type": "integer", "minimum": 1},
@@ -30,7 +30,34 @@
     "event_type": {"enum": ["book_snapshot", "book_delta", "trade"]},
     "payload": {"type": "object"},
     "control_type": {"enum": ["connection_gap", "sequence_gap"]},
-    "details": {"type": "object"},
+    "details": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["connection_segment_id", "failure_phase", "error_code", "prior_book_state"],
+          "properties": {
+            "connection_segment_id": {"type": "integer", "minimum": 1},
+            "failure_phase": {"type": ["string", "null"]},
+            "error_code": {"type": ["string", "null"]},
+            "prior_book_state": {"enum": ["invalidated", "not_yet_established"]}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expected_sequence", "received_sequence", "scope_status", "scope_topology", "observed_post_gap_ticker", "affected_market_tickers"],
+          "properties": {
+            "expected_sequence": {"type": "integer"},
+            "received_sequence": {"type": "integer"},
+            "scope_status": {"enum": ["documented", "fixture_declared", "unknown"]},
+            "scope_topology": {"enum": ["shared", "independent", "unknown"]},
+            "observed_post_gap_ticker": {"type": "string", "minLength": 1},
+            "affected_market_tickers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+          }
+        }
+      ]
+    },
     "boundary_type": {"const": "segment_started"},
     "start_evidence": {"enum": ["initial_snapshot", "recovery_snapshot"]},
     "continuity_claim": {"const": "valid_from_observed_snapshot_only"}
@@ -38,15 +65,24 @@
   "allOf": [
     {
       "if": {"properties": {"kind": {"const": "market_event"}}},
-      "then": {"required": ["event_id", "event_time_utc_ns", "event_time_basis", "source_time_late", "source_scope_time_late", "source_scope_id", "sequence_domain_status", "connection_segment_id", "subscription_id", "ticker", "venue_market_id", "venue_market_id_provenance", "book_segment_id", "book_state_valid", "event_type", "payload"]}
+      "then": {
+        "required": ["event_id", "event_time_utc_ns", "event_time_basis", "source_time_late", "source_scope_time_late", "source_scope_id", "sequence_domain_status", "connection_segment_id", "subscription_id", "ticker", "venue_market_id", "venue_market_id_provenance", "book_segment_id", "book_state_valid", "event_type", "payload"],
+        "not": {"anyOf": [{"required": ["control_type"]}, {"required": ["boundary_type"]}]}
+      }
     },
     {
       "if": {"properties": {"kind": {"const": "discontinuity"}}},
-      "then": {"required": ["control_type", "ticker", "source_scope_id", "details"]}
+      "then": {
+        "required": ["control_type", "ticker", "source_scope_id", "details"],
+        "not": {"anyOf": [{"required": ["event_type"]}, {"required": ["boundary_type"]}]}
+      }
     },
     {
       "if": {"properties": {"kind": {"const": "segment_boundary"}}},
-      "then": {"required": ["boundary_type", "ticker", "source_scope_id", "book_segment_id", "start_evidence", "continuity_claim"]}
+      "then": {
+        "required": ["boundary_type", "ticker", "source_scope_id", "book_segment_id", "start_evidence", "continuity_claim"],
+        "not": {"anyOf": [{"required": ["event_type"]}, {"required": ["control_type"]}]}
+      }
     }
   ],
   "additionalProperties": false

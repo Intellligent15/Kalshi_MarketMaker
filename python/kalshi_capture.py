@@ -260,13 +260,12 @@ class SequenceTracker:
     def observe(self, connection_id: int, sid: Any, sequence: Any) -> None:
         if sequence is None:
             return
-        try:
-            current = int(sequence)
-        except (TypeError, ValueError):
+        if isinstance(sequence, bool) or not isinstance(sequence, int):
             self.non_monotonic.append(
                 {"connection_id": connection_id, "sid": str(sid), "sequence": sequence}
             )
             return
+        current = sequence
         key = (connection_id, str(sid))
         previous = self._previous.get(key)
         if previous is not None:
@@ -704,6 +703,7 @@ def capture_metadata_v2(config: CaptureV2Config, started_at: int) -> dict[str, A
         "subscription_template": subscription_payload_v2(config.tickers, request_id=1),
         "sequence_domain": {
             "status": "unknown",
+            "topology": "unknown",
             "components": [],
             "mechanical_validation_key": ["connection_segment_id", "venue_subscription_id"],
             "limitation": "Venue sequence-domain scope is not established by retained evidence.",
@@ -720,6 +720,7 @@ def capture_metadata_v2(config: CaptureV2Config, started_at: int) -> dict[str, A
         "sequence_gaps": [],
         "non_monotonic_sequences": [],
         "capture_continuity": "incomplete",
+        "data_usability": "unusable",
         "shutdown": {"status": "running", "clean": False},
     }
 
@@ -749,10 +750,13 @@ def finalize_capture_v2_metadata(
     sequence_clean = not metadata["sequence_gaps"] and not metadata["non_monotonic_sequences"]
     if metadata["shutdown"].get("status") != "completed" or not every_segment_ready or not sequence_clean:
         metadata["capture_continuity"] = "incomplete"
+        metadata["data_usability"] = "unusable"
     elif metadata.get("disconnects", 0):
         metadata["capture_continuity"] = "observed_discontinuous"
+        metadata["data_usability"] = "record_only"
     else:
         metadata["capture_continuity"] = "continuous_within_recorded_mechanical_scopes"
+        metadata["data_usability"] = "strict_eligible"
 
 
 def run_capture_command(args: argparse.Namespace) -> int:
@@ -830,7 +834,15 @@ def run_capture_v2_command(args: argparse.Namespace) -> int:
             finalize_capture_v2_metadata(metadata, recorder, summary)
             write_json(config.output / METADATA_FILE, metadata)
     if exit_code == 0:
-        print(json.dumps(metadata, indent=2, sort_keys=True))
+        if metadata["data_usability"] == "strict_eligible":
+            print(json.dumps(metadata, indent=2, sort_keys=True))
+        else:
+            exit_code = 2
+            print(
+                "CaptureDataUnusable: operational capture completed but finalized evidence is "
+                f"{metadata['data_usability']} ({metadata['capture_continuity']})",
+                file=sys.stderr,
+            )
     return exit_code
 
 
