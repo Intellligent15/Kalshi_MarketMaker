@@ -371,3 +371,38 @@ B2a remains a historical evidence boundary. It does not provide:
 See [[02 Architecture/ADR-013 Multi-Scope Capture and Reconnect-Aware Normalization]],
 [[07 Engineering Notes/Phase 7 Multi-Scope Capture and Recovery]], and
 [[07 Engineering Notes/Phase 7 Multi-Scope Capture Critique]].
+
+## B2a-1: what changed after the critique
+
+The B2a critique found that the architecture was conservative in principle but not at every edge.
+B2a-1 closes those edges without adding a consumer.
+
+The most important correction is the difference between the ticker that reveals a gap and the
+markets the missing event could have affected. A post-gap message can identify itself, but it
+cannot identify the absent message. The normalized gap therefore carries both
+`observed_post_gap_ticker` and a sorted `affected_market_tickers` set. Shared and unknown
+order-book scopes invalidate every possible member; an independently declared scope invalidates
+only its member.
+
+The sequence contract is now type-specific. Order-book snapshots and deltas require an integer
+sequence. Public trades do not, because the official public-trade message contract does not carry
+one; a trade sequence is still validated when present. Acknowledgements and lifecycle records use
+their explicit request, connection, SID, and ingress identities instead.
+
+Record mode remains an evidence-preservation policy, not a schema escape hatch. It can publish
+honest discontinuity and incomplete-prefix evidence, but it cannot publish an unidentified
+product. Every requested ticker must establish one stable capture market ID before final output.
+
+Recovery now distinguishes two histories:
+
+- a valid observed segment, a gap, and a later snapshot-started segment is discontinuous; and
+- a disconnect before any valid snapshot leaves an incomplete prefix, even if a later snapshot
+  establishes the first valid observed segment.
+
+Finally, normalization re-proves the complete subscription transaction instead of trusting the
+capture writer: one canonical request, one acknowledgement per channel, matching logical and wire
+IDs, exact declared membership, and connection-local SID uniqueness. Runtime schema validation and
+one-defect tests make malformed successor records fail at the same boundary as semantic defects.
+
+These corrections make normalization V3 safe to design against. They do not implement B2b's
+multi-market projection, causal features, replay, or backtesting.

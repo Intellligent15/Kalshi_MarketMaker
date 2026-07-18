@@ -29,17 +29,18 @@ uv run python python/pmm_phase7.py normalize-v3 \
 
 That output is not accepted by current feature or backtest consumers.
 
-## Current review warning
+## B2a-1 hardening status
 
-Capture and normalization V2/V3 remain research successors pending B2a-1 hardening. The
-post-implementation review found that a shared/unknown-scope sequence gap can under-invalidate
-affected markets and that record mode can publish a product map outside its schema if a requested
-market never establishes `market_id`. Do not build projection or backtest consumers on V3 until
-those impact-5 findings are closed.
+B2a-1 closes the reviewed truth-boundary blockers. Shared and unknown sequence gaps propagate to
+every possible scope member, missing order-book sequences are explicit, acknowledgement identity
+and cardinality are revalidated offline, missing market identity refuses before publication, and a
+disconnect before initial state remains an incomplete prefix. Every successor document is checked
+against its schema at the runtime boundary.
 
-Also interpret `capture-v2` exit 0 narrowly: it currently means the requested capture loop ended
-and retained raw evidence was finalized. Inspect `shutdown` and `capture_continuity`; exit 0 does
-not by itself mean strict normalization will accept the capture.
+`capture-v2` now reserves exit 0 for strict-eligible finalized evidence. Exit 2 retains raw bytes
+and final metadata for operationally completed evidence whose `data_usability` is `record_only` or
+`unusable`. Inspect `shutdown`, `capture_continuity`, and `data_usability` together. B2b consumers
+remain deliberately absent; current feature and backtest commands still refuse V3.
 
 ## Artifact layout
 
@@ -57,13 +58,16 @@ Normalized V3 contains:
 
 ## Operator interpretation
 
-`complete_observed_interval` means every requested market received one required snapshot and no
+`complete_observed_interval` means every requested market established identity, received one
+required snapshot, carried required order-book sequence evidence, and no
 recorded defect was found inside the bounded capture, subject to unknown sequence scope and Level-2
 limitations. `observed_discontinuous` means valid observed segments exist around a missing interval.
 `incomplete` means a required acknowledgement, snapshot, sequence, frame, or valid book segment is
 missing.
 
-A later snapshot never repairs the gap. It starts a new segment only.
+A later snapshot never repairs the gap. It starts a new segment only. When no valid segment existed
+before the gap, that later snapshot is initial observed state after an incomplete prefix rather
+than evidence of recovered continuity.
 
 ## Offline validation
 

@@ -24,27 +24,28 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-17 |
-| Last completed package | B2a multi-scope capture and reconnect-aware normalization |
+| Last completed package | B2a-1 multi-scope truth-boundary hardening |
+| B2a-1 implementation and test commits | `b68f42b` and `981f744` |
 | B2a implementation commits | `520d0a0`, `399e500`, `48f2a25`, and `a04b0c1` |
 | B2a documentation and review commits | `8036eb9`, `17e15bc`, and `0c1da77` |
-| Branch state before the B2a-1 handoff update | `main` fifteen commits ahead of `origin/main` |
+| Branch state before B2a-1 implementation | `main` sixteen commits ahead of `origin/main` |
 | Recent B1c closure commits | `f826fae`, `8262c2c`, and `4825aa5` |
 | Recent B1b-2 implementation commits | `b3da27e`, `b28a3ad`, `4ba99a6`, and `ff9dbe6` |
 | Recent B1b-2 review commits | `73dc566`, `6e22b27`, and `61a2188` |
 | Recent B1b-1 commits | `902a2df`, `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
 | C++/CTest validation | 78 tests passing |
-| Python validation | 118 tests passing |
-| Focused capture validation | 11 tests passing |
-| Focused Phase 7 validation | 26 tests passing |
+| Python validation | 130 tests passing |
+| Focused capture validation | 13 tests passing |
+| Focused Phase 7 validation | 36 tests passing |
 | Focused product-term validation | 42 tests passing |
 | Focused checkpoint-reader validation | 17 tests passing |
 | Focused fixture-integrity validation | 17 tests passing |
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | B2a-1 multi-scope truth-boundary hardening |
-| Immediate next action | Read-only B2a-1 design gate; wait for approval before implementation |
+| Next bounded package | B2b multi-market projection, features, and replay |
+| Immediate next action | Read-only B2b design gate; wait for approval before implementation |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -628,31 +629,33 @@ architectural authority. B2a does not prove continuous venue history, multi-mark
 backtesting, long-capture stability, queue position, hidden liquidity, fills, fees, accounting,
 settlement, profitability, or venue equivalence.
 
-The post-implementation review found two impact-5 successor defects that do not affect accepted
-legacy artifacts but block B2b: a gap on a shared/unknown scope currently invalidates only the
-ticker on the first post-gap message, and record mode can emit a product-map V3 document that fails
-its schema when one requested market never establishes a market ID. It also found impact-4 gaps in
-missing-sequence handling, schema/runtime negative parity, acknowledgement re-validation, capture
-CLI status semantics, and disconnect-before-initial-snapshot coverage. See
-[[07 Engineering Notes/Phase 7 Multi-Scope Capture Critique]].
+The B2a post-implementation review found two impact-5 and five impact-4 successor defects. B2a-1
+closed those blockers before B2b: shared/unknown gap propagation, missing identity, required
+sequence evidence, schema/runtime parity, acknowledgement re-validation, capture CLI status, and
+disconnect-before-initial-snapshot semantics. See
+[[07 Engineering Notes/Phase 7 Multi-Scope Capture Critique]] for the chronological audit and its
+closure appendix.
 
-#### B2a-1. Multi-scope truth-boundary hardening — next bounded package
+#### B2a-1. Multi-scope truth-boundary hardening — complete
 
-B2a-1 must remain smaller than projection or backtesting. Its design gate should define:
+B2a-1 remained smaller than projection or backtesting and delivered:
 
 - conservative affected-market propagation for a gap in an unknown/shared sequence scope;
-- refusal or explicit representation when a requested market never establishes stable identity;
+- fail-closed refusal when a requested market never establishes stable identity;
 - which message types require source sequence evidence;
 - exact request/channel/SID acknowledgement cardinality and identity validation;
 - disconnect-before-initial-snapshot completeness semantics;
 - one-defect schema/runtime parity for every successor format; and
 - capture exit/status wording that separates operational completion from data usability.
 
-Implementation, after approval, should use only offline synthetic fixtures and preserve every
-accepted legacy byte and meaning. It should not add projection, features, backtesting, a live
-capture, multi-connection operation, or performance redesign.
+Implementation used only offline synthetic fixtures and preserved every accepted legacy byte and
+meaning. It did not add projection, features, backtesting, a live capture, multi-connection
+operation, or performance redesign.
 
-B2a-1 is complete only when all of the following are true:
+B2a-1 completion evidence:
+
+- commits `b68f42b` and `981f744` implement the corrected runtime/schema boundary and its offline
+  one-defect acceptance matrix;
 
 - a sequence gap in an unknown/shared scope invalidates or marks incomplete every market that the
   missing event could have affected, without pretending the missing ticker is known;
@@ -675,13 +678,14 @@ B2a-1 is complete only when all of the following are true:
 - ADR-013, the operator guide, explanation, critique, README surfaces, and this roadmap are updated
   to distinguish closed B2a-1 findings from deferred B2b/B2c debt.
 
-The post-review findings intentionally deferred beyond B2a-1 remain tracked: a V2 inspector and
+The seven reviewed findings B2A-01 through B2A-06 and B2A-08 are closed. The post-review findings
+intentionally deferred beyond B2a-1 remain tracked: a V2 inspector and
 format/refusal reference, metadata/directory durability, binary-frame retention, path-independent
 manifest identity, bounded duplicate memory, deterministic subscription batching, and retained
 long-capture evidence. They should not be pulled into B2a-1 unless a concrete correctness
 dependency is demonstrated.
 
-#### B2b. Multi-market projection, features, and replay — planned after B2a-1
+#### B2b. Multi-market projection, features, and replay — next bounded package
 
 B2b should design how corrected product scopes and segment validity flow through projection cursors,
 feature artifacts, replay, and backtest orchestration. It must consume B2a records without merging
@@ -1064,38 +1068,36 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | B2a-1 multi-scope truth-boundary hardening | Closes shared-gap propagation and schema/runtime blockers before consumers rely on them. |
-| 2 | B2b multi-market projection, features, and replay | Consumes corrected B2a scopes without hiding discontinuities or weakening causality. |
-| 3 | B2c retained full-capture regression evidence | Pins broader counts, hashes, recovery cases, and reproducibility before B2 closes. |
-| 4 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
-| 5 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
-| 6 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
-| 7 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
-| 8 | Durable full-run continuation | Required for long and operationally reliable experiments. |
-| 9 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
-| 10 | Predictive models and model registry | Follows held-out baseline evidence. |
-| 11 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
-| 12 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
-| 13 | Demo exchange integration | Follows stable paper operations and reconciliation. |
-| 14 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
+| 1 | B2b multi-market projection, features, and replay | Consumes corrected B2a scopes without hiding discontinuities or weakening causality. |
+| 2 | B2c retained full-capture regression evidence | Pins broader counts, hashes, recovery cases, and reproducibility before B2 closes. |
+| 3 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
+| 4 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
+| 5 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
+| 6 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
+| 7 | Durable full-run continuation | Required for long and operationally reliable experiments. |
+| 8 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
+| 9 | Predictive models and model registry | Follows held-out baseline evidence and safe fallback design. |
+| 10 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
+| 11 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
+| 12 | Demo exchange integration | Follows stable paper operations and reconciliation. |
+| 13 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
 
 This order is a default, not a prohibition on discovery work. A prototype may explore a later idea,
 but it must remain labelled experimental and must not bypass its promotion gates.
 
 ## Current next package
 
-The next bounded package is **B2a-1 multi-scope truth-boundary hardening**. Its first turn is a
-read-only design gate for shared/unknown-scope gap propagation, missing product identity, required
-sequence evidence, exact acknowledgement cardinality, initial-snapshot interruption semantics,
-schema/runtime negative parity, and capture status wording. It must stop for approval before
-implementation and must not combine B2b projection/features/replay, B2c long-capture retention, B3
-reporting, execution calibration, accounting, settlement, ML, or operational gateway work into the
-package.
+The next bounded package is **B2b multi-market projection, features, and replay**. Its first turn is
+a read-only design gate for per-product, per-segment cursors and explicit incomplete-interval
+propagation. It must consume the corrected B2a-1 scope/state boundary without merging incomparable
+sequence domains or treating recovery snapshots as continuity. It must stop for approval before
+implementation and must not combine B2c long-capture retention, B3 reporting, execution
+calibration, accounting, settlement, ML, or operational gateway work into the package.
 
-B2a establishes explicit multi-scope capture and reconnect-aware normalization successors. The
-post-implementation review found bounded truth-contract defects that B2a-1 must close before those
-successors are consumed by multi-market projection. B2a does not prove feature generation,
-replay/backtesting, long-capture behavior, or continuous market-data completeness.
+B2a establishes explicit multi-scope capture and reconnect-aware normalization successors. B2a-1
+closes the reviewed truth-contract blockers before those successors are consumed by multi-market
+projection. Neither package proves feature generation, replay/backtesting, long-capture behavior,
+or continuous venue-global market-data completeness.
 
 Track A is closed by `4e6336b` for A1 and `ecca209` for A2, with their documentation packages.
 Deferred A3 hardening remains available only when evidence raises its impact or its containing

@@ -128,3 +128,21 @@ Focused validation passes 11 capture tests, 26 Phase 7 tests, and 42 product-ter
 Python suite passes 118 tests; all tests remain offline. B2a-1 truth-boundary hardening is next,
 then B2b multi-market segment-aware projection, features, and replay. B2c owns the retained
 full-capture regression.
+
+## B2a-1 truth-boundary hardening
+
+B2a-1 closes the reviewed shared-gap, missing-identity, sequence, acknowledgement, schema, CLI,
+and incomplete-prefix defects without adding a V3 consumer. Unknown/shared gaps name every
+possible affected market and invalidate every affected book. Snapshots and deltas require source
+sequence evidence, while sequence-less public trades remain supported. Missing stable capture
+identity fails closed in both policies. Offline normalization re-proves the complete subscription
+transaction and runtime-validates every successor artifact schema.
+
+Capture shutdown, continuity, and data usability are separate. Strict-eligible finalized evidence
+exits zero; record-only or unusable finalized raw evidence is retained and exits two. Feature and
+backtest commands continue to refuse V3 pending B2b.
+
+Focused validation passes 13 capture tests, 36 Phase 7 tests, 42 product-term tests, 17 checkpoint-
+reader tests, and 17 fixture-integrity tests. The complete Python suite passes 130 tests and all 78
+CTest tests pass. Every added acceptance test is deterministic and network-free. B2b multi-market
+segment-aware projection, features, and replay is now the next design-only package.

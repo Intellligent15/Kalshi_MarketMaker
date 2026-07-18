@@ -151,3 +151,24 @@ Highest relevant findings: B2A-10 (4), B2A-11 (4), B2A-18 (3), and B2A-19/20 (2)
 
 The implementation still makes no queue, hidden-liquidity, venue-equivalent execution, fee,
 accounting, settlement, paper-readiness, live-readiness, or profitability claim.
+
+## B2a-1 closure review
+
+B2a-1 closes B2A-01 through B2A-06 and B2A-08:
+
+| Finding | Closure evidence |
+| --- | --- |
+| B2A-01 | Gap records separate the observed post-gap ticker from a sorted possible affected set; shared and unknown order-book scopes invalidate all possible members. |
+| B2A-02 | Both continuity policies refuse before publication when any requested ticker lacks stable capture identity. |
+| B2A-03 | Snapshots and deltas require integer sequence evidence; sequence-less trades remain valid under the documented public-trade shape. |
+| B2A-04 | Runtime validates all seven successor schemas and the tests include generated positives and one-defect negatives. |
+| B2A-05 | Offline normalization revalidates one canonical request, exact logical/wire identity, one acknowledgement per channel, membership, claim, and connection-local SID uniqueness. |
+| B2A-06 | Capture metadata separates shutdown, continuity, and usability; exit zero is strict-eligible, while finalized record-only/unusable evidence exits two and remains retained. |
+| B2A-08 | A gap before any valid snapshot preserves `initial_snapshot` state and incomplete-prefix classification rather than claiming recovered continuity. |
+
+B2A-07 remains an honest protocol unknown: current official material documents order-book message
+sequence fields but does not establish the comparison domain. Unknown topology therefore retains
+conservative all-possible-member propagation. B2A-09 remains the intended B2b boundary. B2A-10
+through B2A-22 remain deferred according to the roadmap; this package does not claim to close
+inspection, durability, binary retention, portable identity, memory bounds, batching, long-capture
+evidence, performance, or comprehensive public format-reference debt.

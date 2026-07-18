@@ -71,6 +71,13 @@ Normalization V3 keeps market events, discontinuities, and segment boundaries in
 stream; a post-gap snapshot starts a new observed segment but never repairs the missing interval.
 Existing V1/V2/V3 artifacts retain their bytes and meanings.
 
+B2a-1 hardens that successor boundary before downstream adoption. Shared or unknown gaps now
+invalidate every possibly affected book, required order-book sequence evidence and exact
+acknowledgement transactions are enforced, missing market identity fails closed, pre-snapshot
+disconnects remain incomplete prefixes, successor schemas are runtime-validated, and capture exit
+status distinguishes strict data usability from operational finalization. Feature and backtest
+support for normalization V3 remains deferred to B2b.
+
 ## Quick start
 
 Prerequisites: CMake 3.24+, a C++20 compiler, Git (to fetch GoogleTest for test builds),

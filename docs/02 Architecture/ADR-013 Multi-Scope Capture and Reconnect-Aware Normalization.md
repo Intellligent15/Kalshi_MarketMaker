@@ -121,3 +121,44 @@ features, backtests, long-capture evidence, streaming optimization, calibrated f
 fees, accounting, settlement, ML, paper trading, gateways, or live orders. Matching, core integer
 types, account risk, checkpoint categories/ordinals, risk first-failure order, and accepted product
 evidence remain unchanged.
+
+## B2a-1 truth-boundary hardening amendment
+
+B2a-1 closes the reviewed successor defects before any projection consumes normalization V3.
+Sequence-domain evidence now declares both status and topology. A documented or fixture-declared
+independent scope affects its one represented market; shared scopes affect their exact membership;
+an unknown scope conservatively affects every requested market that its mechanical connection,
+channel, and SID could carry. A gap records the observed post-gap ticker separately from the sorted
+possible affected set. Order-book gaps invalidate every possibly affected book and require a new
+snapshot for each one. Raw ingress order remains authoritative and a later snapshot still cannot
+repair the missing interval.
+
+Official order-book message documentation includes sequences on snapshots and deltas, while the
+public-trade contract does not. The successor therefore requires an integer sequence on
+`orderbook_snapshot` and `orderbook_delta`, validates a trade sequence when present, and does not
+require source sequences on acknowledgements or lifecycle records. Missing required sequence
+evidence is an explicit incomplete reason and a default refusal.
+
+Each connection must contain exactly one canonical request and exactly one acknowledgement for
+each expected channel. Normalization revalidates logical and wire request identities, exact sorted
+membership, the non-echoed membership claim, channel cardinality, and SID uniqueness within the
+connection. SID reuse after reconnect remains valid because connection segment is part of scope
+identity. An acknowledgement proves request/channel success, not per-market activity.
+
+A disconnect before a market's first valid snapshot is an incomplete prefix, not recovery between
+two valid segments. Only a market that previously had valid snapshot-seeded state can enter
+`recovery_snapshot`. A requested market that never establishes one stable non-empty venue market
+ID refuses in both continuity policies; record mode represents continuity defects, not unidentified
+products.
+
+Runtime now validates all seven successor schemas at their read/write boundaries. Raw and
+normalized record kinds are discriminated, sequence domains and gap details have exact shapes,
+lineage is all-or-none, and generated positives plus one-defect negatives prove schema/runtime
+agreement. These changes harden only the B2a successor formats; accepted legacy formats and
+retained product packages keep their bytes and meanings.
+
+`capture-v2` exit zero now means finalized evidence is eligible for strict normalization.
+Operationally completed but record-only or unusable evidence is retained with finalized metadata,
+an explicit `data_usability` value, a diagnostic on stderr, empty stdout, and exit two. Unexpected
+programming failure remains one and interruption remains 130. `normalize-v3` retains the same
+0/2/1/130 distinction and removes derived partial output on every failure or interruption.
