@@ -3,9 +3,10 @@
 ## Status and authority
 
 This is the B2c operator guide for the additive evidence tooling. It does not authorize product
-acquisition or a venue capture. The separately approved B2c-P package must name the selection
-snapshot, activity field, three markets, reviewed acquisition responsibility, durable storage owner,
-and storage destination before an operator uses the live-capture steps below.
+acquisition or a venue capture. A post-implementation review found process-lifecycle and
+independent-verification gaps that must first close in B2c-H. The later B2c-P package must name the
+selection snapshot, activity field, three markets, reviewed acquisition responsibility, durable
+storage owner, and storage destination before an operator uses the live-capture steps below.
 
 The fixed policy is `configs/phase7/b2c_evidence_policy_v1.json`. The run is one 43,200-second,
 three-market attempt on the existing `single_connection_v1` Capture V2 path. It has a 1 GiB raw
@@ -38,12 +39,18 @@ stderr and does not retain their bytes. The mounted-package verifier rejects PEM
 
 ## Measured commands
 
+> [!CAUTION]
+> Do not use the measurement wrapper for a live capture yet. B2c-H must first guarantee that an
+> operator interrupt terminates and reaps the measured child process group, independently rebuild
+> repetition inventories and the complete lineage graph, validate every mounted B2c document, and
+> enforce the declared free-space and aggregate-budget boundaries.
+
 The measurement wrapper starts an unchanged command in a fresh process group, samples process-tree
 RSS and process count, measures declared input/output bytes, hashes scrubbed streams, and interrupts
 the group if the declared output budget is exceeded. Reports are create-new sidecars and are not part
 of deterministic derived outputs.
 
-After B2c-P approval, the capture command has this shape:
+After B2c-H closure and B2c-P approval, the capture command has this shape:
 
 ```sh
 UV_CACHE_DIR=/tmp/pmm-uv-cache uv run python python/pmm_phase7_evidence.py measure \

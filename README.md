@@ -94,8 +94,9 @@ joined signals, portfolio-wide risk, calibrated execution, accounting, fees, PnL
 B2c tooling adds a fixed twelve-hour/three-market evidence policy, compact package index and offline
 verifier, process-tree resource measurement with disk-budget interruption, normalization duplicate-
 state telemetry, and per-contract oracle telemetry. It does not contain a retained B2c capture. New
-contemporaneous product evidence, durable storage ownership, and the single observed capture remain
-behind the separately approved B2c-P execution gate.
+post-implementation review found child-process interruption and independent-verification blockers,
+so B2c-H hardening precedes contemporaneous product evidence, durable storage approval, and the
+single observed B2c-P capture.
 
 ## Quick start
 

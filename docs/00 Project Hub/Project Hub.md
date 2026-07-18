@@ -21,8 +21,9 @@ fees, collateral, settlement, durable persistence, and gateways remain intention
 Phase 7 now also has an additive multi-market backtest implementation: one global causal schedule,
 independent per-product baseline state, and one canonical C++ risk projection per contract. Its
 focused and full offline closure gates pass. B2c now has offline evidence-index, measurement, and
-instrumentation tooling, but no retained capture; B2c-P product evidence and capture execution remain
-the next separately approved gate.
+instrumentation tooling, but no retained capture. Its deeper review found operator-interrupt and
+independent-verification blockers; B2c-H hardening is next, followed by the separately approved
+B2c-P product-evidence and capture gate.
 
 ## Navigation
 

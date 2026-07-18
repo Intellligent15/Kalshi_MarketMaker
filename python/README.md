@@ -231,6 +231,10 @@ output-budget violation. `normalize-v3 --instrumentation-output` records duplica
 non-deterministic measurements and never enter canonical normalization, feature, result, or trace
 bytes.
 
+Do not use `measure` for a live capture yet. The post-implementation critique requires B2c-H to
+guarantee child-process teardown on wrapper interruption, independently reconstruct repetition and
+lineage claims, validate every mounted member, and enforce the complete storage boundary first.
+
 The fixed policy is `configs/phase7/b2c_evidence_policy_v1.json`. It is not capture authorization.
-See `docs/07 Engineering Notes/Phase 7 Retained Capture Evidence.md` before proposing B2c-P product
-acquisition or a live capture.
+See `docs/07 Engineering Notes/Phase 7 Retained Capture Evidence.md` before implementing B2c-H or
+proposing B2c-P product acquisition or a live capture.

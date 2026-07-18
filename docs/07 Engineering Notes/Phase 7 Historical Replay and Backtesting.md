@@ -193,5 +193,7 @@ instrumentation-on and instrumentation-off bytes. Capture V2 interruption/failur
 derived-stage partial cleanup remain intentionally different.
 
 No retained product evidence or observed capture was created by this package. B2A-10/11 and
-B2B2-05/06 remain open or measurement-pending. The next package is the separately approved B2c-P
-selection, product-evidence, durable-storage, and capture-execution gate.
+B2B2-05/06 remain open or measurement-pending. The deeper review found that wrapper interruption
+does not yet guarantee child-process teardown and that lineage/repetition claims are not fully
+reconstructed from mounted bytes. B2c-H hardening is next; the separately approved B2c-P selection,
+product-evidence, durable-storage, and capture-execution gate follows it.

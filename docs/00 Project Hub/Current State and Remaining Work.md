@@ -24,11 +24,11 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-18 |
-| B2c tooling status | Complete within its offline evidence/control-plane boundary |
+| B2c tooling status | Implemented offline; deeper review found operator-readiness hardening blockers |
 | B2c retained evidence status | Not acquired; B2A-10/11 and B2B2-05/06 remain open or measurement-pending |
 | B2c tooling implementation and test commits | `e6a211b` and `4f77020` |
 | B2b-2 implementation status | Complete |
-| Last completed package | B2c offline evidence and measurement tooling |
+| Last completed package | B2c offline evidence and measurement tooling implementation |
 | B2b-2 implementation and test commits | `a0faa89` and `77cf533` |
 | B2b-2 documentation and review commits | `9f8e3a4` and `025508e` |
 | Baseline before B2c roadmap handoff | `025508e`; clean `main`; synchronized with `origin/main` |
@@ -56,8 +56,8 @@ complete, this current-state document wins; the older note remains useful histor
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | B2c-P contemporaneous product evidence and capture-execution gate |
-| Immediate next action | Approve the exact B2c-P selection/acquisition/storage packet before any retained acquisition or capture |
+| Next bounded package | B2c-H evidence-verifier and measurement-lifecycle hardening |
+| Immediate next action | Close the impact-5 B2c review findings before any retained acquisition or live capture |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -887,7 +887,7 @@ B2b-2 therefore satisfies its closure rule. See
 [[07 Engineering Notes/Phase 7 Multi-Market Replay and Backtesting]], the explanation, and the
 severity-ranked critique.
 
-#### B2c. Retained full-capture regression evidence — tooling implemented; evidence pending
+#### B2c. Retained full-capture regression evidence — tooling implemented; hardening and evidence pending
 
 Goal: design and, only after approval, retain reviewed longer-duration multi-market Capture V2
 evidence, then exercise the accepted normalization V3, feature V2/manifest V3, and Backtest V4
@@ -918,6 +918,15 @@ Implemented B2c tooling includes:
 
 This implementation does not close the retained-evidence acceptance gate. B2A-10/11 and B2B2-05/06
 remain open or measurement-pending until reviewed artifacts and actual measurements exist.
+
+The deeper post-implementation critique also found that operator interruption of the measurement
+wrapper does not yet guarantee termination/reaping of its fresh child process group, and that the
+manifest's repetition inventories and parts of its lineage graph are internally checked declarations
+rather than independently reconstructed facts. Mounted-member schema parity, per-stage outcome
+membership, aggregate storage enforcement, sampler failure, and credential-scan binding also need
+hardening. These findings do not invalidate the additive architecture or passing tests, but they do
+mean the documented live command is not operator-ready. B2c-H must close the impact-5 findings and
+their directly supporting impact-4 controls before B2c-P acquisition or capture approval.
 
 Tooling validation passes 5 focused B2c evidence tests, 15 capture tests, 43 Phase 7 tests, 10
 focused B2b-2 tests, 42 product-term tests, 17 checkpoint-reader tests, 17 fixture-integrity tests,
@@ -1366,29 +1375,39 @@ closed at the appropriate operational boundary.
 
 | Order | Package | Why now |
 | ---: | --- | --- |
-| 1 | B2c-P product evidence and capture execution | Tooling is implemented, but current product intervals do not cover a new run and no durable artifact destination is approved. |
-| 2 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
-| 3 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
-| 4 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
-| 5 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
-| 6 | Durable full-run continuation | Required for long and operationally reliable experiments. |
-| 7 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
-| 8 | Predictive models and model registry | Follows held-out baseline evidence and safe fallback design. |
-| 9 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
-| 10 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
-| 11 | Demo exchange integration | Follows stable paper operations and reconciliation. |
-| 12 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
+| 1 | B2c-H evidence and measurement hardening | Live operation is unsafe until interrupt teardown and independent lineage/repetition verification close. |
+| 2 | B2c-P product evidence and capture execution | After hardening, current product intervals and durable storage still require separate approval. |
+| 3 | Experiment compatibility and report tooling | Makes later sensitivity and model results comparable. |
+| 4 | Execution sensitivity grid | Produces honest bounds before calibration data exists. |
+| 5 | Own-execution capture and calibrated fill research | High value but externally evidence-dependent. |
+| 6 | Accounting, fees, collateral, and settlement | Required before economic or PnL claims. |
+| 7 | Durable full-run continuation | Required for long and operationally reliable experiments. |
+| 8 | ML datasets and non-ML baselines | Begins Phase 8 on credible research inputs. |
+| 9 | Predictive models and model registry | Follows held-out baseline evidence and safe fallback design. |
+| 10 | ML market-maker integration | Follows approved model evidence and safe fallback design. |
+| 11 | Paper trading | Follows accounting, recovery, gateways, and monitoring. |
+| 12 | Demo exchange integration | Follows stable paper operations and reconciliation. |
+| 13 | Limited live deployment | Requires explicit human authorization and sustained evidence. |
 
 This order is a default, not a prohibition on discovery work. A prototype may explore a later idea,
 but it must remain labelled experimental and must not bypass its promotion gates.
 
 ## Current next package
 
-The next bounded package is **B2c-P contemporaneous product evidence and capture execution**. Its
-first turn must remain an approval packet, not an acquisition: pin one candidate-selection timestamp,
-one venue activity field, three eligible distinct-series markets, the complete opening/closing source
-plan, reviewer responsibility, durable storage owner/location/read/backup policy, scheduled capture
-window, and operator. Do not acquire bytes or capture until that packet is explicitly approved.
+The next bounded package is **B2c-H evidence-verifier and measurement-lifecycle hardening**. It must
+guarantee bounded termination and reaping of the measured process group on operator interruption or
+budget stop; independently rebuild repetition inventories and the complete mounted lineage graph;
+validate every new B2c member against its runtime schema; enforce exact outcome/stage membership,
+free-space and aggregate-budget rules; distinguish invalid sampling from real zero RSS; and bind a
+specified credential scan to retained evidence. Each defect requires a named offline test. Do not
+acquire product bytes or start a venue capture during B2c-H.
+
+After B2c-H closes, **B2c-P contemporaneous product evidence and capture execution** becomes next.
+Its first turn must remain an approval packet, not an acquisition: pin one candidate-selection
+timestamp, one venue activity field, three eligible distinct-series markets, the complete
+opening/closing source plan, reviewer responsibility, durable storage owner/location/read/backup
+policy, scheduled capture window, and operator. Do not acquire bytes or capture until that packet is
+explicitly approved.
 
 After approval, B2c-P opening evidence must complete before the one fixed capture attempt. Closing
 evidence begins immediately afterward. The strict chain runs only if every reviewed effective
