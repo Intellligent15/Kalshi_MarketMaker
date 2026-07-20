@@ -22,18 +22,24 @@ import sys
 import tempfile
 import time
 from typing import Any, Iterable
+import re
 
 try:
     from . import pmm_phase7 as phase7
+    from . import pmm_phase7_measurement as measurement_v2
 except ImportError:
     python_root = str(Path(__file__).resolve().parent)
     if python_root not in sys.path:
         sys.path.insert(0, python_root)
     import pmm_phase7 as phase7  # type: ignore[no-redef]
+    import pmm_phase7_measurement as measurement_v2  # type: ignore[no-redef]
 
 
 EVIDENCE_SCHEMA = "pmm.phase7.b2c_evidence_manifest.v1"
 MEASUREMENT_SCHEMA = "pmm.phase7.b2c_measurement.v1"
+EVIDENCE_V2_SCHEMA = "pmm.phase7.b2c_evidence_manifest.v2"
+REPETITION_INVENTORY_SCHEMA = "pmm.phase7.b2c_repetition_inventory.v1"
+CREDENTIAL_SCAN_SCHEMA = "pmm.phase7.b2c_credential_scan.v1"
 V4_ARTIFACT_SCHEMAS = {
     "acknowledgements": "pmm.backtest_acknowledgement.v1",
     "cancellations": "pmm.backtest_cancellation.v1",
@@ -60,6 +66,134 @@ class EvidenceError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(f"{code}: {message}")
         self.code = code
+
+
+# Private routing data, not a second public schema language.  Successor schemas
+# remain authoritative for document shape; this table determines mounted dispatch.
+V2_ROLE_REGISTRY: dict[str, tuple[str, str]] = {
+    "capture_policy": ("b2c-evidence-policy-v2.schema.json", "json"),
+    "capture_measurement": ("b2c-measurement-v2.schema.json", "json"),
+    "credential_scan_report": ("b2c-credential-scan-v1.schema.json", "json"),
+    "raw_frames": ("raw-capture-record-v2.schema.json", "jsonl"),
+    "raw_metadata": ("raw-capture-v2.schema.json", "json"),
+    "normalized_records": ("normalized-record-v2.schema.json", "jsonl"),
+    "feature_rows": ("feature-row-v2.schema.json", "jsonl"),
+    "risk_trace": ("risk-conformance-trace-v2.schema.json", "jsonl"),
+}
+
+
+def build_repetition_inventory(root: Path) -> dict[str, Any]:
+    """Rebuild a safe, canonical inventory from mounted bytes."""
+    root = root.resolve()
+    entries: list[dict[str, Any]] = []
+    if root.is_symlink() or not root.is_dir():
+        raise EvidenceError("EvidencePathUnsafe", "inventory root is not a safe directory")
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise EvidenceError("EvidencePathUnsafe", "inventory contains a symlink")
+        if path.is_file():
+            relative = path.relative_to(root).as_posix()
+            entries.append({"path": relative, "byte_length": path.stat().st_size, "sha256": phase7.sha256_file(path)})
+    entries.sort(key=lambda item: item["path"].encode("utf-8"))
+    payload = {"root": ".", "entries": entries}
+    return {"schema": REPETITION_INVENTORY_SCHEMA, "entries": entries, "payload_sha256": _payload_sha256(payload)}
+
+
+_CREDENTIAL_PATTERNS: tuple[tuple[str, re.Pattern[bytes]], ...] = (
+    ("pem_private_key", re.compile(br"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
+    ("authorization_header", re.compile(br"(?:authorization\s*:\s*(?:bearer|basic)\s+|bearer\s+)[^\r\n\s]+", re.I)),
+    ("credential_assignment", re.compile(br"(?:api[_-]?key|token|password|secret)\s*[=:]\s*['\"]?[^\s'\"]+", re.I)),
+)
+
+
+def scan_credential_bytes(members: Iterable[tuple[str, bytes]]) -> list[dict[str, str]]:
+    """Deterministic, low-false-positive offline scan; never returns a source path."""
+    findings: list[dict[str, str]] = []
+    for relative, raw in members:
+        path_hash = _sha256_bytes(relative.encode("utf-8"))
+        lower_name = relative.lower()
+        if any(token in lower_name for token in (".pem", "private_key", "credential", "secret")):
+            findings.append({"rule_id": "suspicious_filename", "path_sha256": path_hash})
+        for rule_id, pattern in _CREDENTIAL_PATTERNS:
+            if pattern.search(raw):
+                findings.append({"rule_id": rule_id, "path_sha256": path_hash})
+    unique = sorted({(item["rule_id"], item["path_sha256"]) for item in findings})
+    return [
+        {"rule_id": rule, "path_sha256": path_hash}
+        for rule, path_hash in unique
+    ]
+
+
+def _v2_validate_member(path: Path, member: dict[str, Any]) -> None:
+    raw = path.read_bytes()
+    if len(raw) != member["byte_length"] or _sha256_bytes(raw) != member["sha256"]:
+        raise EvidenceError("EvidenceMemberHashMismatch", "mounted V2 member bytes differ")
+    schema_file = member.get("schema_file")
+    kind = member.get("kind")
+    if not isinstance(schema_file, str) or kind not in {"json", "jsonl"}:
+        raise EvidenceError("EvidenceV2MemberSchemaMismatch", "V2 member lacks a supported schema binding")
+    try:
+        if kind == "json":
+            phase7.validate_historical_schema(phase7.read_json(path), schema_file, "EvidenceV2MemberSchemaMismatch")
+        else:
+            for row in phase7.iter_jsonl(path):
+                phase7.validate_historical_schema(row, schema_file, "EvidenceV2MemberSchemaMismatch")
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        if isinstance(error, EvidenceError):
+            raise
+        raise EvidenceError("EvidenceV2MemberSchemaMismatch", "mounted V2 member fails runtime schema") from error
+
+
+def verify_evidence_manifest_v2(
+    manifest_path: Path, *, artifact_root: Path | None = None, require_artifacts: bool = False,
+) -> dict[str, Any]:
+    """Additive stronger verifier; never routes through frozen V1 behavior."""
+    document = phase7.read_json(manifest_path)
+    try:
+        phase7.validate_historical_schema(document, "b2c-evidence-manifest-v2.schema.json", "EvidenceV2ManifestSchemaMismatch")
+    except (ValueError, KeyError) as error:
+        raise EvidenceError("EvidenceV2ManifestSchemaMismatch", "unsupported V2 evidence manifest") from error
+    if document.get("schema") != EVIDENCE_V2_SCHEMA:
+        raise EvidenceError("EvidenceV2ManifestSchemaMismatch", "verify-v2 requires a V2 manifest")
+    payload = document["payload"]
+    if document.get("payload_sha256") != _payload_sha256(payload):
+        raise EvidenceError("EvidenceV2PayloadHashMismatch", "V2 payload hash is stale")
+    members = payload["members"]
+    roles = [member["role"] for member in members]
+    paths = [member["path"] for member in members]
+    if len(roles) != len(set(roles)) or len(paths) != len(set(paths)):
+        raise EvidenceError("EvidenceV2MembershipMismatch", "roles and paths must be unique")
+    required = {"capture_policy", "raw_frames", "raw_metadata", "capture_measurement", "credential_scan_report"}
+    if not required.issubset(roles):
+        raise EvidenceError("EvidenceV2RoleMissing", "raw-stage required role is absent")
+    stage = payload["furthest_materialized_stage"]
+    stage_roles = {
+        "raw": set(),
+        "normalization_record_only": {"normalized_records", "normalization_manifest", "source_scopes", "product_map"},
+        "normalization_v3": {"normalized_records", "normalization_manifest", "source_scopes", "product_map"},
+        "features_v3": {"normalized_records", "normalization_manifest", "source_scopes", "product_map", "feature_rows", "feature_manifest"},
+        "backtest_v4": {"normalized_records", "normalization_manifest", "source_scopes", "product_map", "feature_rows", "feature_manifest", "backtest_config", "result_manifest"},
+    }
+    if stage not in stage_roles or not stage_roles[stage].issubset(roles):
+        raise EvidenceError("EvidenceV2RoleMissing", "stage-required role is absent")
+    if not require_artifacts:
+        return {"schema": EVIDENCE_V2_SCHEMA, "verified": True, "artifacts_verified": False, "member_count": len(members)}
+    root = (artifact_root or manifest_path.parent).resolve()
+    loaded: list[tuple[str, bytes]] = []
+    for member in members:
+        path = _safe_member(root, member["path"])
+        if not path.is_file():
+            raise EvidenceError("EvidenceMemberMissing", "mounted V2 member is missing")
+        _v2_validate_member(path, member)
+        loaded.append((member["path"], path.read_bytes()))
+    actual = {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file() and not path.is_symlink()}
+    allowed = set(paths) | {manifest_path.resolve().relative_to(root).as_posix()}
+    if actual != allowed:
+        raise EvidenceError("EvidenceV2MembershipMismatch", "mounted V2 membership differs")
+    findings = scan_credential_bytes(loaded)
+    if findings:
+        raise EvidenceError("EvidenceCredentialLeak", f"credential scanner finding {findings[0]['rule_id']}")
+    return {"schema": EVIDENCE_V2_SCHEMA, "verified": True, "artifacts_verified": True, "member_count": len(members)}
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -530,6 +664,10 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--manifest", required=True, type=Path)
     verify.add_argument("--artifact-root", type=Path)
     verify.add_argument("--require-artifacts", action="store_true")
+    verify_v2 = commands.add_parser("verify-v2", help="Verify a mounted B2c V2 evidence package.")
+    verify_v2.add_argument("--manifest", required=True, type=Path)
+    verify_v2.add_argument("--artifact-root", type=Path)
+    verify_v2.add_argument("--require-artifacts", action="store_true")
     measure = commands.add_parser("measure", help="Measure one unchanged offline command.")
     measure.add_argument("--stage", required=True)
     measure.add_argument("--report", required=True, type=Path)
@@ -539,7 +677,34 @@ def build_parser() -> argparse.ArgumentParser:
     measure.add_argument("--sample-interval", type=float, default=1.0)
     measure.add_argument("--max-output-bytes", type=int)
     measure.add_argument("command_argv", nargs=argparse.REMAINDER)
+    measure_v2 = commands.add_parser("measure-v2", help="Supervise an offline command with B2c Measurement V2.")
+    measure_v2.add_argument("--stage", required=True)
+    measure_v2.add_argument("--report", required=True, type=Path)
+    measure_v2.add_argument("--package-root", required=True, type=Path)
+    measure_v2.add_argument("--raw-root", required=True, action="append", type=Path)
+    measure_v2.add_argument("--output-root", required=True, action="append", type=Path)
+    measure_v2.add_argument("--identity-file", action="append", default=[], type=Path)
+    measure_v2.add_argument("--policy", type=Path)
+    measure_v2.add_argument("command_argv", nargs=argparse.REMAINDER)
     return parser
+
+
+def _measurement_controls_from_policy(path: Path | None) -> measurement_v2.MeasurementControls:
+    if path is None:
+        return measurement_v2.V2_CONTROLS
+    document = phase7.read_json(path)
+    phase7.validate_historical_schema(
+        document, "b2c-evidence-policy-v2.schema.json", "MeasurementPolicyV2SchemaMismatch"
+    )
+    values = document["measurement"]
+    return measurement_v2.MeasurementControls(
+        sample_interval_seconds=float(values["sample_interval_seconds"]),
+        sigint_grace_seconds=float(values["sigint_grace_seconds"]),
+        sigterm_grace_seconds=float(values["sigterm_grace_seconds"]),
+        quiescence_grace_seconds=float(values["quiescence_grace_seconds"]),
+        stream_limit_bytes=int(values["stream_limit_bytes"]),
+        publication_reserve_bytes=int(values["publication_reserve_bytes"]),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -550,6 +715,29 @@ def main(argv: list[str] | None = None) -> int:
                 args.manifest, artifact_root=args.artifact_root,
                 require_artifacts=args.require_artifacts,
             )
+        elif args.command == "verify-v2":
+            result = verify_evidence_manifest_v2(
+                args.manifest, artifact_root=args.artifact_root,
+                require_artifacts=args.require_artifacts,
+            )
+        elif args.command == "measure-v2":
+            command = list(args.command_argv)
+            if command and command[0] == "--":
+                command = command[1:]
+            measured = measurement_v2.run_measurement_v2(
+                stage=args.stage, command=command, report_path=args.report,
+                package_root=args.package_root, raw_roots=args.raw_root,
+                output_roots=args.output_root, identity_files=args.identity_file,
+                controls=_measurement_controls_from_policy(args.policy),
+            )
+            if measured.exit_status == 0:
+                print(json.dumps(measured.report, indent=2, sort_keys=True))
+            else:
+                print(
+                    f"error: MeasurementV2{measured.report['termination']['reason']}: "
+                    f"report={measured.report_path}", file=sys.stderr,
+                )
+            return measured.exit_status
         else:
             command = list(args.command_argv)
             if command and command[0] == "--":

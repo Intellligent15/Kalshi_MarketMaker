@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -416,6 +417,40 @@ class B2cEvidenceTests(unittest.TestCase):
         self.assertTrue(measured["resources"]["output_budget_exceeded"])
         self.assertEqual(measured["resources"]["termination_reason"], "output_budget_exceeded")
         self.assertNotEqual(measured["exit_code"], 0)
+
+    def test_verify_v2_rebuilds_canonical_inventory_from_mounted_root(self) -> None:
+        mounted = self.root / "mounted"
+        (mounted / "nested").mkdir(parents=True)
+        (mounted / "z.txt").write_bytes(b"z")
+        (mounted / "nested/a.txt").write_bytes(b"alpha")
+        inventory = evidence.build_repetition_inventory(mounted)
+        self.assertEqual(
+            inventory["entries"],
+            [
+                {"path": "nested/a.txt", "byte_length": 5,
+                 "sha256": hashlib.sha256(b"alpha").hexdigest()},
+                {"path": "z.txt", "byte_length": 1,
+                 "sha256": hashlib.sha256(b"z").hexdigest()},
+            ],
+        )
+        self.assertEqual(inventory["schema"], "pmm.phase7.b2c_repetition_inventory.v1")
+
+    def test_verify_v2_rejects_synthetic_authorization_header(self) -> None:
+        findings = evidence.scan_credential_bytes(
+            [("control/command.txt", b"Authorization: Bearer synthetic-test-token")]
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "authorization_header")
+        self.assertNotIn("control/command.txt", findings[0].values())
+
+    def test_verify_v2_cli_is_additive_and_does_not_reinterpret_v1_manifest(self) -> None:
+        manifest_path, _ = self.build_package()
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = evidence.main(["verify-v2", "--manifest", str(manifest_path)])
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("EvidenceV2ManifestSchemaMismatch", stderr.getvalue())
 
 
 if __name__ == "__main__":
