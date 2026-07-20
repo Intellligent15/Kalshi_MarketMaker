@@ -91,6 +91,19 @@ The registry does not claim that every ordinary Phase 7 `ValueError` is a produc
 Only product package, acquisition, exact conversion, and authoritative V3 lineage failures belong
 to this compatibility surface.
 
+## Additive B2c Measurement V2 codes
+
+`measure-v2` is an additive B2c control-plane interface. It returns JSON only on successful,
+validly sampled child completion; all refusal/failure paths keep stdout empty and return coded stderr.
+V1 `measure` and `verify` meanings remain frozen.
+
+| Code or outcome | Exit | Meaning |
+|---|---:|---|
+| `MeasurementConfigInvalid`, `MeasurementPathUnsafe`, `MeasurementOutputExists`, `MeasurementFreeSpaceInsufficient`, `MeasurementAggregateBudgetExceeded` | 2 | Refused before spawn; no report or measured output mutation. |
+| `raw_budget_exceeded`, `aggregate_budget_exceeded`, `stream_budget_exceeded`, `operator_interrupted` | 130 | A report is attempted after bounded shutdown and direct-child reap. |
+| `sampler_failure`, `wrapper_failure`, `teardown_failure`, child status 1 | 1 | The report records the exact failure; invalid sampling is never represented as zero RSS. |
+| Child status 2 | 2 | Expected child refusal with a retained V2 report. |
+
 `EvidenceProfileMismatch` is deliberately narrow. Missing, duplicate, asymmetric, or
 not-applicable-but-present roles remain `EvidenceIncomplete`; document extraction, page, section,
 ambiguity, normalization, or fingerprint defects remain `EvidenceAnchorMismatch`; and acquisition

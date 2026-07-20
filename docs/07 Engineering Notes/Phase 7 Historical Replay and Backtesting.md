@@ -193,13 +193,10 @@ instrumentation-on and instrumentation-off bytes. Capture V2 interruption/failur
 derived-stage partial cleanup remain intentionally different.
 
 No retained product evidence or observed capture was created by this package. B2A-10/11 and
-B2B2-05/06 remain open or measurement-pending. The deeper review found that wrapper interruption
-does not yet guarantee child-process teardown and that lineage/repetition claims are not fully
-reconstructed from mounted bytes. B2c-H hardening is next; the separately approved B2c-P selection,
-product-evidence, durable-storage, and capture-execution gate follows it.
+B2B2-05/06 remain open or measurement-pending. The initial B2c-H slice now owns V2 process-group
+supervision, bounded streams, explicit sampling validity, and initial verifier helpers. The complete
+role/lineage/repetition/scanner matrix is still open, so B2c-H remains current and B2c-P is blocked.
 
-The B2c-H design is now recorded separately with a plain-language explanation and a severity-ranked
-critique, and was approved for bounded implementation handoff on 2026-07-20. It fixes the intended
-lifecycle, evidence, schema, storage, sampler, and credential boundaries without claiming
-implementation. B2c-H code and acceptance tests remain the next work; no product evidence or
-observed capture is authorized by the approval.
+The B2c-H design is recorded separately with a plain-language explanation and a severity-ranked
+critique. Commits `842db83`, `d19ac3b`, and `38fb667` implement the first V2 slice but not closure.
+No product evidence or observed capture is authorized.

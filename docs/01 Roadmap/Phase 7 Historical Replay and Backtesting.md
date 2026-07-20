@@ -170,7 +170,7 @@ acquisition plan, reviewer, durable storage ownership, capture window, and opera
 blocked until applicable retained-evidence gates actually close.
 
 The B2c-H design packet is recorded in the hardening design, explanation, and critique and was
-approved for bounded implementation handoff on 2026-07-20.
-That documentation fixes the intended process state machine, additive schema boundary, independent
-inventory and lineage reconstruction, role matrix, scanner contract, and acceptance gates. It does
-not implement or close B2c-H; implementation remains the next bounded package.
+approved for bounded implementation handoff on 2026-07-20. Commits `842db83`, `d19ac3b`, and
+`38fb667` implement the initial V2 supervisor/verifier/schema slice and focused offline coverage.
+The remaining named role, lineage, inventory, and scanner matrix is still required for closure;
+B2c-P remains blocked and B2c-H remains the current bounded package.

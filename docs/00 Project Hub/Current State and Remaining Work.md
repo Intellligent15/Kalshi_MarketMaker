@@ -24,16 +24,17 @@ complete, this current-state document wins; the older note remains useful histor
 | Field | Current value |
 | --- | --- |
 | Last reviewed | 2026-07-20 |
-| B2c tooling status | Offline V1 tooling implemented; B2c-H design approved for implementation, implementation pending |
+| B2c tooling status | Offline V1 tooling plus initial additive B2c-H V2 supervisor/verifier slice implemented; complete B2c-H acceptance matrix remains open |
 | B2c retained evidence status | Not acquired; B2A-10/11 and B2B2-05/06 remain open or measurement-pending |
 | B2c tooling implementation and test commits | `e6a211b` and `4f77020` |
 | B2c deeper review commit | `bdb5ea1` |
+| B2c-H implementation commits | `842db83`, `d19ac3b`, and `38fb667` |
 | B2c-H design and critique commit | `580da7a` |
 | Baseline before B2c-H implementation handoff | `5d4da2d`; clean `main`; ten commits ahead of `origin/main` |
 | Graphify workflow integration commit | `39b57c0` |
 | Baseline before B2c-H design review | `343cbbc`; clean `main`; seven commits ahead of `origin/main` |
 | B2b-2 implementation status | Complete |
-| Last completed package | B2c offline evidence and measurement tooling implementation |
+| Last completed package | B2c offline evidence and measurement tooling implementation; B2c-H remains current |
 | B2b-2 implementation and test commits | `a0faa89` and `77cf533` |
 | B2b-2 documentation and review commits | `9f8e3a4` and `025508e` |
 | Baseline before B2c roadmap handoff | `025508e`; clean `main`; synchronized with `origin/main` |
@@ -49,12 +50,12 @@ complete, this current-state document wins; the older note remains useful histor
 | Recent B1b-2 review commits | `73dc566`, `6e22b27`, and `61a2188` |
 | Recent B1b-1 commits | `902a2df`, `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
-| C++/CTest validation | 78 tests passing |
-| Python validation | 154 tests passing |
+| C++/CTest validation | 78 tests passing (post-V2 slice) |
+| Python validation | 170 tests passing (post-V2 slice) |
 | Focused capture validation | 15 tests passing |
 | Focused Phase 7 validation | 43 tests passing |
 | Focused B2b-2 validation | 10 tests passing |
-| Focused B2c evidence validation | 5 tests passing |
+| Focused B2c evidence and measurement validation | 22 tests passing |
 | Focused product-term validation | 42 tests passing |
 | Focused checkpoint-reader validation | 17 tests passing |
 | Focused fixture-integrity validation | 17 tests passing |
@@ -63,7 +64,7 @@ complete, this current-state document wins; the older note remains useful histor
 | Local Graphify navigation | Refreshed at `5d4da2d`: 6,120 nodes, 9,236 built edges, 475 communities; advisory only, and earlier raw-extraction health warnings are not claimed closed |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
 | Next bounded package | B2c-H evidence-verifier and measurement-lifecycle hardening |
-| Immediate next action | Implement the approved B2c-H design test-first; do not acquire product evidence or capture |
+| Immediate next action | Complete the remaining approved B2c-H named role, lineage, inventory, and scanner matrix; do not acquire product evidence or capture |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -928,14 +929,11 @@ Implemented B2c tooling includes:
 This implementation does not close the retained-evidence acceptance gate. B2A-10/11 and B2B2-05/06
 remain open or measurement-pending until reviewed artifacts and actual measurements exist.
 
-The deeper post-implementation critique also found that operator interruption of the measurement
-wrapper does not yet guarantee termination/reaping of its fresh child process group, and that the
-manifest's repetition inventories and parts of its lineage graph are internally checked declarations
-rather than independently reconstructed facts. Mounted-member schema parity, per-stage outcome
-membership, aggregate storage enforcement, sampler failure, and credential-scan binding also need
-hardening. These findings do not invalidate the additive architecture or passing tests, but they do
-mean the documented live command is not operator-ready. B2c-H must close the impact-5 findings and
-their directly supporting impact-4 controls before B2c-P acquisition or capture approval.
+Commits `842db83`, `d19ac3b`, and `38fb667` address an initial process-supervision, bounded-stream,
+sampler-validity, successor-schema, and verifier-helper slice. The full mounted repetition/lineage,
+schema-parity, stage membership, and scanner acceptance matrix remains open. The documented live
+command is therefore still not operator-ready, and B2c-H remains current before B2c-P acquisition
+or capture approval.
 
 The B2c-H design is documented in
 [[07 Engineering Notes/Phase 7 B2c-H Hardening Design]], its plain-language explanation, and its
@@ -943,12 +941,11 @@ severity-ranked design critique. The design selects one bounded process supervis
 control-plane documents, independent repetition and lineage reconstruction, exact stage/outcome
 membership, explicit sampler validity, complete storage accounting, and a retained deterministic
 credential-scan result. The user approved this bounded design for implementation handoff on
-2026-07-20. These remain implementation requirements, not current behavior: no B2c-H code, schema,
-or acceptance test has been added, and no finding is closed by approval alone.
+2026-07-20. The initial V2 slice is current behavior; no finding is closed merely by approval, and
+the full named matrix remains required before B2c-H can close.
 
-Tooling validation passes 5 focused B2c evidence tests, 15 capture tests, 43 Phase 7 tests, 10
-focused B2b-2 tests, 42 product-term tests, 17 checkpoint-reader tests, 17 fixture-integrity tests,
-formatting, all 154 Python tests, and all 78 CTests. Every added test is offline and bounded.
+Post-slice validation passes 22 focused B2c evidence/measurement tests, 144 focused compatibility
+tests, formatting, all 170 Python tests, and all 78 CTests. Every added test is offline and bounded.
 
 What B2c inherits as complete:
 

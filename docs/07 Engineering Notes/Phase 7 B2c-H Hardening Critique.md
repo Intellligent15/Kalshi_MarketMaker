@@ -3,9 +3,18 @@
 ## Review boundary
 
 This critique reviews the B2c-H design recorded in
-[[07 Engineering Notes/Phase 7 B2c-H Hardening Design]]. It does not review an implementation:
-B2c-H code, schemas, tests, and retained evidence do not exist yet. A planned test or control remains
-missing until implementation and validation prove it.
+[[07 Engineering Notes/Phase 7 B2c-H Hardening Design]]. The original review preceded implementation;
+the reconciliation below records the initial V2 slice. A planned test or control remains missing
+until implementation and validation prove it.
+
+## Initial implementation reconciliation
+
+Commits `842db83`, `d19ac3b`, and `38fb667` close the narrow V2 supervisor, bounded-stream,
+sampler-validity, successor-schema, inventory/scanner helper, and V1/V2 CLI-separation slice. The
+full individually named lifecycle and evidence matrix in the design is still open. In particular,
+this critique keeps B2CH-T04 through B2CH-T09 open; B2c-P remains unauthorized. Result V4
+in-memory publication, two-rename telemetry publication, escaped-daemon containment, and all
+measurement-dependent optimization items remain deferred.
 
 Impact rates the consequence if the issue is mishandled, not the effort required to address it.
 

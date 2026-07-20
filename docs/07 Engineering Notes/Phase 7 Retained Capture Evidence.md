@@ -40,26 +40,27 @@ stderr and does not retain their bytes. The mounted-package verifier rejects PEM
 ## Measured commands
 
 > [!CAUTION]
-> Do not use the measurement wrapper for a live capture yet. B2c-H must first guarantee that an
-> operator interrupt terminates and reaps the measured child process group, independently rebuild
-> repetition inventories and the complete lineage graph, validate every mounted B2c document, and
-> enforce the declared free-space and aggregate-budget boundaries.
+> Do not use the measurement wrapper for a live capture yet. The additive `measure-v2` command now
+> owns a fresh process group, bounded per-stream collection, sampler-validity reporting, preflight,
+> and report publication, but B2c-H is not closed: its complete mounted role/lineage/repetition/scanner
+> matrix still needs implementation and review.
 
 The measurement wrapper starts an unchanged command in a fresh process group, samples process-tree
 RSS and process count, measures declared input/output bytes, hashes scrubbed streams, and interrupts
 the group if the declared output budget is exceeded. Reports are create-new sidecars and are not part
 of deterministic derived outputs.
 
-After B2c-H closure and B2c-P approval, the capture command has this shape:
+After B2c-H closure and B2c-P approval, the capture command has this shape (use `measure-v2`, never
+the frozen V1 `measure` command):
 
 ```sh
-UV_CACHE_DIR=/tmp/pmm-uv-cache uv run python python/pmm_phase7_evidence.py measure \
+UV_CACHE_DIR=/tmp/pmm-uv-cache uv run python python/pmm_phase7_evidence.py measure-v2 \
   --stage capture-v2 \
   --report data/raw/<capture-id>-measurements/capture.json \
-  --output data/raw/<capture-id> \
+  --package-root data/raw/<capture-id>-package \
+  --raw-root data/raw/<capture-id> \
+  --output-root data/raw/<capture-id> \
   --identity-file configs/phase7/b2c_evidence_policy_v1.json \
-  --sample-interval 1 \
-  --max-output-bytes 1073741824 \
   -- uv run --env-file .env python python/kalshi_capture.py capture-v2 \
     --ticker <MARKET-A> --ticker <MARKET-B> --ticker <MARKET-C> \
     --duration 43200 --output data/raw/<capture-id>

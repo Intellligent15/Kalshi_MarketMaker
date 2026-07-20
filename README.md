@@ -93,12 +93,11 @@ joined signals, portfolio-wide risk, calibrated execution, accounting, fees, PnL
 
 B2c tooling adds a fixed twelve-hour/three-market evidence policy, compact package index and offline
 verifier, process-tree resource measurement with disk-budget interruption, normalization duplicate-
-state telemetry, and per-contract oracle telemetry. It does not contain a retained B2c capture. New
-post-implementation review found child-process interruption and independent-verification blockers,
-so B2c-H hardening precedes contemporaneous product evidence, durable storage approval, and the
-single observed B2c-P capture. Its implementation design, explanation, and critique are recorded
-under `docs/07 Engineering Notes/` and approved for bounded implementation; the hardening code and
-acceptance tests remain unimplemented.
+state telemetry, and per-contract oracle telemetry. B2c-H now adds an isolated V2 process-group
+supervisor, bounded per-stream collection, explicit invalid-sampler reporting, V2 schemas, a V2
+inventory/scanner/verifier entrypoint, and focused offline tests. It does not contain a retained B2c
+capture. The full role/lineage acceptance matrix remains open, so B2c-H is current rather than closed;
+B2c-P cannot begin.
 
 ## Quick start
 

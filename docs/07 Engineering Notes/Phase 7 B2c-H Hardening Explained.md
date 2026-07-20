@@ -5,6 +5,14 @@
 B2c-H is the safety inspection and evidence audit that must happen before anyone uses the B2c
 tooling for the one real twelve-hour capture.
 
+## What is implemented so far
+
+The first V2 slice now exists: a new measurement supervisor owns a child process group, records
+sampling validity rather than inventing zero RSS, drains each stream under a 64 MiB limit, and
+publishes a V2 report. A separate V2 verifier path has initial inventory and credential-scanner
+building blocks. This is useful hardening, but it is not the whole inspection: the exhaustive
+mounted role, lineage, repetition, and scanner tests are still required before any capture work.
+
 The earlier B2c package built useful offline tools, but a deeper review found two dangerous gaps:
 
 1. stopping the wrapper did not guarantee that the measured child and its descendants stopped; and
@@ -12,7 +20,8 @@ The earlier B2c package built useful offline tools, but a deeper review found tw
 
 The approved B2c-H design would fix those gaps without changing how market data, features,
 backtests, or risk work. It would strengthen the control plane around the pipeline. The design is
-documented, critiqued, and approved for bounded implementation, but remains unimplemented.
+documented, critiqued, and approved for bounded implementation. The initial V2 slice is now
+implemented; the complete acceptance matrix remains open.
 
 ## What we did in the design review
 

@@ -12,6 +12,16 @@ B2c-H is an additive control-plane hardening package. It must preserve every acc
 normalization V3, feature V3, Backtest V4, Result V4, product, conversion, risk, checkpoint, and
 refusal contract.
 
+## Implementation status: initial V2 slice
+
+Commits `842db83`, `d19ac3b`, and `38fb667` implement an additive `measure-v2` supervisor,
+Measurement/Policy V2 schemas, `verify-v2` scaffolding, canonical inventory construction, a
+deterministic scanner, and focused offline tests. V1 commands remain unchanged. The actual command
+uses a 64 MiB limit for **each** stdout and stderr stream, following the approved implementation
+instruction; this corrects the earlier combined-limit wording below. The complete named role,
+lineage, mounted-schema, repetition, and scanner matrix remains open, so this document must not be
+read as B2c-H closure or B2c-P authorization.
+
 ## Objective
 
 B2c-H is intended to close the operator-safety and independent-verification blockers identified as

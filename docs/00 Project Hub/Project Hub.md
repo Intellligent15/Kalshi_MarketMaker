@@ -23,8 +23,9 @@ independent per-product baseline state, and one canonical C++ risk projection pe
 focused and full offline closure gates pass. B2c now has offline evidence-index, measurement, and
 instrumentation tooling, but no retained capture. Its deeper review found operator-interrupt and
 independent-verification blockers. The B2c-H hardening design is documented and approved for bounded
-implementation, but its code, schemas, and tests are not implemented; B2c-H implementation remains
-next, followed by the separately approved B2c-P product-evidence and capture gate.
+implementation. The first additive V2 supervisor/verifier/schema slice and focused offline coverage
+are now implemented, but the complete design acceptance matrix is still open. B2c-H remains current;
+the separately approved B2c-P product-evidence and capture gate remains blocked.
 
 A local Graphify navigation index is available for repository discovery. Its first snapshot has
 6,062 nodes and 9,165 built edges, but also reports dangling, collapsed, and AST-empty coverage
