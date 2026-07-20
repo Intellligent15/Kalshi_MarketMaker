@@ -51,7 +51,7 @@ complete, this current-state document wins; the older note remains useful histor
 | Recent B1b-1 commits | `902a2df`, `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
 | C++/CTest validation | 78 tests passing (post-V2 slice) |
-| Python validation | 170 tests passing (post-V2 slice) |
+| Python validation | 171 tests passing (post-V2 slice) |
 | Focused capture validation | 15 tests passing |
 | Focused Phase 7 validation | 43 tests passing |
 | Focused B2b-2 validation | 10 tests passing |
@@ -945,7 +945,7 @@ credential-scan result. The user approved this bounded design for implementation
 the full named matrix remains required before B2c-H can close.
 
 Post-slice validation passes 22 focused B2c evidence/measurement tests, 144 focused compatibility
-tests, formatting, all 170 Python tests, and all 78 CTests. Every added test is offline and bounded.
+tests, formatting, all 171 Python tests, and all 78 CTests. Every added test is offline and bounded.
 
 What B2c inherits as complete:
 
