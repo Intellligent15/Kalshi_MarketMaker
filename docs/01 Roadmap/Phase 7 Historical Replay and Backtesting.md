@@ -169,9 +169,8 @@ the actual candidate snapshot, activity field, three distinct-series markets, op
 acquisition plan, reviewer, durable storage ownership, capture window, and operator. B3 remains
 blocked until applicable retained-evidence gates actually close.
 
-The B2c-H design packet is recorded in the hardening design, explanation, and critique and awaits
-approval.
+The B2c-H design packet is recorded in the hardening design, explanation, and critique and was
+approved for bounded implementation handoff on 2026-07-20.
 That documentation fixes the intended process state machine, additive schema boundary, independent
 inventory and lineage reconstruction, role matrix, scanner contract, and acceptance gates. It does
-not implement or close B2c-H; implementation remains the next bounded package and still requires
-explicit approval.
+not implement or close B2c-H; implementation remains the next bounded package.

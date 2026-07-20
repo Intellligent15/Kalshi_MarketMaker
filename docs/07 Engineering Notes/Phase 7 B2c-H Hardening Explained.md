@@ -10,9 +10,9 @@ The earlier B2c package built useful offline tools, but a deeper review found tw
 1. stopping the wrapper did not guarantee that the measured child and its descendants stopped; and
 2. some evidence claims were declarations that the verifier trusted instead of facts it rebuilt.
 
-The proposed B2c-H design would fix those gaps without changing how market data, features,
+The approved B2c-H design would fix those gaps without changing how market data, features,
 backtests, or risk work. It would strengthen the control plane around the pipeline. The design is
-documented and critiqued, but still awaits implementation approval.
+documented, critiqued, and approved for bounded implementation, but remains unimplemented.
 
 ## What we did in the design review
 

@@ -22,9 +22,9 @@ Phase 7 now also has an additive multi-market backtest implementation: one globa
 independent per-product baseline state, and one canonical C++ risk projection per contract. Its
 focused and full offline closure gates pass. B2c now has offline evidence-index, measurement, and
 instrumentation tooling, but no retained capture. Its deeper review found operator-interrupt and
-independent-verification blockers. The proposed B2c-H hardening design is documented, but its code,
-schemas, and tests are not implemented; B2c-H implementation remains next, followed by the
-separately approved B2c-P product-evidence and capture gate.
+independent-verification blockers. The B2c-H hardening design is documented and approved for bounded
+implementation, but its code, schemas, and tests are not implemented; B2c-H implementation remains
+next, followed by the separately approved B2c-P product-evidence and capture gate.
 
 A local Graphify navigation index is available for repository discovery. Its first snapshot has
 6,062 nodes and 9,165 built edges, but also reports dangling, collapsed, and AST-empty coverage

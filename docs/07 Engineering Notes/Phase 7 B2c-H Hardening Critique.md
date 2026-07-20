@@ -122,5 +122,5 @@ process, trace, and lineage cardinality. Neither axis should be extrapolated fro
 
 The design is coherent and appropriately bounded for B2c-H. Its largest implementation risks are
 process-control correctness, duplicated truth across registry/schema/runtime, and test-suite breadth.
-It is ready to serve as an implementation specification after explicit implementation approval, but
-it does not itself close any B2c finding or authorize B2c-P.
+It is approved to serve as the bounded implementation specification, but it does not itself close
+any B2c finding or authorize B2c-P.

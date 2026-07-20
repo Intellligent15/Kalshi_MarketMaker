@@ -2,10 +2,11 @@
 
 ## Status and authority
 
-This document records the proposed consolidated B2c-H implementation design awaiting approval. It
-does not record an implemented feature, authorize product acquisition, authorize a venue capture,
-or close any B2c finding. The living roadmap remains authoritative for status and work order;
-ADR-007 and ADR-010 through ADR-013 remain authoritative for accepted artifact meanings.
+This document records the consolidated B2c-H implementation design approved for bounded
+implementation handoff on 2026-07-20. It does not record an implemented feature, authorize product
+acquisition, authorize a venue capture, or close any B2c finding. The living roadmap remains
+authoritative for status and work order; ADR-007 and ADR-010 through ADR-013 remain authoritative for
+accepted artifact meanings.
 
 B2c-H is an additive control-plane hardening package. It must preserve every accepted Capture V2,
 normalization V3, feature V3, Backtest V4, Result V4, product, conversion, risk, checkpoint, and
@@ -496,20 +497,25 @@ individual names.
 
 ## Proposed implementation commits
 
-After explicit implementation approval, keep the work reviewable in these logical commits:
+After implementation approval, keep the work reviewable in these logical commits. Within each
+implementation slice, write the named tests first and observe the intended failures locally, then add
+the smallest implementation that makes them pass. Do not record an intentionally red commit:
 
-1. `test(phase7): specify b2c-h lifecycle and verifier failures` — add the offline helpers and named
-   one-defect tests in failing form without changing accepted fixtures.
-2. `feat(phase7): harden b2c measurement lifecycle` — add Measurement V2 and the focused supervisor
-   module, including budgets, bounded streams, sampling validity, signals, reap, and CLI behavior.
-3. `feat(phase7): reconstruct b2c evidence and lineage` — add manifest/inventory/scanner successors,
-   mounted schema validation, role rules, product verification, lineage reconstruction, and
-   repetition comparison.
-4. `test(phase7): close b2c-h compatibility gates` — add frozen-byte and full-suite compatibility
+1. `feat(phase7): harden b2c measurement lifecycle` — add the offline process helpers, lifecycle and
+   budget tests, Measurement V2, and the focused supervisor module, including bounded streams,
+   sampling validity, signals, reap, and additive `measure-v2` CLI behavior.
+2. `feat(phase7): reconstruct b2c evidence and lineage` — add the evidence tests,
+   manifest/inventory/scanner successors, `verify-v2`, mounted schema validation, role rules, product
+   verification, lineage reconstruction, and repetition comparison.
+3. `test(phase7): close b2c-h compatibility gates` — add frozen-byte and full-suite compatibility
    coverage, then record exact validation counts.
-5. `docs(phase7): close b2c-h hardening` — update the operator guide, explanation, critique,
-   validation evidence, README surfaces, and living roadmap only after the implementation gates
-   pass.
+4. `docs(phase7): close b2c-h hardening` — update the operator guide, refusal-code reference,
+   explanation, critique, validation evidence, README surfaces, and living roadmap only after the
+   implementation gates pass.
+
+Every new V2 refusal code must be additive, stable, individually tested, and documented with its
+stdout/stderr/exit meaning. Existing V1 codes and first-failure ordering remain byte-for-byte and
+behaviorally frozen.
 
 If a production change is too large to review with its matching focused tests, split it within the
 same ownership boundary. Do not mix product acquisition, capture execution, retained evidence, or

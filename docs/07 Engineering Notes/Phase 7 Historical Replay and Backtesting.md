@@ -198,7 +198,8 @@ does not yet guarantee child-process teardown and that lineage/repetition claims
 reconstructed from mounted bytes. B2c-H hardening is next; the separately approved B2c-P selection,
 product-evidence, durable-storage, and capture-execution gate follows it.
 
-The proposed B2c-H design is now recorded separately with a plain-language explanation and a
-severity-ranked critique. It fixes the proposed lifecycle, evidence, schema, storage, sampler, and
-credential boundaries without claiming implementation. B2c-H code and acceptance tests remain the
-next work; no product evidence or observed capture is authorized by those design documents.
+The B2c-H design is now recorded separately with a plain-language explanation and a severity-ranked
+critique, and was approved for bounded implementation handoff on 2026-07-20. It fixes the intended
+lifecycle, evidence, schema, storage, sampler, and credential boundaries without claiming
+implementation. B2c-H code and acceptance tests remain the next work; no product evidence or
+observed capture is authorized by the approval.

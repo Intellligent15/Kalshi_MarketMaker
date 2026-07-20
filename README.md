@@ -96,9 +96,9 @@ verifier, process-tree resource measurement with disk-budget interruption, norma
 state telemetry, and per-contract oracle telemetry. It does not contain a retained B2c capture. New
 post-implementation review found child-process interruption and independent-verification blockers,
 so B2c-H hardening precedes contemporaneous product evidence, durable storage approval, and the
-single observed B2c-P capture. Its proposed implementation design, explanation, and critique are
-recorded under `docs/07 Engineering Notes/`; the hardening code and acceptance tests remain
-unimplemented.
+single observed B2c-P capture. Its implementation design, explanation, and critique are recorded
+under `docs/07 Engineering Notes/` and approved for bounded implementation; the hardening code and
+acceptance tests remain unimplemented.
 
 ## Quick start
 

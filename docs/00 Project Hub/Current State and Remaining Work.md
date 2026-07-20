@@ -23,11 +23,13 @@ complete, this current-state document wins; the older note remains useful histor
 
 | Field | Current value |
 | --- | --- |
-| Last reviewed | 2026-07-18 |
-| B2c tooling status | Offline V1 tooling implemented; B2c-H design proposed, approval and implementation pending |
+| Last reviewed | 2026-07-20 |
+| B2c tooling status | Offline V1 tooling implemented; B2c-H design approved for implementation, implementation pending |
 | B2c retained evidence status | Not acquired; B2A-10/11 and B2B2-05/06 remain open or measurement-pending |
 | B2c tooling implementation and test commits | `e6a211b` and `4f77020` |
 | B2c deeper review commit | `bdb5ea1` |
+| B2c-H design and critique commit | `580da7a` |
+| Baseline before B2c-H implementation handoff | `5d4da2d`; clean `main`; ten commits ahead of `origin/main` |
 | Graphify workflow integration commit | `39b57c0` |
 | Baseline before B2c-H design review | `343cbbc`; clean `main`; seven commits ahead of `origin/main` |
 | B2b-2 implementation status | Complete |
@@ -58,10 +60,10 @@ complete, this current-state document wins; the older note remains useful histor
 | Focused fixture-integrity validation | 17 tests passing |
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
-| Local Graphify navigation | 6,062 nodes, 9,165 built edges, 462 communities; advisory only, with 421 dangling edges, 166 collapsed edges, and 111 AST-empty files |
+| Local Graphify navigation | Refreshed at `5d4da2d`: 6,120 nodes, 9,236 built edges, 475 communities; advisory only, and earlier raw-extraction health warnings are not claimed closed |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
 | Next bounded package | B2c-H evidence-verifier and measurement-lifecycle hardening |
-| Immediate next action | Review/approve the B2c-H design, then implement it; do not acquire or capture |
+| Immediate next action | Implement the approved B2c-H design test-first; do not acquire product evidence or capture |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -935,13 +937,14 @@ hardening. These findings do not invalidate the additive architecture or passing
 mean the documented live command is not operator-ready. B2c-H must close the impact-5 findings and
 their directly supporting impact-4 controls before B2c-P acquisition or capture approval.
 
-The proposed B2c-H design is now documented in
+The B2c-H design is documented in
 [[07 Engineering Notes/Phase 7 B2c-H Hardening Design]], its plain-language explanation, and its
 severity-ranked design critique. The design selects one bounded process supervisor, additive V2
 control-plane documents, independent repetition and lineage reconstruction, exact stage/outcome
 membership, explicit sampler validity, complete storage accounting, and a retained deterministic
-credential-scan result. These are proposed implementation requirements, not current behavior. No
-B2c-H code, schema, or acceptance test has been added, and no finding is closed by the design alone.
+credential-scan result. The user approved this bounded design for implementation handoff on
+2026-07-20. These remain implementation requirements, not current behavior: no B2c-H code, schema,
+or acceptance test has been added, and no finding is closed by approval alone.
 
 Tooling validation passes 5 focused B2c evidence tests, 15 capture tests, 43 Phase 7 tests, 10
 focused B2b-2 tests, 42 product-term tests, 17 checkpoint-reader tests, 17 fixture-integrity tests,
@@ -1417,13 +1420,25 @@ free-space and aggregate-budget rules; distinguish invalid sampling from real ze
 specified credential scan to retained evidence. Each defect requires a named offline test. Do not
 acquire product bytes or start a venue capture during B2c-H.
 
-The read-only B2c-H review produced a consolidated design awaiting approval. It preserves existing artifact and
-refusal meanings while fixing the proposed process-ownership, schema, lineage, repetition, storage,
-sampling, credential, CLI, test, and documentation boundaries. The explanation makes the reasoning
-operator-readable; the critique rates implementation risks and deferred debt. B2c-H implementation
-remains the next bounded package and must not start without explicit approval. Its closure still
-requires implemented named tests, compatibility gates, validation evidence, updated operator docs,
-and a post-implementation critique.
+The read-only B2c-H review produced a consolidated design, and the user approved it for bounded
+implementation handoff on 2026-07-20. It preserves existing artifact and refusal meanings while
+fixing the process-ownership, schema, lineage, repetition, storage, sampling, credential, CLI, test,
+and documentation boundaries. The explanation makes the reasoning operator-readable; the critique
+rates implementation risks and deferred debt. Implementation begins test-first with the named
+lifecycle and verifier failures, then follows the design's measurement, evidence/lineage,
+compatibility, and documentation commit boundaries. Approval does not close any finding. Closure
+still requires implemented named tests, compatibility gates, validation evidence, updated operator
+docs, and a post-implementation critique.
+
+Tests must be written first and observed failing locally within each slice, but every recorded commit
+must pass its scoped gates. New V2 refusal codes must be additive and documented; accepted V1 codes,
+stdout/stderr behavior, exit meanings, and first-failure ordering remain frozen.
+
+The implementation agent should use a hub-and-spoke review with bounded sub-agents for measurement
+lifecycle, evidence/schema/lineage, and compatibility/security/documentation. Graphify is the first
+navigation index, but source, tests, accepted ADRs, and this roadmap remain authority. The Graphify,
+test-driven-development, and systematic-debugging skills are applicable; external connectors are
+not needed because B2c-H is an offline repository package.
 
 Graphify is advisory navigation only. Version-controlled hooks now refresh code navigation after
 commits and branch changes, while material documentation changes still require a manual semantic
