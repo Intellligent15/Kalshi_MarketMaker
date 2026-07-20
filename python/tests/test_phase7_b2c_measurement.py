@@ -6,6 +6,9 @@ import shutil
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+import io
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -150,6 +153,21 @@ class B2cMeasurementV2Tests(unittest.TestCase):
         result = self.measure("import time; time.sleep(.05)")
         self.assertTrue(result.report["teardown"]["direct_child_reaped"])
         self.assertTrue(result.report["teardown"]["process_group_quiescent"])
+
+    def test_measure_v2_cli_keeps_v1_cli_contract_separate(self) -> None:
+        report = self.root / "measurements/cli.json"
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            from python import pmm_phase7_evidence as evidence
+            status = evidence.main([
+                "measure-v2", "--stage", "fixture", "--report", str(report),
+                "--package-root", str(self.root), "--raw-root", str(self.root / "raw"),
+                "--output-root", str(self.root / "raw"), "--", sys.executable, "-c",
+                "import time; time.sleep(.05)",
+            ])
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(json.loads(stdout.getvalue())["schema"], "pmm.phase7.b2c_measurement.v2")
 
 
 if __name__ == "__main__":
