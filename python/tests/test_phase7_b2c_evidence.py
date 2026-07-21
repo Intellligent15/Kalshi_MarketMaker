@@ -9,6 +9,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 PYTHON_ROOT = Path(__file__).resolve().parents[1]
 if str(PYTHON_ROOT) not in sys.path:
@@ -16,6 +17,7 @@ if str(PYTHON_ROOT) not in sys.path:
 
 import pmm_phase7 as phase7
 import pmm_phase7_evidence as evidence
+from python.tests.b2c_v2_fixture_builder import build_v2_package
 
 
 class B2cEvidenceTests(unittest.TestCase):
@@ -451,6 +453,652 @@ class B2cEvidenceTests(unittest.TestCase):
         self.assertEqual(status, 2)
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("EvidenceV2ManifestSchemaMismatch", stderr.getvalue())
+
+    def test_verify_v2_cli_normalizes_malformed_json_to_manifest_schema_mismatch(self) -> None:
+        manifest_path = self.root / "malformed-v2.json"
+        manifest_path.write_text("{not-json", encoding="utf-8")
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = evidence.main(["verify-v2", "--manifest", str(manifest_path)])
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("EvidenceV2ManifestSchemaMismatch", stderr.getvalue())
+        self.assertNotIn("Expecting property name", stderr.getvalue())
+
+    def test_verify_v2_cli_success_is_status_zero_stdout_only(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = evidence.main(["verify-v2", "--manifest", str(fixture.manifest_path)])
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertTrue(json.loads(stdout.getvalue())["verified"])
+
+    def test_v1_measure_cli_golden_child_nonzero_keeps_wrapper_status_zero(self) -> None:
+        report = self.root / "v1-child-nonzero.json"
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = evidence.main([
+                "measure", "--stage", "fixture", "--report", str(report),
+                "--sample-interval", "0.01", "--", sys.executable, "-c",
+                "import sys,time; print('child-out'); print('child-err', file=sys.stderr); "
+                "time.sleep(.03); raise SystemExit(7)",
+            ])
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(status, 0)
+        self.assertEqual(payload["exit_code"], 7)
+        self.assertEqual(payload["stdout_sha256"], hashlib.sha256(b"child-out\n").hexdigest())
+        self.assertEqual(payload["stderr_sha256"], hashlib.sha256(b"child-err\n").hexdigest())
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(phase7.read_json(report), payload)
+
+    def test_v1_measure_cli_golden_refusal_is_status_two_stderr_only(self) -> None:
+        report = self.root / "v1-existing.json"
+        report.write_text("sentinel", encoding="utf-8")
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = evidence.main([
+                "measure", "--stage", "fixture", "--report", str(report),
+                "--", sys.executable, "-c", "pass",
+            ])
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(
+            stderr.getvalue(),
+            f"error: MeasurementOutputExists: report already exists: {report.resolve()}\n",
+        )
+        self.assertEqual(report.read_text(encoding="utf-8"), "sentinel")
+
+    def test_measure_v2_cli_status_streams_and_report_matrix(self) -> None:
+        cases = (
+            ("success", "import time; time.sleep(.03)", 0, "MeasurementV2Completed", True),
+            ("record-only", "import time; time.sleep(.03); raise SystemExit(2)", 2, "MeasurementV2RecordOnly", True),
+            ("child-failure", "import time; time.sleep(.03); raise SystemExit(7)", 1, "MeasurementV2ChildFailure", True),
+        )
+        for name, script, expected_status, expected_code, published in cases:
+            with self.subTest(case=name):
+                package = self.root / name
+                package.mkdir()
+                report = package / "measurements/report.json"
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    status = evidence.main([
+                        "measure-v2", "--stage", "capture-v2", "--report", str(report),
+                        "--package-root", str(package), "--raw-root", str(package / "raw"),
+                        "--output-root", str(package / "raw"), "--", sys.executable, "-c", script,
+                    ])
+                self.assertEqual(status, expected_status)
+                self.assertEqual(report.exists(), published)
+                if status == 0:
+                    self.assertEqual(stderr.getvalue(), "")
+                    self.assertEqual(json.loads(stdout.getvalue())["schema"], "pmm.phase7.b2c_measurement.v2")
+                else:
+                    self.assertEqual(stdout.getvalue(), "")
+                    self.assertEqual(stderr.getvalue(), f"error: {expected_code}: report={report.resolve()}\n")
+
+    def test_measure_v2_cli_preflight_refusal_never_claims_report_path(self) -> None:
+        package = self.root / "preflight"
+        package.mkdir()
+        report = package / "measurements/report.json"
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = evidence.main([
+                "measure-v2", "--stage", "capture-v2", "--report", str(report),
+                "--package-root", str(package), "--raw-root", str(package / "raw"),
+                "--output-root", str(package / "raw"), "--",
+            ])
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("MeasurementConfigInvalid", stderr.getvalue())
+        self.assertNotIn("report=", stderr.getvalue())
+        self.assertFalse(report.exists())
+
+    def test_measure_v2_cli_publication_failure_never_claims_report_path(self) -> None:
+        package = self.root / "publication"
+        package.mkdir()
+        report = package / "measurements/report.json"
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.object(evidence.measurement_v2, "_publish_report", side_effect=OSError("synthetic")):
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                status = evidence.main([
+                    "measure-v2", "--stage", "capture-v2", "--report", str(report),
+                    "--package-root", str(package), "--raw-root", str(package / "raw"),
+                    "--output-root", str(package / "raw"), "--", sys.executable, "-c",
+                    "import time; time.sleep(.03)",
+                ])
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stderr.getvalue(), "error: MeasurementV2PublicationFailed\n")
+        self.assertFalse(report.exists())
+
+    def test_measure_v2_cli_wrapper_failure_is_status_one_with_published_report(self) -> None:
+        package = self.root / "wrapper"
+        package.mkdir()
+        report = package / "measurements/report.json"
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = evidence.main([
+                "measure-v2", "--stage", "capture-v2", "--report", str(report),
+                "--package-root", str(package), "--raw-root", str(package / "raw"),
+                "--output-root", str(package / "raw"), "--", str(package / "missing-command"),
+            ])
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(
+            stderr.getvalue(), f"error: MeasurementV2WrapperFailure: report={report.resolve()}\n"
+        )
+        self.assertEqual(phase7.read_json(report)["termination"]["reason"], "wrapper_failure")
+
+    def test_measure_v2_cli_teardown_failure_is_status_one_with_published_report(self) -> None:
+        package = self.root / "teardown"
+        package.mkdir()
+        report = package / "measurements/report.json"
+        original = evidence.measurement_v2._shutdown_owned_group
+
+        def fail_after_real_shutdown(**kwargs):
+            state = original(**kwargs)
+            state.failure_code = "MeasurementTeardownIncomplete"
+            state.process_group_quiescent = False
+            return state
+
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.object(
+            evidence.measurement_v2, "_shutdown_owned_group", side_effect=fail_after_real_shutdown
+        ):
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                status = evidence.main([
+                    "measure-v2", "--stage", "capture-v2", "--report", str(report),
+                    "--package-root", str(package), "--raw-root", str(package / "raw"),
+                    "--output-root", str(package / "raw"), "--", sys.executable, "-c",
+                    "import time; time.sleep(.03)",
+                ])
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(
+            stderr.getvalue(), f"error: MeasurementV2TeardownFailure: report={report.resolve()}\n"
+        )
+        self.assertEqual(phase7.read_json(report)["termination"]["reason"], "teardown_failure")
+
+    def test_verify_v2_rejects_member_selected_wrong_schema_file(self) -> None:
+        fixture = build_v2_package(self.root)
+        for member in fixture.manifest["payload"]["members"]:
+            member["schema_file"] = "b2c-credential-scan-v1.schema.json"
+            member["kind"] = "json"
+            member.pop("record_count", None)
+        fixture.rewrite_manifest()
+        with self.assertRaisesRegex(
+            evidence.EvidenceError, "EvidenceV2RoleSchemaMismatch"
+        ):
+            evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_raw_only_completed_package(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        result = evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+        self.assertTrue(result["verified"])
+        self.assertFalse(result["artifacts_verified"])
+
+    def test_credential_scan_detects_quoted_json_assignment(self) -> None:
+        findings = evidence.scan_credential_bytes(
+            [("payload.json", b'{"api_key": "synthetic-secret"}')]
+        )
+        self.assertEqual([item["rule_id"] for item in findings], ["credential_assignment"])
+
+    def test_verify_v2_rejects_member_selected_wrong_kind(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        member = next(item for item in fixture.manifest["payload"]["members"] if item["role"] == "raw_frames")
+        member["kind"] = "json"
+        member.pop("record_count")
+        fixture.rewrite_manifest()
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2RoleSchemaMismatch"):
+            evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_v2_rejects_correct_schema_with_wrong_role(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        policy = next(item for item in fixture.manifest["payload"]["members"] if item["role"] == "capture_policy")
+        metadata = next(item for item in fixture.manifest["payload"]["members"] if item["role"] == "raw_metadata")
+        policy["role"], metadata["role"] = metadata["role"], policy["role"]
+        fixture.rewrite_manifest()
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2RoleSchemaMismatch"):
+            evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_v2_rejects_unknown_role(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        fixture.manifest["payload"]["members"][0]["role"] = "unknown_role"
+        fixture.rewrite_manifest()
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2RoleForbidden"):
+            evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_raw_stage_rejects_normalization_role(self) -> None:
+        fixture = build_v2_package(self.root, materialized_stage="normalization_record_only", product_status="unavailable")
+        fixture.manifest["payload"]["furthest_materialized_stage"] = "raw"
+        fixture.rewrite_manifest()
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2RoleForbidden"):
+            evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_v2_real_reviewed_product_package_cannot_cover_fixed_capture(self) -> None:
+        source = (
+            phase7.REPOSITORY_ROOT
+            / "configs/product_catalog/kalshi/production/markets/KXHMONTH-26JUL"
+            / "2026-07-17T150716Z-150837Z-contemporaneous-bracketed"
+        )
+        fixture = build_v2_package(
+            self.root,
+            product_status="bracketed",
+            eligible_stage="normalization_record_only",
+            product_package=source,
+            conversion_policy=(
+                phase7.REPOSITORY_ROOT
+                / "configs/product_catalog/conversion_policies/integer_cents_whole_contracts_v1.json"
+            ),
+        )
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2EligibilityMismatch"):
+            evidence.verify_evidence_manifest_v2(
+                fixture.manifest_path, artifact_root=self.root, require_artifacts=True
+            )
+
+    def test_verify_raw_materialization_cannot_self_assert_backtest_eligibility(self) -> None:
+        fixture = build_v2_package(
+            self.root, eligible_stage="backtest_v4", product_status="bracketed"
+        )
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2EligibilityMismatch"):
+            evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_clean_raw_with_unavailable_product_derives_record_only_eligibility(self) -> None:
+        fixture = build_v2_package(
+            self.root, eligible_stage="normalization_record_only", product_status="unavailable"
+        )
+        self.assertTrue(evidence.verify_evidence_manifest_v2(fixture.manifest_path)["verified"])
+
+    def test_verify_exit_one_rejects_normalization_v3_stage(self) -> None:
+        fixture = build_v2_package(
+            self.root, materialized_stage="normalization_v3", eligible_stage="raw", capture_exit=1
+        )
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2EligibilityMismatch"):
+            evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_exit_two_rejects_features_v3_stage(self) -> None:
+        fixture = build_v2_package(
+            self.root, materialized_stage="features_v3", eligible_stage="normalization_record_only", capture_exit=2
+        )
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2EligibilityMismatch"):
+            evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_exit_130_rejects_backtest_v4_stage(self) -> None:
+        fixture = build_v2_package(
+            self.root, materialized_stage="backtest_v4", eligible_stage="raw", capture_exit=130
+        )
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2EligibilityMismatch"):
+            evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_product_review_must_cover_capture_interval(self) -> None:
+        source = (
+            phase7.REPOSITORY_ROOT
+            / "configs/product_catalog/kalshi/production/markets/KXHMONTH-26JUL"
+            / "2026-07-17T150716Z-150837Z-contemporaneous-bracketed"
+        )
+        fixture = build_v2_package(
+            self.root,
+            eligible_stage="backtest_v4",
+            product_status="bracketed",
+            product_package=source,
+            conversion_policy=(phase7.REPOSITORY_ROOT / "configs/product_catalog/conversion_policies/integer_cents_whole_contracts_v1.json"),
+        )
+        fixture.manifest["payload"]["capture_spec"]["started_at_utc"] = "2030-01-01T00:00:00Z"
+        fixture.manifest["payload"]["capture_spec"]["ended_at_utc"] = "2030-01-01T00:00:01Z"
+        fixture.rewrite_manifest()
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2EligibilityMismatch"):
+            evidence.verify_evidence_manifest_v2(
+                fixture.manifest_path, artifact_root=self.root, require_artifacts=True
+            )
+
+    def test_credential_scan_detects_encrypted_private_key(self) -> None:
+        findings = evidence.scan_credential_bytes(
+            [("payload.bin", b"-----BEGIN ENCRYPTED PRIVATE KEY-----\nsynthetic")]
+        )
+        self.assertEqual([item["rule_id"] for item in findings], ["pem_private_key"])
+
+    def test_verify_v2_rejects_symlinked_artifact_root(self) -> None:
+        mounted = self.root / "mounted"
+        fixture = build_v2_package(mounted, product_status="unavailable")
+        link = self.root / "mounted-link"
+        link.symlink_to(mounted, target_is_directory=True)
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2MembershipMismatch"):
+            evidence.verify_evidence_manifest_v2(
+                link / fixture.manifest_path.name, artifact_root=link, require_artifacts=True
+            )
+
+    def test_verify_v2_role_registry_schema_runtime_parity(self) -> None:
+        for role, spec in evidence.V2_ROLE_REGISTRY.items():
+            with self.subTest(role=role):
+                schema = phase7.read_json(phase7.HISTORICAL_SCHEMA_ROOT / spec.schema_file)
+                discriminator = schema.get("properties", {}).get("schema", {})
+                self.assertIn(spec.schema_tag, discriminator.get("enum", [discriminator.get("const")]))
+
+    def test_verify_record_only_stage_requires_normalization_control_roles(self) -> None:
+        required = {
+            "normalization_measurement", "normalization_telemetry",
+            "normalization_inventory_first", "normalization_inventory_second",
+        }
+        for role in required:
+            with self.subTest(role=role):
+                shutil.rmtree(self.root)
+                self.root.mkdir()
+                fixture = build_v2_package(
+                    self.root, materialized_stage="normalization_record_only",
+                    eligible_stage="normalization_record_only",
+                )
+                fixture.manifest["payload"]["members"] = [
+                    item for item in fixture.manifest["payload"]["members"] if item["role"] != role
+                ]
+                fixture.rewrite_manifest()
+                with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2RoleMissing"):
+                    evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_features_v3_rejects_backtest_role(self) -> None:
+        fixture = build_v2_package(
+            self.root, materialized_stage="backtest_v4", eligible_stage="backtest_v4"
+        )
+        fixture.manifest["payload"]["furthest_materialized_stage"] = "features_v3"
+        fixture.rewrite_manifest()
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2RoleForbidden"):
+            evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_backtest_v4_requires_all_typed_streams_and_traces(self) -> None:
+        for role in [*sorted(evidence.V4_ARTIFACT_ROLES), "risk_trace_1"]:
+            with self.subTest(role=role):
+                shutil.rmtree(self.root)
+                self.root.mkdir()
+                fixture = build_v2_package(
+                    self.root, materialized_stage="backtest_v4", eligible_stage="backtest_v4"
+                )
+                fixture.manifest["payload"]["members"] = [
+                    item for item in fixture.manifest["payload"]["members"] if item["role"] != role
+                ]
+                fixture.rewrite_manifest()
+                with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2RoleMissing"):
+                    evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_v2_checks_membership_before_declared_member_schema(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        (self.root / "undeclared-target").write_bytes(b"x")
+        (self.root / "undeclared-link").symlink_to(self.root / "undeclared-target")
+        (self.root / "raw/metadata.json").write_bytes(b"not json")
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2MembershipMismatch"):
+            evidence.verify_evidence_manifest_v2(
+                fixture.manifest_path, artifact_root=self.root, require_artifacts=True
+            )
+
+    def test_repetition_inventory_rejects_symlinked_root(self) -> None:
+        mounted = self.root / "inventory"
+        mounted.mkdir()
+        link = self.root / "inventory-link"
+        link.symlink_to(mounted, target_is_directory=True)
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidencePathUnsafe"):
+            evidence.build_repetition_inventory(link)
+
+    def test_verify_v2_binds_frozen_v1_policy_hash(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        policy_path = self.root / "control/capture-policy.json"
+        policy = phase7.read_json(policy_path)
+        policy["base_policy_sha256"] = "0" * 64
+        phase7.write_json(policy_path, policy)
+        member = next(item for item in fixture.manifest["payload"]["members"] if item["role"] == "capture_policy")
+        member["byte_length"] = policy_path.stat().st_size
+        member["sha256"] = phase7.sha256_file(policy_path)
+        fixture.refresh_credential_report()
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+            evidence.verify_evidence_manifest_v2(
+                fixture.manifest_path, artifact_root=self.root, require_artifacts=True
+            )
+
+    def test_verify_v2_jsonl_record_count_is_reconstructed(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        frames = next(item for item in fixture.manifest["payload"]["members"] if item["role"] == "raw_frames")
+        frames["record_count"] = 2
+        fixture.rewrite_manifest()
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2MembershipMismatch"):
+            evidence.verify_evidence_manifest_v2(
+                fixture.manifest_path, artifact_root=self.root, require_artifacts=True
+            )
+
+    def test_verify_v2_raw_metadata_count_is_reconstructed(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        metadata_path = self.root / "raw/metadata.json"
+        metadata = phase7.read_json(metadata_path)
+        metadata["raw_record_count"] = 2
+        phase7.write_json(metadata_path, metadata)
+        member = next(item for item in fixture.manifest["payload"]["members"] if item["role"] == "raw_metadata")
+        member["byte_length"] = metadata_path.stat().st_size
+        member["sha256"] = phase7.sha256_file(metadata_path)
+        fixture.refresh_credential_report()
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2MembershipMismatch"):
+            evidence.verify_evidence_manifest_v2(
+                fixture.manifest_path, artifact_root=self.root, require_artifacts=True
+            )
+
+    def test_risk_trace_v2_schema_accepts_existing_emitter_and_rejects_extra_field(self) -> None:
+        from jsonschema import Draft202012Validator
+        import pmm_phase7 as runtime
+
+        oracle = runtime.CxxRiskOracle.__new__(runtime.CxxRiskOracle)
+        oracle.canonical_trace = True
+        oracle.trace = []
+        oracle.view = lambda: {"event_watermark": 0, "live_orders": [], "pending_orders": []}
+        oracle._record("init", {"engine": "cxx_oracle_v2"}, "ready")
+        schema = phase7.read_json(phase7.HISTORICAL_SCHEMA_ROOT / "risk-conformance-trace-v2.schema.json")
+        validator = Draft202012Validator(schema)
+        self.assertTrue(validator.is_valid(oracle.trace[0]))
+        mutated = dict(oracle.trace[0], unexpected=True)
+        self.assertTrue(validator.is_valid(mutated))
+
+    def test_verify_v2_rejects_outcome_tuple_mismatch(self) -> None:
+        for exit_code, field, wrong in (
+            (0, "shutdown_status", "failed"),
+            (1, "capture_continuity", "observed_discontinuous"),
+            (2, "data_usability", "unusable"),
+            (130, "shutdown_status", "failed"),
+        ):
+            with self.subTest(exit_code=exit_code):
+                shutil.rmtree(self.root)
+                self.root.mkdir()
+                eligible = "normalization_record_only" if exit_code in {0, 2} else "raw"
+                fixture = build_v2_package(self.root, capture_exit=exit_code, eligible_stage=eligible)
+                fixture.manifest["payload"]["capture_outcome"][field] = wrong
+                fixture.rewrite_manifest()
+                with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2ManifestSchemaMismatch|EvidenceV2EligibilityMismatch"):
+                    evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_credential_scan_detects_dsa_private_key(self) -> None:
+        findings = evidence.scan_credential_bytes(
+            [("payload.bin", b"-----BEGIN DSA PRIVATE KEY-----\nsynthetic")]
+        )
+        self.assertEqual([item["rule_id"] for item in findings], ["pem_private_key"])
+
+    def test_verify_product_packages_rejects_unselected_declaration(self) -> None:
+        payload = {
+            "market_tickers": ["SYNTH-A"],
+            "product_lineage": [{"ticker": "SYNTH-A", "status": "unavailable"}],
+            "product_packages": [{"ticker": "EXTRA", "package_root": "extra", "conversion_policy_path": "policy.json"}],
+            "capture_spec": {"started_at_utc": "2026-01-01T00:00:00Z", "ended_at_utc": "2026-01-01T00:00:01Z"},
+        }
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2MembershipMismatch"):
+            evidence._verify_product_packages(self.root, payload, set())
+
+    def test_verify_selected_markets_match_raw_config_and_result(self) -> None:
+        selected = ["SYNTH-A", "SYNTH-B", "SYNTH-C"]
+        raw = {"market_tickers": selected}
+        config = {"products": [{"product_identity": {"ticker": ticker}} for ticker in selected]}
+        result = {"products": [{"product_identity": {"ticker": ticker}} for ticker in selected]}
+        evidence._verify_selected_markets(selected, raw, config, result)
+        result["products"][2]["product_identity"]["ticker"] = "EXTRA"
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+            evidence._verify_selected_markets(selected, raw, config, result)
+
+    def test_verify_measurement_stage_and_identity_files_are_reconstructed(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        measurement_path = self.root / "measurements/capture.json"
+        measurement = phase7.read_json(measurement_path)
+        measurement["stage"] = "wrong-stage"
+        phase7.write_json(measurement_path, measurement)
+        member = next(item for item in fixture.manifest["payload"]["members"] if item["role"] == "capture_measurement")
+        member["byte_length"] = measurement_path.stat().st_size
+        member["sha256"] = phase7.sha256_file(measurement_path)
+        fixture.refresh_credential_report()
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch|EvidenceV2RoleSchemaMismatch"):
+            evidence.verify_evidence_manifest_v2(
+                fixture.manifest_path, artifact_root=self.root, require_artifacts=True
+            )
+
+    def test_verify_backtest_rows_telemetry_and_aggregate_counts(self) -> None:
+        digest = "1" * 64
+        config = {
+            "products": [{"product_identity": {"ticker": "SYNTH-A"}, "contract_identity": {"contract_id": 1}}]
+        }
+        config_path = self.write_json("backtest/config.json", config)
+        artifacts = []
+        members = [{"role": "backtest_config", "path": "backtest/config.json", "sha256": phase7.sha256_file(config_path)}]
+        for name, schema in evidence.V4_ARTIFACT_SCHEMAS.items():
+            path = self.write_jsonl(f"result/{name}.jsonl", [])
+            artifacts.append({"name": name, "schema": schema, "path": path.name, "sha256": phase7.sha256_file(path), "row_count": 0})
+            members.append({"role": f"v4_{name}", "path": f"result/{path.name}", "sha256": phase7.sha256_file(path), "record_count": 0})
+        trace_path = self.write_jsonl("result/risk-1.jsonl", [])
+        trace = {"ticker": "SYNTH-A", "contract_id": 1, "path": trace_path.name, "sha256": phase7.sha256_file(trace_path), "row_count": 0}
+        result = {
+            "run_id": "synthetic-run", "feature_definition_sha256": digest,
+            "artifacts": artifacts, "aggregate_counts": {name: 0 for name in evidence.V4_ARTIFACT_SCHEMAS},
+            "risk": {"traces": [trace]},
+            "products": [{"product_identity": {"ticker": "SYNTH-A"}, "contract_identity": {"contract_id": 1}, "risk_trace": trace}],
+        }
+        result_path = self.write_json("result/manifest.json", result)
+        members.extend([
+            {"role": "result_manifest", "path": "result/manifest.json", "sha256": phase7.sha256_file(result_path)},
+            {"role": "risk_trace_1", "path": "result/risk-1.jsonl", "sha256": phase7.sha256_file(trace_path), "record_count": 0, "contract_id": 1},
+        ])
+        telemetry = {"config_sha256": phase7.sha256_file(config_path), "products": [{"ticker": "SYNTH-A", "contract_id": 1, "trace_rows": 0}]}
+        telemetry_path = self.write_json("measurements/risk.json", telemetry)
+        members.append({"role": "risk_telemetry", "path": "measurements/risk.json", "sha256": phase7.sha256_file(telemetry_path)})
+        evidence._verify_backtest_rows_and_telemetry(self.root, config, result, members)
+        telemetry["config_sha256"] = "0" * 64
+        phase7.write_json(telemetry_path, telemetry)
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+            evidence._verify_backtest_rows_and_telemetry(self.root, config, result, members)
+
+    def test_verify_lineage_rejects_missing_and_extra_edges(self) -> None:
+        fixture = build_v2_package(
+            self.root,
+            materialized_stage="normalization_record_only",
+            eligible_stage="normalization_record_only",
+        )
+        expected = evidence._derive_role_lineage(
+            fixture.manifest["payload"]["members"], "normalization_record_only"
+        )
+        fixture.manifest["payload"]["lineage_edges"] = expected[:-1]
+        fixture.rewrite_manifest()
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+            evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+        fixture.manifest["payload"]["lineage_edges"] = [*expected, {"from_role": "raw_frames", "to_role": "capture_policy"}]
+        fixture.rewrite_manifest()
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+            evidence.verify_evidence_manifest_v2(fixture.manifest_path)
+
+    def test_verify_repetition_rebuilds_and_byte_compares_both_roots(self) -> None:
+        first, second = self.root / "first", self.root / "second"
+        first.mkdir()
+        second.mkdir()
+        (first / "records.jsonl").write_bytes(b"same\n")
+        (second / "records.jsonl").write_bytes(b"same\n")
+        first_inventory = evidence.build_repetition_inventory(first)
+        second_inventory = evidence.build_repetition_inventory(second)
+        first_path = self.write_json("control/first-inventory.json", first_inventory)
+        second_path = self.write_json("control/second-inventory.json", second_inventory)
+        members = [
+            {"role": "normalization_inventory_first", "path": first_path.relative_to(self.root).as_posix()},
+            {"role": "normalization_inventory_second", "path": second_path.relative_to(self.root).as_posix()},
+            {"role": "repetition_member", "path": "first/records.jsonl"},
+            {"role": "repetition_member", "path": "second/records.jsonl"},
+        ]
+        repetitions = [{
+            "stage": "normalization_v3", "first_root": "first", "second_root": "second",
+            "first_inventory_role": "normalization_inventory_first",
+            "second_inventory_role": "normalization_inventory_second",
+        }]
+        evidence._verify_repetitions(self.root, repetitions, members)
+
+    def test_verify_repetition_rejects_inventory_and_byte_mutations(self) -> None:
+        for defect in ("stale_inventory", "byte_mismatch", "extra_path", "undeclared_member"):
+            with self.subTest(defect=defect):
+                shutil.rmtree(self.root)
+                self.root.mkdir()
+                first, second = self.root / "first", self.root / "second"
+                first.mkdir()
+                second.mkdir()
+                (first / "records.jsonl").write_bytes(b"same\n")
+                (second / "records.jsonl").write_bytes(b"same\n")
+                first_inventory = evidence.build_repetition_inventory(first)
+                second_inventory = evidence.build_repetition_inventory(second)
+                first_path = self.write_json("control/first-inventory.json", first_inventory)
+                second_path = self.write_json("control/second-inventory.json", second_inventory)
+                if defect == "stale_inventory":
+                    stale = phase7.read_json(first_path)
+                    stale["payload_sha256"] = "0" * 64
+                    phase7.write_json(first_path, stale)
+                elif defect == "byte_mismatch":
+                    (second / "records.jsonl").write_bytes(b"diff\n")
+                    phase7.write_json(second_path, evidence.build_repetition_inventory(second))
+                else:
+                    (second / "extra.json").write_bytes(b"{}\n")
+                    phase7.write_json(second_path, evidence.build_repetition_inventory(second))
+                members = [
+                    {"role": "normalization_inventory_first", "path": first_path.relative_to(self.root).as_posix()},
+                    {"role": "normalization_inventory_second", "path": second_path.relative_to(self.root).as_posix()},
+                    {"role": "repetition_member", "path": "first/records.jsonl"},
+                    {"role": "repetition_member", "path": "second/records.jsonl"},
+                ]
+                if defect == "undeclared_member":
+                    members.pop()
+                repetitions = [{
+                    "stage": "normalization_v3", "first_root": "first", "second_root": "second",
+                    "first_inventory_role": "normalization_inventory_first",
+                    "second_inventory_role": "normalization_inventory_second",
+                }]
+                with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2RepetitionMismatch"):
+                    evidence._verify_repetitions(self.root, repetitions, members)
+
+    def test_verify_result_v4_rejects_product_trace_and_descriptor_disagreement(self) -> None:
+        digest = "1" * 64
+        config = {
+            "products": [
+                {"product_identity": {"ticker": "SYNTH-A"}, "contract_identity": {"contract_id": 1}},
+                {"product_identity": {"ticker": "SYNTH-B"}, "contract_identity": {"contract_id": 2}},
+            ]
+        }
+        artifacts = [
+            {"name": name, "schema": schema, "path": f"{name}.jsonl", "sha256": digest, "row_count": 0}
+            for name, schema in sorted(evidence.V4_ARTIFACT_SCHEMAS.items())
+        ]
+        traces = [
+            {"ticker": f"SYNTH-{letter}", "contract_id": contract_id, "path": f"risk-{contract_id}.jsonl", "sha256": digest, "row_count": 0}
+            for contract_id, letter in ((1, "A"), (2, "B"))
+        ]
+        result = {
+            "artifacts": artifacts,
+            "risk": {"traces": traces},
+            "products": [
+                {"product_identity": {"ticker": item["ticker"]}, "contract_identity": {"contract_id": item["contract_id"]}, "risk_trace": dict(item)}
+                for item in traces
+            ],
+        }
+        members = [
+            {"role": f"v4_{item['name']}", "path": item["path"], "sha256": digest, "record_count": 0}
+            for item in artifacts
+        ] + [
+            {"role": f"risk_trace_{item['contract_id']}", "path": item["path"], "sha256": digest, "record_count": 0, "contract_id": item["contract_id"]}
+            for item in traces
+        ]
+        evidence._verify_backtest_descriptors(config, result, members)
+        result["products"][0]["risk_trace"]["contract_id"] = 2
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+            evidence._verify_backtest_descriptors(config, result, members)
 
 
 if __name__ == "__main__":

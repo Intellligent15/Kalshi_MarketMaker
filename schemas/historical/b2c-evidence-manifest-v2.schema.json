@@ -1,1 +1,177 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["schema","payload","payload_sha256"],"properties":{"schema":{"const":"pmm.phase7.b2c_evidence_manifest.v2"},"payload_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"payload":{"type":"object","additionalProperties":false,"required":["furthest_materialized_stage","furthest_eligible_stage","members"],"properties":{"furthest_materialized_stage":{"enum":["raw","normalization_record_only","normalization_v3","features_v3","backtest_v4"]},"furthest_eligible_stage":{"enum":["raw","normalization_record_only","normalization_v3","features_v3","backtest_v4"]},"members":{"type":"array","minItems":5,"items":{"type":"object","additionalProperties":false,"required":["role","path","schema_file","kind","byte_length","sha256"],"properties":{"role":{"type":"string","pattern":"^[a-z0-9_-]+$"},"path":{"type":"string","minLength":1},"schema_file":{"type":"string","minLength":1},"kind":{"enum":["json","jsonl"]},"byte_length":{"type":"integer","minimum":0},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}}}}}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "payload", "payload_sha256"],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "stage": {"enum": ["raw", "normalization_record_only", "normalization_v3", "features_v3", "backtest_v4"]},
+    "relativePath": {"type": "string", "minLength": 1, "not": {"pattern": "^(?:/|.*(?:^|/)\\.\\.(?:/|$))"}}
+  },
+  "properties": {
+    "schema": {"const": "pmm.phase7.b2c_evidence_manifest.v2"},
+    "payload_sha256": {"$ref": "#/$defs/sha256"},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id", "capture_spec", "capture_outcome", "market_tickers",
+        "retention", "product_lineage", "product_packages", "furthest_materialized_stage",
+        "furthest_eligible_stage", "members", "lineage_edges", "repetitions",
+        "credential_scan"
+      ],
+      "properties": {
+        "evidence_id": {"type": "string", "minLength": 1},
+        "capture_spec": {
+          "type": "object", "additionalProperties": false,
+          "required": ["policy_sha256", "started_at_utc", "ended_at_utc", "duration_seconds", "market_count", "minimum_free_bytes", "raw_budget_bytes", "total_budget_bytes", "selection"],
+          "properties": {
+            "policy_sha256": {"$ref": "#/$defs/sha256"},
+            "started_at_utc": {"type": "string", "format": "date-time"},
+            "ended_at_utc": {"type": "string", "format": "date-time"},
+            "duration_seconds": {"const": 43200},
+            "market_count": {"const": 3},
+            "minimum_free_bytes": {"const": 10737418240},
+            "raw_budget_bytes": {"const": 1073741824},
+            "total_budget_bytes": {"const": 5368709120},
+            "selection": {
+              "type": "object", "additionalProperties": false,
+              "required": ["environment", "contract_kind", "distinct_series_required", "activity_order", "tie_breaker", "fallback_selection_allowed", "substitution_after_opening_allowed"],
+              "properties": {
+                "environment": {"const": "production"},
+                "contract_kind": {"const": "binary"},
+                "distinct_series_required": {"const": true},
+                "activity_order": {"const": "descending"},
+                "tie_breaker": {"const": "market_ticker_ascending"},
+                "fallback_selection_allowed": {"const": false},
+                "substitution_after_opening_allowed": {"const": false}
+              }
+            }
+          }
+        },
+        "capture_outcome": {
+          "type": "object", "additionalProperties": false,
+          "required": ["exit_code", "shutdown_status", "capture_continuity", "data_usability"],
+          "properties": {
+            "exit_code": {"enum": [0, 1, 2, 130]},
+            "shutdown_status": {"enum": ["completed", "interrupted", "failed"]},
+            "capture_continuity": {"enum": ["continuous_within_recorded_mechanical_scopes", "observed_discontinuous", "incomplete"]},
+            "data_usability": {"enum": ["strict_eligible", "record_only", "unusable"]}
+          },
+          "allOf": [
+            {"if": {"properties": {"exit_code": {"const": 0}}}, "then": {"properties": {"shutdown_status": {"const": "completed"}, "capture_continuity": {"const": "continuous_within_recorded_mechanical_scopes"}, "data_usability": {"const": "strict_eligible"}}}},
+            {"if": {"properties": {"exit_code": {"const": 1}}}, "then": {"properties": {"shutdown_status": {"const": "failed"}, "capture_continuity": {"const": "incomplete"}, "data_usability": {"const": "unusable"}}}},
+            {"if": {"properties": {"exit_code": {"const": 2}}}, "then": {"properties": {"shutdown_status": {"const": "completed"}, "capture_continuity": {"const": "observed_discontinuous"}, "data_usability": {"const": "record_only"}}}},
+            {"if": {"properties": {"exit_code": {"const": 130}}}, "then": {"properties": {"shutdown_status": {"const": "interrupted"}, "capture_continuity": {"const": "incomplete"}, "data_usability": {"const": "unusable"}}}}
+          ]
+        },
+        "market_tickers": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "retention": {
+          "type": "object", "additionalProperties": false,
+          "required": ["large_bytes_in_git"],
+          "properties": {
+            "owner": {"type": "string", "minLength": 1},
+            "durable_location": {"type": "string", "minLength": 1},
+            "large_bytes_in_git": {"const": false}
+          }
+        },
+        "product_lineage": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["ticker", "status"],
+            "properties": {
+              "ticker": {"type": "string", "minLength": 1},
+              "status": {"enum": ["unavailable", "opening_only", "bracketed"]},
+              "reason": {"type": "string", "minLength": 1},
+              "opening_package_role": {"type": "string", "minLength": 1},
+              "closing_package_role": {"type": "string", "minLength": 1},
+              "conversion_policy_role": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "product_packages": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["ticker", "package_root", "conversion_policy_path"],
+            "properties": {
+              "ticker": {"type": "string", "minLength": 1},
+              "package_root": {"$ref": "#/$defs/relativePath"},
+              "conversion_policy_path": {"$ref": "#/$defs/relativePath"}
+            }
+          }
+        },
+        "furthest_materialized_stage": {"$ref": "#/$defs/stage"},
+        "furthest_eligible_stage": {"$ref": "#/$defs/stage"},
+        "members": {
+          "type": "array", "minItems": 5,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["role", "path", "schema_file", "kind", "byte_length", "sha256"],
+            "properties": {
+              "role": {"type": "string", "pattern": "^[a-z0-9_-]+$"},
+              "path": {"$ref": "#/$defs/relativePath"},
+              "schema_file": {"type": ["string", "null"], "minLength": 1},
+              "kind": {"enum": ["json", "jsonl", "opaque"]},
+              "byte_length": {"type": "integer", "minimum": 0},
+              "sha256": {"$ref": "#/$defs/sha256"},
+              "record_count": {"type": "integer", "minimum": 0},
+              "contract_id": {"type": "integer", "minimum": 1}
+            },
+            "allOf": [
+              {
+                "if": {"properties": {"kind": {"const": "opaque"}}},
+                "then": {
+                  "properties": {
+                    "role": {"enum": ["product_package_member", "repetition_member"]},
+                    "schema_file": {"type": "null"}
+                  }
+                },
+                "else": {"properties": {"schema_file": {"type": "string", "minLength": 1}}}
+              },
+              {
+                "if": {"properties": {"kind": {"const": "jsonl"}}},
+                "then": {"required": ["record_count"]},
+                "else": {"not": {"required": ["record_count"]}}
+              }
+            ]
+          }
+        },
+        "lineage_edges": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["from_role", "to_role"],
+            "properties": {
+              "from_role": {"type": "string", "minLength": 1},
+              "to_role": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "repetitions": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["stage", "first_root", "second_root", "first_inventory_role", "second_inventory_role"],
+            "properties": {
+              "stage": {"enum": ["normalization_v3", "features_v3", "backtest_v4"]},
+              "first_root": {"$ref": "#/$defs/relativePath"},
+              "second_root": {"$ref": "#/$defs/relativePath"},
+              "first_inventory_role": {"type": "string", "minLength": 1},
+              "second_inventory_role": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "credential_scan": {
+          "type": "object", "additionalProperties": false,
+          "required": ["status"],
+          "properties": {"status": {"const": "clean"}}
+        }
+      }
+    }
+  }
+}
