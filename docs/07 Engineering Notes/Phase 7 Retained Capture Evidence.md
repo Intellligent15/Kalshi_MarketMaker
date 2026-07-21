@@ -40,15 +40,16 @@ stderr and does not retain their bytes. The mounted-package verifier rejects PEM
 ## Measured commands
 
 > [!CAUTION]
-> Do not use the measurement wrapper for a live capture yet. The additive `measure-v2` command now
-> owns a fresh process group, bounded per-stream collection, sampler-validity reporting, preflight,
-> and report publication, but B2c-H is not closed: its complete mounted role/lineage/repetition/scanner
-> matrix still needs implementation and review.
+> Do not use the measurement wrapper for a live capture yet. The additive `measure-v2` lifecycle and
+> `verify-v2` mounted checks are implemented, but B2c-H is not closed: no truthful fully mounted
+> strict twelve-hour/three-market positive exists, and exhaustive normalization-telemetry/upstream-
+> identity mutations remain incomplete.
 
-The measurement wrapper starts an unchanged command in a fresh process group, samples process-tree
-RSS and process count, measures declared input/output bytes, hashes scrubbed streams, and interrupts
-the group if the declared output budget is exceeded. Reports are create-new sidecars and are not part
-of deterministic derived outputs.
+The measurement wrapper starts an unchanged command in a fresh process group, samples process-group
+RSS/count, accounts for raw roots and the complete package, drains stdout and stderr concurrently
+under independent 64 MiB limits, and owns bounded SIGINT -> SIGTERM -> SIGKILL escalation, direct-
+child reap, live-group quiescence, and create-new report publication. Reports are control-plane
+sidecars and are not part of deterministic derived outputs.
 
 After B2c-H closure and B2c-P approval, the capture command has this shape (use `measure-v2`, never
 the frozen V1 `measure` command):
@@ -56,17 +57,28 @@ the frozen V1 `measure` command):
 ```sh
 UV_CACHE_DIR=/tmp/pmm-uv-cache uv run python python/pmm_phase7_evidence.py measure-v2 \
   --stage capture-v2 \
-  --report data/raw/<capture-id>-measurements/capture.json \
+  --report data/raw/<capture-id>-package/measurements/capture.json \
   --package-root data/raw/<capture-id>-package \
-  --raw-root data/raw/<capture-id> \
-  --output-root data/raw/<capture-id> \
-  --identity-file configs/phase7/b2c_evidence_policy_v1.json \
+  --raw-root data/raw/<capture-id>-package/raw \
+  --output-root data/raw/<capture-id>-package/raw \
+  --identity-file data/raw/<capture-id>-package/control/evidence-policy-v2.json \
   -- uv run --env-file .env python python/kalshi_capture.py capture-v2 \
     --ticker <MARKET-A> --ticker <MARKET-B> --ticker <MARKET-C> \
-    --duration 43200 --output data/raw/<capture-id>
+    --duration 43200 --output data/raw/<capture-id>-package/raw
 ```
 
 This command is documentation, not present authorization to run it.
+
+All accounting roots, identity files, and the report must resolve below one package root. Exact
+`raw-root == output-root` is allowed only for `capture-v2`, whose raw root must be absent or empty at
+preflight. Derived stages may reference pre-existing immutable raw roots, but duplicate roots,
+cross-class equality, ancestor/descendant overlap, symlinks, and escapes refuse before spawn.
+
+On operator interruption, send no extra signals outside the wrapper: the first interrupt requests
+cooperative SIGINT finalization and the second accelerates escalation. Resume only with a new package
+root after reviewing the coded stderr diagnostic and any published report. Never overwrite a final
+or `.partial` report. A published report owns measurement facts only; the child stage still owns its
+canonical output and cleanup semantics.
 
 For eligible raw evidence, normalize twice from the same immutable raw path. The optional telemetry
 sidecar records processed raw records and logarithmic samples of the current/peak/final duplicate
@@ -74,12 +86,18 @@ identity table without altering any normalization artifact byte:
 
 ```sh
 uv run python python/pmm_phase7.py normalize-v3 \
-  --input data/raw/<capture-id> \
+  --input data/raw/<capture-id>-package/raw \
   --output data/processed/<capture-id>-normalized-a \
   --catalog configs/product_catalog \
   --conversion-policy configs/product_catalog/conversion_policies/integer_cents_whole_contracts_v1.json \
   --instrumentation-output data/processed/<capture-id>-measurements/normalization-a-telemetry.json
 ```
+
+The production run must wrap each normalization, feature, and Backtest V4 invocation in its own
+`measure-v2` call, with a stage-specific report below the same retained package root and identity
+files naming that stage's exact mounted inputs and outputs. The bare pipeline command above shows
+the child arguments only; it is not the complete measured-run command. Each repeated output also
+needs its own nonoverlapping output root and measurement report.
 
 Run features twice from the byte-identical normalization results. Run Backtest V4 twice from one
 fixed config. `backtest-v4 --instrumentation-output ...` writes per-contract executable-resolution,
@@ -123,6 +141,26 @@ Full verification rejects missing, extra, symlinked, escaping, truncated, hash-s
 schema-stale, lineage-stale, interval-ineligible, credential-bearing, or Result V4-inconsistent
 members. It is read-only.
 
+New packages use the additive mounted verifier:
+
+```sh
+uv run python python/pmm_phase7_evidence.py verify-v2 \
+  --manifest path/to/mounted-package/control/evidence-manifest-v2.json \
+  --artifact-root path/to/mounted-package \
+  --require-artifacts
+```
+
+Review the retained `pmm.phase7.b2c_credential_scan.v1` document only after `verify-v2` returns exit
+zero. The verifier recomputes the scanner over mounted payload bytes and separately scans the
+manifest/report control bytes; a self-asserted `clean` status is insufficient. Never test with real
+credential values. Use synthetic canaries only, and treat any `EvidenceCredentialLeak` or
+`EvidenceV2CredentialScanMismatch` as a stop requiring a new reviewed package.
+
+Measurement comparisons are valid only when sampler identity, platform/architecture, Python and
+toolchain, policy controls, stage identities, and sample interval match. RSS is host-`ps` KiB under
+`ps-pid-pgid-rss-state-v1`; it is not a portable benchmark or a cross-machine performance claim.
+See [[07 Engineering Notes/Phase 7 B2c-H Refusal Codes]] for V2 status and stream behavior.
+
 ## Outcome table
 
 | Outcome | Required behavior |
@@ -130,7 +168,7 @@ members. It is read-only.
 | Strict eligible, no disconnect | Normalize, feature, and backtest twice; verify the full package. |
 | Natural reconnect or discontinuity | Retain raw; publish only record-mode normalization; features and V4 refuse. |
 | Incomplete prefix | Retain raw; record-mode normalization only where identity is mechanically valid. |
-| Operational refusal | Exit 2 with finalized raw evidence; do not recapture for preference. |
+| Post-recorder Capture V2 operational refusal | Exit 2 with finalized raw evidence; do not recapture for preference. Preflight wrapper refusals spawn no recorder and create no report or raw evidence. |
 | Operator interruption or budget stop | Exit 130 with finalized raw evidence; record the stopping cause. |
 | Failure after recorder creation | Exit 1 and retain finalized failed raw evidence. |
 | Failure before recorder creation | Remove only the newly owned empty output directory. |

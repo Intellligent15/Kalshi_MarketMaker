@@ -160,17 +160,18 @@ interruption, duplicate-table telemetry, per-contract oracle telemetry, and one-
 coverage. These are additive control-plane formats; accepted raw, normalized, feature, backtest,
 result, product, conversion, risk, and refusal contracts retain their meanings.
 
-No B2c product evidence or venue capture has been acquired. A deeper implementation review found
-that measurement-wrapper interruption does not yet guarantee child-process teardown and that
-repetition/lineage claims are not all independently rebuilt from mounted bytes. B2c-H must close
-those blockers, full mounted-member schema validation, outcome/stage rules, resource enforcement,
-sampler validity, and credential-scan binding first. B2c-P must then separately pin and approve
+No B2c product evidence or venue capture has been acquired. B2c-H commits `df905ff` and `ce0218f`
+close the audited process-group lifecycle, sampler, stream, storage-accounting, role/schema,
+membership, repetition, lineage, product-coverage, and credential-scan defects in the additive V2
+surfaces while freezing V1 behavior. B2c-H remains open because the repository still has no truthful
+fully mounted strict twelve-hour/three-market positive package and exhaustive normalization-
+telemetry/upstream-identity mutation coverage is incomplete. B2c-P must separately pin and approve
 the actual candidate snapshot, activity field, three distinct-series markets, opening/closing
 acquisition plan, reviewer, durable storage ownership, capture window, and operator. B3 remains
 blocked until applicable retained-evidence gates actually close.
 
-The B2c-H design packet is recorded in the hardening design, explanation, and critique and was
-approved for bounded implementation handoff on 2026-07-20. Commits `842db83`, `d19ac3b`, and
-`38fb667` implement the initial V2 supervisor/verifier/schema slice and focused offline coverage.
-The remaining named role, lineage, inventory, and scanner matrix is still required for closure;
+The B2c-H design packet is recorded in the hardening design, explanation, critique, and refusal-code
+reference. Commits `842db83`, `d19ac3b`, and `38fb667` implement the initial V2 slice; commits
+`df905ff` and `ce0218f` implement the audit remediation. Validation passes formatting, 78 CTests,
+268 Python tests, 66 focused measurement tests, and 63 focused evidence-plus-multimarket tests.
 B2c-P remains blocked and B2c-H remains the current bounded package.

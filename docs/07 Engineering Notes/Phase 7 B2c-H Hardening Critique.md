@@ -4,17 +4,32 @@
 
 This critique reviews the B2c-H design recorded in
 [[07 Engineering Notes/Phase 7 B2c-H Hardening Design]]. The original review preceded implementation;
-the reconciliation below records the initial V2 slice. A planned test or control remains missing
+the reconciliation below records the audited V2 remediation. A planned test or control remains missing
 until implementation and validation prove it.
 
-## Initial implementation reconciliation
+## Implementation reconciliation
 
-Commits `842db83`, `d19ac3b`, and `38fb667` close the narrow V2 supervisor, bounded-stream,
-sampler-validity, successor-schema, inventory/scanner helper, and V1/V2 CLI-separation slice. The
-full individually named lifecycle and evidence matrix in the design is still open. In particular,
-this critique keeps B2CH-T04 through B2CH-T09 open; B2c-P remains unauthorized. Result V4
-in-memory publication, two-rename telemetry publication, escaped-daemon containment, and all
-measurement-dependent optimization items remain deferred.
+Commits `842db83`, `d19ac3b`, and `38fb667` deliver the initial slice. Audit-remediation commits
+`df905ff` and `ce0218f` close the confirmed lifecycle, sampler, stream, storage/path, role/schema,
+membership, repetition, lineage, product-coverage, and scanner defects while preserving V1 behavior.
+Validation passes formatting, 66 focused measurement tests, 63 focused evidence-plus-multimarket
+tests, 78 CTests, and 268 Python tests; an earlier integrated focused gate passed 116 tests.
+
+| Finding | Reconciled status |
+| --- | --- |
+| B2CH-T01 | Closed by child/grandchild KeyboardInterrupt tests in `df905ff`. |
+| B2CH-T02 | Closed by bounded escalation, second-interrupt, reap, and quiescence tests in `df905ff`. |
+| B2CH-T03 | Closed by explicit sampler-failure, zero-RSS, zombie, and no-sample tests in `df905ff`. |
+| B2CH-T04 | Structural role/stage/outcome matrix implemented in `ce0218f`; truthful fully mounted strict twelve-hour/three-market positive remains blocking. |
+| B2CH-T05 | Closed by independent inventory rebuild and exact-byte mutation tests in `ce0218f`. |
+| B2CH-T06 | Closed for the registered mounted JSON/JSONL schema families in `ce0218f`. |
+| B2CH-T07 | Major cross-boundary identities are reconstructed; exhaustive normalization-telemetry/upstream-identity mutations remain blocking. |
+| B2CH-T08 | Closed for the implemented deterministic rules with synthetic canaries and scan-report rebinding in `ce0218f`. |
+| B2CH-T09 | Still open for exhaustive normalization telemetry rename/repeated-invocation coverage. |
+
+B2c-H therefore remains open and B2c-P remains unauthorized. Result V4 in-memory publication,
+two-rename telemetry publication, escaped-daemon containment, and measurement-dependent
+optimizations remain characterized or deferred.
 
 Impact rates the consequence if the issue is mishandled, not the effort required to address it.
 
@@ -27,6 +42,10 @@ Impact rates the consequence if the issue is mishandled, not the effort required
 | 1 | Cosmetic or low-value concern. |
 
 ## Finding register
+
+This is the original pre-implementation register. Read each T/M entry with the reconciliation above
+and the current operator/refusal documentation; its historical “no test yet” wording is not a claim
+about the post-remediation tree.
 
 | ID | Category | Finding | Impact | Required treatment |
 | --- | --- | --- | ---: | --- |
@@ -88,9 +107,10 @@ if future commands need to daemonize or run in environments where PGID inspectio
 
 ### Missing tests
 
-The design contains a detailed named matrix, but none of it exists yet. The highest-impact tests are
-the child/grandchild teardown, signal escalation, independent inventory rebuild, complete lineage
-mutation, and stage/outcome matrix. These tests are acceptance gates, not follow-up polish.
+The high-impact child/grandchild teardown, signal escalation, independent inventory rebuild,
+mounted-schema, scanner, and most lineage/stage cases now have named offline tests. The remaining
+acceptance gaps are the truthful fully mounted strict twelve-hour/three-market positive and the
+exhaustive normalization-telemetry/upstream-identity mutation matrix.
 
 Tests must remain offline, bounded, and synthetic. Process tests need PID handshakes and bounded
 polling rather than sleeps that can hang CI. Evidence mutations must update outer hashes so each test
@@ -98,10 +118,8 @@ reaches the intended semantic boundary instead of failing early for the wrong re
 
 ### Missing documentation
 
-This design and its explanation make the intended behavior understandable, but they are not an
-operator runbook. Commands, exact new refusal codes, repair steps, and scanner sign-off must be
-written from the implemented behavior after validation. Publishing them now would risk documenting
-an interface that later changes.
+The operator guide and additive refusal-code reference now describe the implemented behavior. They
+retain an explicit live-command prohibition and do not treat documentation as closure evidence.
 
 ### Possible optimizations
 
@@ -129,7 +147,7 @@ process, trace, and lineage cardinality. Neither axis should be extrapolated fro
 
 ## Judgment
 
-The design is coherent and appropriately bounded for B2c-H. Its largest implementation risks are
-process-control correctness, duplicated truth across registry/schema/runtime, and test-suite breadth.
-It is approved to serve as the bounded implementation specification, but it does not itself close
-any B2c finding or authorize B2c-P.
+The design remains coherent and the remediation substantially reduces its highest-impact risks. The
+remaining blocker is evidence completeness rather than the audited process-control defects: without
+the strict mounted positive and exhaustive remaining identity mutations, neither this review nor the
+green component suites close B2c-H or authorize B2c-P.

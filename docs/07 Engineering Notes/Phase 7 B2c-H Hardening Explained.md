@@ -7,21 +7,24 @@ tooling for the one real twelve-hour capture.
 
 ## What is implemented so far
 
-The first V2 slice now exists: a new measurement supervisor owns a child process group, records
-sampling validity rather than inventing zero RSS, drains each stream under a 64 MiB limit, and
-publishes a V2 report. A separate V2 verifier path has initial inventory and credential-scanner
-building blocks. This is useful hardening, but it is not the whole inspection: the exhaustive
-mounted role, lineage, repetition, and scanner tests are still required before any capture work.
+The audited V2 remediation now exists. The measurement supervisor owns the process group through
+direct-child reap and group quiescence, escalates SIGINT -> SIGTERM -> SIGKILL on bounded timers,
+handles a second interrupt, records invalid sampling explicitly, drains stdout and stderr
+concurrently under independent 64 MiB limits, and accounts for the whole package plus its report.
+The mounted verifier binds each role to a fixed schema/kind/stage contract, checks exact membership
+and every JSON/JSONL row, rebuilds repetition inventories and lineage, verifies reviewed product
+coverage, and reruns the deterministic credential scan. These controls are covered by commits
+`df905ff` and `ce0218f`; V1 behavior remains frozen.
 
 The earlier B2c package built useful offline tools, but a deeper review found two dangerous gaps:
 
 1. stopping the wrapper did not guarantee that the measured child and its descendants stopped; and
 2. some evidence claims were declarations that the verifier trusted instead of facts it rebuilt.
 
-The approved B2c-H design would fix those gaps without changing how market data, features,
-backtests, or risk work. It would strengthen the control plane around the pipeline. The design is
-documented, critiqued, and approved for bounded implementation. The initial V2 slice is now
-implemented; the complete acceptance matrix remains open.
+The remediation fixes those gaps without changing how market data, features, backtests, or risk
+work. B2c-H remains open for a different reason: there is no truthful fully mounted strict
+twelve-hour/three-market positive package, and exhaustive normalization-telemetry/upstream-identity
+mutations remain incomplete.
 
 ## What we did in the design review
 
@@ -48,10 +51,10 @@ Imagine starting a twelve-hour capture through a wrapper and pressing Ctrl-C bec
 wrong. The wrapper exiting is not enough. If the capture or one of its descendants keeps running, it
 can continue writing data after the operator believes the attempt stopped.
 
-The current wrapper starts a new process group, which is a good foundation. The missing piece is an
-owner that remains responsible until the group is gone.
+The V2 wrapper starts a new process group and remains responsible until the direct child is reaped
+and no live non-zombie group member remains.
 
-B2c-H would therefore give the wrapper an explicit shutdown lifecycle:
+The wrapper implements this shutdown lifecycle:
 
 ```text
 ask politely with SIGINT
@@ -101,7 +104,7 @@ the output clean.
 Today, failure to run `ps` returns zero processes and zero RSS. That looks like a valid, wonderfully
 cheap run even though no measurement occurred.
 
-B2c-H would replace that ambiguity with explicit validity:
+V2 replaces that ambiguity with explicit validity:
 
 - successful and failed sample counts;
 - sampler identity;
@@ -143,7 +146,7 @@ true when written.
 The old repetition record could say “run A inventory hash equals run B inventory hash,” and the
 verifier checked that the Boolean agreed with those two strings. It did not rebuild either inventory.
 
-B2c-H would make the verifier do the work:
+The V2 verifier does the work:
 
 1. enumerate both mounted output trees;
 2. sort the same relative paths deterministically;
@@ -202,7 +205,7 @@ exist.
 The old verifier looked for two private-key markers and trusted a passed assertion in the manifest.
 That was useful defense-in-depth, not an independently verified scan.
 
-The new deterministic scanner would check mounted filenames and bytes for:
+The deterministic scanner checks mounted filenames and bytes for:
 
 - common private-key PEM variants;
 - authorization and bearer headers;
@@ -231,8 +234,12 @@ reinterpreted.
 
 ## What remains intentionally unfinished
 
-B2c-H does not create the evidence it is designed to verify. Product coverage, durable storage,
-operator/window approval, and the one real capture remain B2c-P.
+B2c-H does not create the evidence it is designed to verify. The repository has only two reviewed
+product packages, and only HMONTH brackets about 81 seconds, so it cannot honestly construct the
+fully mounted strict twelve-hour/three-market positive required for closure. Exhaustive
+normalization-telemetry/upstream-identity mutations also remain unfinished. Product acquisition,
+durable storage, operator/window approval, and the one real capture remain B2c-P and are not
+authorized while B2c-H is open.
 
 It also does not optimize the duplicate table, stream Result V4, reuse risk-oracle processes, make
 telemetry publication crash-atomic, or create path-independent normalization identities. Those items
@@ -241,10 +248,8 @@ collection with architectural redesign.
 
 ## Why B2c-P remains blocked
 
-Before B2c-H, an operator could stop the wrapper while the process group continued, and a retained
-package could contain internally consistent declarations that were not independently reconstructed.
-That is too weak a foundation for a one-attempt live evidence package.
-
-B2c-P becomes next only after the supervisor, verifier, schemas, role matrix, scanner, named tests,
-compatibility gates, and documentation all close. B3 remains later because research reporting should
-not be built on evidence whose operational and verification boundaries are still open.
+The audited operator-safety and declaration-trust defects are now fixed, but component fixtures are
+not a substitute for the missing truthful strict mounted package or the unfinished identity-mutation
+matrix. B2c-P becomes next only after those final B2c-H gates close under independent review. B3
+remains later because research reporting should not be built on evidence whose operational and
+verification boundaries are still open.

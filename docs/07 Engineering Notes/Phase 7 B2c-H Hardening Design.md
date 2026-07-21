@@ -2,25 +2,30 @@
 
 ## Status and authority
 
-This document records the consolidated B2c-H implementation design approved for bounded
-implementation handoff on 2026-07-20. It does not record an implemented feature, authorize product
-acquisition, authorize a venue capture, or close any B2c finding. The living roadmap remains
-authoritative for status and work order; ADR-007 and ADR-010 through ADR-013 remain authoritative for
-accepted artifact meanings.
+This document records the consolidated B2c-H design and its implementation reconciliation. It does
+not authorize product acquisition or a venue capture. The living roadmap remains authoritative for
+status and work order; ADR-007 and ADR-010 through ADR-013 remain authoritative for accepted artifact
+meanings.
 
 B2c-H is an additive control-plane hardening package. It must preserve every accepted Capture V2,
 normalization V3, feature V3, Backtest V4, Result V4, product, conversion, risk, checkpoint, and
 refusal contract.
 
-## Implementation status: initial V2 slice
+## Implementation status: audited V2 remediation
 
-Commits `842db83`, `d19ac3b`, and `38fb667` implement an additive `measure-v2` supervisor,
-Measurement/Policy V2 schemas, `verify-v2` scaffolding, canonical inventory construction, a
-deterministic scanner, and focused offline tests. V1 commands remain unchanged. The actual command
-uses a 64 MiB limit for **each** stdout and stderr stream, following the approved implementation
-instruction; this corrects the earlier combined-limit wording below. The complete named role,
-lineage, mounted-schema, repetition, and scanner matrix remains open, so this document must not be
-read as B2c-H closure or B2c-P authorization.
+Commits `842db83`, `d19ac3b`, and `38fb667` implement the initial additive V2 slice. Commits
+`df905ff` and `ce0218f` close the audited supervisor and mounted-verifier defects: post-leader-exit
+descendants are terminated, second interruption accelerates without skipping reap, sampler/stream
+failures are explicit, storage/path invariants fail closed, and mounted evidence is checked through
+an immutable role registry, runtime schemas, exact membership, repetition bytes, reconstructed
+lineage, product coverage, and a recomputed credential scan. V1 commands remain unchanged.
+
+Validation passes formatting, 66 focused measurement tests, 63 focused evidence-plus-multimarket
+tests, 78 CTests, and 268 Python tests; an earlier integrated focused gate passed 116 tests. B2c-H is
+not closed. The repository has only two reviewed product packages, only the HMONTH package brackets
+about 81 seconds, and therefore no truthful fully mounted strict twelve-hour/three-market positive
+exists. Exhaustive normalization-telemetry/upstream-identity mutations are also incomplete. B2c-P
+remains blocked.
 
 ## Objective
 
@@ -70,7 +75,8 @@ The fixed policy V2 measurement controls are:
 | SIGINT grace | 5 seconds |
 | SIGTERM grace | 5 seconds |
 | SIGKILL/group-absence confirmation | 5 seconds |
-| Combined stdout/stderr ceiling | 67,108,864 bytes |
+| Stdout ceiling | 67,108,864 bytes |
+| Stderr ceiling | 67,108,864 bytes |
 | Report-publication reservation | 1,048,576 bytes |
 
 These values are prospective controls for the one B2c run. They are not performance targets or
@@ -533,6 +539,23 @@ deferred performance redesign into these commits.
 
 ## Acceptance and closure
 
+### 2026-07-21 acceptance reconciliation
+
+| Design area | Current disposition |
+| --- | --- |
+| B2CH-T01 child/grandchild interruption | Closed by named tests in `df905ff`. |
+| B2CH-T02 bounded escalation and quiescence | Closed by named SIGINT, SIGTERM, SIGKILL, second-interrupt, ESRCH, EPERM, and absence-timeout tests in `df905ff`. |
+| B2CH-T03 sampler validity and zero RSS | Closed by launch, exit, malformed/duplicate row, no-sample, zombie, and valid-zero tests in `df905ff`. |
+| B2CH-T04 stage/outcome role matrix | Structural required/forbidden and eligibility cases are implemented in `ce0218f`; a truthful fully mounted strict twelve-hour/three-market positive remains blocking. |
+| B2CH-T05 repetition inventories | Closed by mounted rebuild, symlink, inventory mutation, and exact-byte tests in `ce0218f`. |
+| B2CH-T06 mounted schema validation | Closed for registered JSON/JSONL roles, discriminator binding, record counts, and risk-trace V2 parity in `ce0218f`. |
+| B2CH-T07 cross-artifact identity | Result/risk/product/measurement/selected-market edges are implemented; exhaustive normalization-telemetry and upstream-identity mutations remain blocking. |
+| B2CH-T08 credential scan | Implemented with synthetic PEM/header/assignment tests and recomputed report binding in `ce0218f`; real secrets remain prohibited from fixtures. |
+| B2CH-T09 telemetry publication/repeat invocation | Still open for the exhaustive normalization telemetry rename/repeated-invocation matrix; canonical telemetry publication remains non-atomic characterized debt. |
+
+The closed entries above are component controls, not a B2c-H closure claim. The two open evidence
+gaps keep the live command unauthorized and B2c-P blocked.
+
 B2c-H closes only after:
 
 - every individually named lifecycle, budget, schema, stage, inventory, lineage, credential, and
@@ -543,7 +566,8 @@ B2c-H closes only after:
   scanner review, safe refusal, and machine-comparison limits;
 - the explanation and critique distinguish implemented controls, measured behavior, deferred debt,
   and absent retained evidence; and
-- the living roadmap records exact validation evidence and promotes B2c-P as the next package.
+- the living roadmap records exact validation evidence; once every preceding gate is satisfied, the
+  closure update promotes B2c-P as the next package as a consequence of closure.
 
 R03/R04 remain B2c-P prerequisites. R10, R11, R13 through R15, R18 through R20, and B2A-17 remain
 measured, characterized, or deferred. B2C-R16 is targeted for closure by the individually named

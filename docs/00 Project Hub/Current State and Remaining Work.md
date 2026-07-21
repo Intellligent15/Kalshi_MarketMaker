@@ -23,12 +23,12 @@ complete, this current-state document wins; the older note remains useful histor
 
 | Field | Current value |
 | --- | --- |
-| Last reviewed | 2026-07-20 |
-| B2c tooling status | Offline V1 tooling plus initial additive B2c-H V2 supervisor/verifier slice implemented; complete B2c-H acceptance matrix remains open |
+| Last reviewed | 2026-07-21 |
+| B2c tooling status | Additive V2 lifecycle and mounted-verifier audit defects remediated; B2c-H remains open on a truthful strict mounted positive and exhaustive remaining identity mutations |
 | B2c retained evidence status | Not acquired; B2A-10/11 and B2B2-05/06 remain open or measurement-pending |
 | B2c tooling implementation and test commits | `e6a211b` and `4f77020` |
 | B2c deeper review commit | `bdb5ea1` |
-| B2c-H implementation commits | `842db83`, `d19ac3b`, and `38fb667` |
+| B2c-H implementation commits | Initial slice `842db83`, `d19ac3b`, `38fb667`; audit remediation `df905ff`, `ce0218f` |
 | B2c-H design and critique commit | `580da7a` |
 | Baseline before B2c-H implementation handoff | `5d4da2d`; clean `main`; ten commits ahead of `origin/main` |
 | Graphify workflow integration commit | `39b57c0` |
@@ -50,12 +50,14 @@ complete, this current-state document wins; the older note remains useful histor
 | Recent B1b-2 review commits | `73dc566`, `6e22b27`, and `61a2188` |
 | Recent B1b-1 commits | `902a2df`, `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
-| C++/CTest validation | 78 tests passing (post-V2 slice) |
-| Python validation | 171 tests passing (post-V2 slice) |
+| C++/CTest validation | 78 tests passing (post-remediation) |
+| Python validation | 268 tests passing (post-remediation) |
 | Focused capture validation | 15 tests passing |
 | Focused Phase 7 validation | 43 tests passing |
 | Focused B2b-2 validation | 10 tests passing |
-| Focused B2c evidence and measurement validation | 22 tests passing |
+| Focused B2c measurement validation | 66 tests passing |
+| Focused B2c evidence plus multimarket validation | 63 tests passing |
+| Integrated focused compatibility validation | 116 tests passing before final full-suite gate |
 | Focused product-term validation | 42 tests passing |
 | Focused checkpoint-reader validation | 17 tests passing |
 | Focused fixture-integrity validation | 17 tests passing |
@@ -64,7 +66,7 @@ complete, this current-state document wins; the older note remains useful histor
 | Local Graphify navigation | Refreshed at `5d4da2d`: 6,120 nodes, 9,236 built edges, 475 communities; advisory only, and earlier raw-extraction health warnings are not claimed closed |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
 | Next bounded package | B2c-H evidence-verifier and measurement-lifecycle hardening |
-| Immediate next action | Complete the remaining approved B2c-H named role, lineage, inventory, and scanner matrix; do not acquire product evidence or capture |
+| Immediate next action | Build a truthful fully mounted strict 12-hour/three-market positive fixture and close exhaustive normalization-telemetry/upstream-identity mutations; do not acquire product evidence or capture |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -101,6 +103,7 @@ Use these documents to verify or deepen a claim in this roadmap:
 - [[07 Engineering Notes/Phase 7 B2c-H Hardening Design|Reviewed B2c-H implementation design]]
 - [[07 Engineering Notes/Phase 7 B2c-H Hardening Explained|B2c-H plain-language explanation]]
 - [[07 Engineering Notes/Phase 7 B2c-H Hardening Critique|B2c-H design critique and debt register]]
+- [[07 Engineering Notes/Phase 7 B2c-H Refusal Codes|B2c-H additive V2 refusal-code reference]]
 - [[02 Architecture/ADR-011 Bracketed Product Evidence and Review Responsibility|Bracketed evidence and review responsibility]]
 - [[02 Architecture/ADR-012 Deterministic Document Evidence and Completeness Profiles|Deterministic document evidence and completeness profiles]]
 - [[07 Engineering Notes/Phase 7 Critique|Original Phase 7 critique]]
@@ -929,11 +932,13 @@ Implemented B2c tooling includes:
 This implementation does not close the retained-evidence acceptance gate. B2A-10/11 and B2B2-05/06
 remain open or measurement-pending until reviewed artifacts and actual measurements exist.
 
-Commits `842db83`, `d19ac3b`, and `38fb667` address an initial process-supervision, bounded-stream,
-sampler-validity, successor-schema, and verifier-helper slice. The full mounted repetition/lineage,
-schema-parity, stage membership, and scanner acceptance matrix remains open. The documented live
-command is therefore still not operator-ready, and B2c-H remains current before B2c-P acquisition
-or capture approval.
+Commits `842db83`, `d19ac3b`, and `38fb667` address the initial V2 slice. Audit-remediation commits
+`df905ff` and `ce0218f` close the confirmed process-group ownership, reap, second-interrupt, sampler,
+bounded-stream, storage-accounting, path/symlink, role/schema, membership, repetition, lineage,
+product-coverage, and credential-scan defects. They keep the V1 `measure` and `verify` surfaces
+frozen. The documented live command remains unauthorized because the repository does not yet have a
+truthful fully mounted strict twelve-hour/three-market positive package and exhaustive normalization-
+telemetry/upstream-identity mutation coverage remains incomplete.
 
 The B2c-H design is documented in
 [[07 Engineering Notes/Phase 7 B2c-H Hardening Design]], its plain-language explanation, and its
@@ -941,11 +946,12 @@ severity-ranked design critique. The design selects one bounded process supervis
 control-plane documents, independent repetition and lineage reconstruction, exact stage/outcome
 membership, explicit sampler validity, complete storage accounting, and a retained deterministic
 credential-scan result. The user approved this bounded design for implementation handoff on
-2026-07-20. The initial V2 slice is current behavior; no finding is closed merely by approval, and
-the full named matrix remains required before B2c-H can close.
+2026-07-20. The remediated V2 slice is current behavior; no finding is closed merely by approval,
+and synthetic positive fixtures do not substitute for the missing truthful strict mounted package.
 
-Post-slice validation passes 22 focused B2c evidence/measurement tests, 144 focused compatibility
-tests, formatting, all 171 Python tests, and all 78 CTests. Every added test is offline and bounded.
+Post-remediation validation passes formatting, 66 focused measurement tests, 63 focused evidence-
+plus-multimarket tests, all 268 Python tests, and all 78 CTests. An earlier integrated focused gate
+passed 116 tests. Every added test is offline, deterministic, bounded, and uses synthetic secrets.
 
 What B2c inherits as complete:
 
@@ -1409,23 +1415,17 @@ but it must remain labelled experimental and must not bypass its promotion gates
 
 ## Current next package
 
-The next bounded package is **B2c-H evidence-verifier and measurement-lifecycle hardening**. It must
-guarantee bounded termination and reaping of the measured process group on operator interruption or
-budget stop; independently rebuild repetition inventories and the complete mounted lineage graph;
-validate every new B2c member against its runtime schema; enforce exact outcome/stage membership,
-free-space and aggregate-budget rules; distinguish invalid sampling from real zero RSS; and bind a
-specified credential scan to retained evidence. Each defect requires a named offline test. Do not
-acquire product bytes or start a venue capture during B2c-H.
+The next bounded package remains **B2c-H evidence-verifier and measurement-lifecycle hardening**.
+The audited lifecycle, resource, mounted-membership, role/schema, repetition, lineage, and scanner
+defects are closed by `df905ff` and `ce0218f`. The remaining closure package must add a truthful fully
+mounted strict twelve-hour/three-market positive using reviewed product coverage and finish the
+exhaustive normalization-telemetry/upstream-identity mutation matrix. Do not acquire product bytes
+or start a venue capture during B2c-H.
 
-The read-only B2c-H review produced a consolidated design, and the user approved it for bounded
-implementation handoff on 2026-07-20. It preserves existing artifact and refusal meanings while
-fixing the process-ownership, schema, lineage, repetition, storage, sampling, credential, CLI, test,
-and documentation boundaries. The explanation makes the reasoning operator-readable; the critique
-rates implementation risks and deferred debt. Implementation begins test-first with the named
-lifecycle and verifier failures, then follows the design's measurement, evidence/lineage,
-compatibility, and documentation commit boundaries. Approval does not close any finding. Closure
-still requires implemented named tests, compatibility gates, validation evidence, updated operator
-docs, and a post-implementation critique.
+The design, explanation, critique, operator guide, and refusal-code reference now reconcile the
+implemented V2 controls and the remaining blockers. The remediation used named offline tests and
+logical green commits. It does not authorize B2c-P: closure still requires the two evidence/mutation
+gaps above and a final independent review.
 
 Tests must be written first and observed failing locally within each slice, but every recorded commit
 must pass its scoped gates. New V2 refusal codes must be additive and documented; accepted V1 codes,

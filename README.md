@@ -93,11 +93,15 @@ joined signals, portfolio-wide risk, calibrated execution, accounting, fees, PnL
 
 B2c tooling adds a fixed twelve-hour/three-market evidence policy, compact package index and offline
 verifier, process-tree resource measurement with disk-budget interruption, normalization duplicate-
-state telemetry, and per-contract oracle telemetry. B2c-H now adds an isolated V2 process-group
-supervisor, bounded per-stream collection, explicit invalid-sampler reporting, V2 schemas, a V2
-inventory/scanner/verifier entrypoint, and focused offline tests. It does not contain a retained B2c
-capture. The full role/lineage acceptance matrix remains open, so B2c-H is current rather than closed;
-B2c-P cannot begin.
+state telemetry, and per-contract oracle telemetry. B2c-H commits `df905ff` and `ce0218f` harden the
+additive V2 boundary: the supervisor owns process-group shutdown and direct-child reap, drains stdout
+and stderr independently under 64 MiB ceilings, rejects invalid sampling and unsafe accounting
+layouts, and publishes storage-complete reports; the mounted verifier now enforces its private role
+registry, runtime schemas, exact membership, repetition bytes, lineage, product coverage, and a
+recomputed credential scan. V1 `measure` and `verify` behavior remains frozen. No retained B2c capture
+exists, the repository has no truthful mounted strict twelve-hour/three-market positive package, and
+some exhaustive normalization-telemetry/upstream-identity mutations remain open. B2c-H therefore
+remains current and B2c-P remains blocked.
 
 ## Quick start
 
