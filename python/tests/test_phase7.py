@@ -565,6 +565,62 @@ class Phase7Tests(unittest.TestCase):
             )
         self.assertFalse((self.generated_root / "normalization-telemetry-refused").exists())
 
+    def test_v3_telemetry_and_normalization_publish_as_one_unit(self) -> None:
+        capture = self.make_v2_capture()
+        original_rename = Path.rename
+        for failed_member in ("telemetry", "normalization"):
+            with self.subTest(failed_member=failed_member):
+                output = self.generated_root / f"rename-failure-{failed_member}"
+                telemetry = self.generated_root / f"rename-failure-{failed_member}.json"
+                output_partial = output.with_name(f"{output.name}.partial").resolve()
+                telemetry_partial = telemetry.with_name(f"{telemetry.name}.partial").resolve()
+                failed_path = (
+                    telemetry_partial
+                    if failed_member == "telemetry"
+                    else output_partial
+                )
+
+                def fail_selected_rename(source: Path, target: Path) -> Path:
+                    if source == failed_path:
+                        raise OSError(f"simulated {failed_member} rename failure")
+                    return original_rename(source, target)
+
+                with mock.patch.object(
+                    Path, "rename", autospec=True, side_effect=fail_selected_rename
+                ):
+                    with self.assertRaisesRegex(
+                        OSError, f"simulated {failed_member} rename failure"
+                    ):
+                        phase7.normalize_capture_v3(
+                            capture, output, instrumentation_output=telemetry
+                        )
+
+                self.assertFalse(output.exists())
+                self.assertFalse(output_partial.exists())
+                self.assertFalse(telemetry.exists())
+                self.assertFalse(telemetry_partial.exists())
+
+    def test_v3_repeated_instrumented_invocation_preserves_prior_bytes(self) -> None:
+        capture = self.make_v2_capture()
+        output = self.generated_root / "instrumented-repeat"
+        telemetry = self.generated_root / "instrumented-repeat.json"
+        phase7.normalize_capture_v3(capture, output, instrumentation_output=telemetry)
+        output_snapshot = {
+            path.name: path.read_bytes() for path in output.iterdir() if path.is_file()
+        }
+        telemetry_snapshot = telemetry.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "output already exists"):
+            phase7.normalize_capture_v3(
+                capture, output, instrumentation_output=telemetry
+            )
+
+        self.assertEqual(
+            output_snapshot,
+            {path.name: path.read_bytes() for path in output.iterdir() if path.is_file()},
+        )
+        self.assertEqual(telemetry.read_bytes(), telemetry_snapshot)
+
     def test_v3_retained_offline_scenario_matrix(self) -> None:
         fixture = json.loads(
             (

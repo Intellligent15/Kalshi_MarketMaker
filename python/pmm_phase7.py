@@ -1225,14 +1225,16 @@ def normalize_capture_v3(
                 "NormalizationTelemetrySchemaMismatch",
             )
             write_json(instrumentation_partial, telemetry)
-        temporary.rename(output_dir)
         if instrumentation_path is not None and instrumentation_partial is not None:
             instrumentation_partial.rename(instrumentation_path)
+        temporary.rename(output_dir)
         return manifest
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
         if instrumentation_partial is not None:
             instrumentation_partial.unlink(missing_ok=True)
+        if instrumentation_path is not None:
+            instrumentation_path.unlink(missing_ok=True)
         raise
 
 
