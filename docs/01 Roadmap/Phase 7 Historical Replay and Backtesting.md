@@ -160,7 +160,7 @@ interruption, duplicate-table telemetry, per-contract oracle telemetry, and one-
 coverage. These are additive control-plane formats; accepted raw, normalized, feature, backtest,
 result, product, conversion, risk, and refusal contracts retain their meanings.
 
-No B2c product evidence or venue capture has been acquired. The closure series through `65b5989`
+No B2c product evidence or venue capture has been acquired. The closure series through `79801e7`
 closes B2c-H as offline control-plane hardening while freezing V1 behavior. Real subprocess tests
 validate the supervisor. A fully mounted Synthetic twelve-hour/three-market package validates the
 verifier, including exact identity, truth/catalog, canonical repetition, lineage, operational-

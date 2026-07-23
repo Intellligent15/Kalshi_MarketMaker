@@ -42,7 +42,8 @@ retained page bytes.
 Eligibility is reconstructed from retained rows, not trusted from the document:
 
 1. environment is production;
-2. query is the open `/trade-api/v2/markets` listing;
+2. query is exactly the unfiltered `{"status":"open"}` base request to
+   `/trade-api/v2/markets`; cursor and narrowing parameters are forbidden;
 3. contracts are open binary markets;
 4. close time is at least 1,800 seconds after the proposed capture end;
 5. `volume_24h_fp` is parsed exactly as a nonnegative decimal;

@@ -20,7 +20,7 @@ failures are explicit, storage/path invariants fail closed, and mounted evidence
 an immutable role registry, runtime schemas, exact membership, repetition bytes, reconstructed
 lineage, product coverage, and a recomputed credential scan. V1 commands remain unchanged.
 
-The closure series `e70098e`, `4236943`, `aa04c70`, `6b6c176`, `b1d6b2f`, and `65b5989`
+The closure series `e70098e`, `4236943`, `aa04c70`, `6b6c176`, `b1d6b2f`, `65b5989`, and `79801e7`
 adds Synthetic product truth, immutable pre-spawn identities, atomic telemetry refusal behavior, a
 fully mounted strict verifier-conformance package, exact path/hash and product/Result lineage,
 canonical repetition binding, portable mounted Backtest paths, and operational-approval checks.
@@ -555,7 +555,7 @@ deferred performance redesign into these commits.
 | B2CH-T04 stage/outcome role matrix | Closed for offline conformance by the fully mounted Synthetic strict package; Observed execution is not evaluated and transfers to B2c-P. |
 | B2CH-T05 repetition inventories | Closed by mounted rebuild, canonical-output binding, symlink, inventory mutation, and exact-byte tests. |
 | B2CH-T06 mounted schema validation | Closed for registered JSON/JSONL roles, discriminator binding, record counts, and risk-trace V2 parity in `ce0218f`. |
-| B2CH-T07 cross-artifact identity | Closed by path-plus-hash measurement identities, truth/catalog/product reconstruction, normalization/feature/Result mutations, portable Backtest path binding, and operational approval. |
+| B2CH-T07 cross-artifact identity | Closed by path-plus-hash measurement identities, truth/catalog/exact product-map reconstruction, normalization/feature/Result mutations, portable Backtest path binding, and operational approval. |
 | B2CH-T08 credential scan | Implemented with synthetic PEM/header/assignment tests and recomputed report binding in `ce0218f`; real secrets remain prohibited from fixtures. |
 | B2CH-T09 telemetry publication/repeat invocation | Closed by atomic normalization/telemetry publication cleanup, rename-failure, and repeated-invocation tests. |
 

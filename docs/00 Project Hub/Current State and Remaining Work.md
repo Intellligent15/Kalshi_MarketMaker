@@ -28,8 +28,8 @@ complete, this current-state document wins; the older note remains useful histor
 | B2c retained evidence status | Not acquired; B2A-10/11 and B2B2-05/06 remain open or measurement-pending |
 | B2c tooling implementation and test commits | `e6a211b` and `4f77020` |
 | B2c deeper review commit | `bdb5ea1` |
-| B2c-H closure implementation commits | `e70098e`, `4236943`, `aa04c70`, `6b6c176`, `b1d6b2f`, and `65b5989` |
-| B2c-P offline approval-control commits | `3bf4c34` and `7db8dd4`; no venue access or acquisition performed |
+| B2c-H closure implementation commits | `e70098e`, `4236943`, `aa04c70`, `6b6c176`, `b1d6b2f`, `65b5989`, and `79801e7` |
+| B2c-P offline approval-control commits | `3bf4c34`, `7db8dd4`, and `79801e7`; no venue access or acquisition performed |
 | B2c-H design and critique commit | `580da7a` |
 | Baseline before B2c-H implementation handoff | `5d4da2d`; clean `main`; ten commits ahead of `origin/main` |
 | Graphify workflow integration commit | `39b57c0` |
@@ -934,9 +934,9 @@ Implemented B2c tooling includes:
 This implementation does not close the retained-evidence acceptance gate. B2A-10/11 and B2B2-05/06
 remain open or measurement-pending until reviewed artifacts and actual measurements exist.
 
-The B2c-H closure series through `65b5989` closes the confirmed process-group ownership, reap,
+The B2c-H closure series through `79801e7` closes the confirmed process-group ownership, reap,
 second-interrupt, sampler, bounded-stream, storage-accounting, path/symlink, role/schema, membership,
-canonical-repetition, product-truth/catalog, measurement-identity, normalization/Result lineage,
+canonical-repetition, product-truth/catalog/map, measurement-identity, normalization/Result lineage,
 operational-approval, and credential-scan defects. V1 `measure` and `verify` remain frozen.
 
 The B2c-H design is documented in
@@ -1428,8 +1428,8 @@ must pass its scoped gates. New V2 refusal codes must be additive and documented
 stdout/stderr behavior, exit meanings, and first-failure ordering remain frozen.
 
 The B2c-P control plane is implemented offline in `pmm_b2c_operator.py` and its two V1 schemas. A
-candidate snapshot is accepted only when the complete retained page/cursor chain hashes correctly,
-its candidate projection matches those bytes, and the fixed `volume_24h_fp` ranking reconstructs
+candidate snapshot is accepted only when the exact unfiltered open-market base query and complete
+retained page/cursor chain hash correctly, its candidate projection matches those bytes, and the fixed `volume_24h_fp` ranking reconstructs
 exactly three open binary markets from distinct series. A run approval binds that snapshot, the
 frozen policy, exact window/selection, opening/closing acquisition-spec bytes, operator/reviewer,
 and distinct nonoverlapping durable primary/backup paths.
