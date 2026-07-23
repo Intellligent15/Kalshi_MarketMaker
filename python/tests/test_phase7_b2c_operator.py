@@ -268,6 +268,22 @@ class B2cOperatorTests(unittest.TestCase):
                 self.write_snapshot(document), artifact_root=self.root
             )
 
+    def test_candidate_snapshot_requires_open_market_listing_query(self) -> None:
+        for label, field, value in (
+            ("endpoint", "endpoint", "/trade-api/v2/events"),
+            ("status", "parameters", {"status": "closed"}),
+        ):
+            with self.subTest(label=label):
+                document = self.snapshot()
+                document["payload"]["query"][field] = value
+                self.rehash(document)
+                with self.assertRaisesRegex(
+                    operator.OperatorError, "CandidateSnapshotQueryMismatch"
+                ):
+                    operator.verify_candidate_snapshot(
+                        self.write_snapshot(document), artifact_root=self.root
+                    )
+
     def test_run_approval_binds_snapshot_window_spec_files_and_durable_storage(self) -> None:
         snapshot_path = self.write_snapshot()
         approval_path = self.write_approval(self.approval(snapshot_path))
