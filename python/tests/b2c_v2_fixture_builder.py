@@ -226,8 +226,10 @@ def build_v2_package(
         },
         "machine": {"system": "synthetic"},
         "identity_files": [
-            {"path": str(path.resolve()), "sha256": phase7.sha256_file(path)}
-            for path, _, _ in files.values()
+            {
+                "path": str(files["capture_policy"][0].resolve()),
+                "sha256": phase7.sha256_file(files["capture_policy"][0]),
+            }
         ],
     }
     files["capture_measurement"] = (
@@ -294,6 +296,7 @@ def build_v2_package(
                 "ticker": loaded_product.terms.market_ticker,
                 "package_root": mounted_package.relative_to(root).as_posix(),
                 "conversion_policy_path": mounted_policy.relative_to(root).as_posix(),
+                "truth_category": loaded_product.evidence.truth_category,
             }
         )
 

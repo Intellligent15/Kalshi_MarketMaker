@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform
 import shutil
 import signal
@@ -255,7 +255,18 @@ def _verify_backtest_descriptors(
     config: dict[str, Any],
     result: dict[str, Any],
     members: list[dict[str, Any]],
+    result_manifest_path: str,
 ) -> None:
+    result_parent = PurePosixPath(result_manifest_path).parent
+
+    def mounted_descriptor_path(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        relative = PurePosixPath(value)
+        if relative.is_absolute() or ".." in relative.parts:
+            return None
+        return (result_parent / relative).as_posix()
+
     configured: dict[int, str] = {}
     for product in config.get("products", []):
         contract_id = product.get("contract_identity", {}).get("contract_id")
@@ -274,7 +285,7 @@ def _verify_backtest_descriptors(
             raise EvidenceError("EvidenceV2LineageMismatch", "risk trace ticker differs from config")
         member = member_by_role.get(f"risk_trace_{contract_id}")
         expected = {
-            "path": trace.get("path"), "sha256": trace.get("sha256"),
+            "path": mounted_descriptor_path(trace.get("path")), "sha256": trace.get("sha256"),
             "record_count": trace.get("row_count"), "contract_id": contract_id,
         }
         if member is None or any(member.get(key) != value for key, value in expected.items()):
@@ -297,7 +308,7 @@ def _verify_backtest_descriptors(
         descriptor = artifact_by_name[name]
         member = member_by_role.get(f"v4_{name}")
         expected = {
-            "path": descriptor.get("path"), "sha256": descriptor.get("sha256"),
+            "path": mounted_descriptor_path(descriptor.get("path")), "sha256": descriptor.get("sha256"),
             "record_count": descriptor.get("row_count"),
         }
         if descriptor.get("schema") != schema_tag or member is None or any(
@@ -337,7 +348,7 @@ def _verify_backtest_rows_and_telemetry(
     descriptors = {item["name"]: item for item in result["artifacts"]}
     aggregates = result.get("aggregate_counts", {})
     for name, descriptor in descriptors.items():
-        if aggregates.get(name) != descriptor["row_count"]:
+        if aggregates.get(name, 0) != descriptor["row_count"]:
             raise EvidenceError("EvidenceV2LineageMismatch", "Result aggregate count differs from typed stream")
         member = member_by_role[f"v4_{name}"]
         for row in phase7.iter_jsonl(root / member["path"]):
@@ -462,6 +473,17 @@ def _verify_product_packages(
     }
     if not declared_tickers.issubset(selected) or declared_tickers & unavailable:
         raise EvidenceError("EvidenceV2MembershipMismatch", "product package is unselected or unavailable")
+    catalog: product_terms.ProductCatalog | None = None
+    catalog_path_value = payload.get("product_catalog_path")
+    if catalog_path_value is not None:
+        catalog_path = _safe_member(root, catalog_path_value)
+        if catalog_path.name != "manifest.json":
+            raise EvidenceError("EvidenceV2MembershipMismatch", "product catalog path must name manifest.json")
+        try:
+            catalog = product_terms.ProductCatalog.load(catalog_path.parent)
+        except ValueError as error:
+            raise EvidenceError("EvidenceV2EligibilityMismatch", "delegated catalog verification failed") from error
+        expected_paths.add(catalog_path.relative_to(root).as_posix())
     for declaration in declarations:
         ticker = declaration["ticker"]
         if ticker in by_ticker:
@@ -477,6 +499,8 @@ def _verify_product_packages(
             raise EvidenceError("EvidenceV2EligibilityMismatch", "delegated product verification failed") from error
         if package.terms.market_ticker != ticker:
             raise EvidenceError("EvidenceV2EligibilityMismatch", "product package ticker differs")
+        if declaration.get("truth_category", package.evidence.truth_category) != package.evidence.truth_category:
+            raise EvidenceError("EvidenceV2EligibilityMismatch", "product package truth category differs")
         capture_start = _parse_utc(payload["capture_spec"]["started_at_utc"], "capture start")
         capture_end = _parse_utc(payload["capture_spec"]["ended_at_utc"], "capture end")
         try:
@@ -501,6 +525,31 @@ def _verify_product_packages(
         )
     if expected_paths != product_member_paths:
         raise EvidenceError("EvidenceV2MembershipMismatch", "product package member declarations differ")
+    if catalog is not None:
+        entries = catalog.payload["entries"]
+        if len(entries) != len(selected) or {item["market_ticker"] for item in entries} != selected:
+            raise EvidenceError("EvidenceV2EligibilityMismatch", "catalog market membership differs")
+        capture_start = _parse_utc(payload["capture_spec"]["started_at_utc"], "capture start")
+        capture_end = _parse_utc(payload["capture_spec"]["ended_at_utc"], "capture end")
+        series: set[str] = set()
+        for declaration in declarations:
+            ticker = declaration["ticker"]
+            try:
+                resolved = catalog.resolve(
+                    {
+                        "ticker": ticker,
+                        "capture_started_at_utc_ns": int(capture_start.timestamp() * 1_000_000_000),
+                        "capture_ended_at_utc_ns": int(capture_end.timestamp() * 1_000_000_000),
+                    }
+                )
+            except ValueError as error:
+                raise EvidenceError("EvidenceV2EligibilityMismatch", "catalog does not resolve capture") from error
+            declared_root = _safe_member(root, declaration["package_root"])
+            if resolved.path != declared_root.resolve():
+                raise EvidenceError("EvidenceV2EligibilityMismatch", "catalog package differs from declaration")
+            series.add(resolved.terms.identity["series_ticker"])
+        if len(series) != len(selected):
+            raise EvidenceError("EvidenceV2EligibilityMismatch", "selected products do not have distinct series")
     lineage = {item["ticker"]: item["status"] for item in payload["product_lineage"]}
     if set(lineage) != set(payload["market_tickers"]):
         raise EvidenceError("EvidenceV2EligibilityMismatch", "product lineage ticker membership differs")
@@ -528,31 +577,318 @@ def _verify_selected_markets(
 
 
 def _verify_measurement_identities(root: Path, members: list[dict[str, Any]]) -> None:
-    member_by_role = {member["role"]: member for member in members if member["role"] not in {"product_package_member", "repetition_member"}}
-    expected_stages = {
-        "capture_measurement": "capture-v2",
-        "normalization_measurement": "normalization-v3",
-        "feature_measurement": "features-v3",
-        "backtest_measurement": "backtest-v4",
+    member_by_role = {
+        member["role"]: member
+        for member in members
+        if member["role"] not in {"product_package_member", "repetition_member"}
     }
-    known_hashes = {member["sha256"] for member in members}
-    for role, expected_stage in expected_stages.items():
+    expected = {
+        "capture_measurement": ("capture-v2", ("capture_policy",)),
+        "normalization_measurement": (
+            "normalization-v3",
+            ("raw_frames", "raw_metadata", "product_catalog"),
+        ),
+        "feature_measurement": (
+            "features-v3",
+            ("normalization_manifest", "normalized_records", "source_scopes", "product_map"),
+        ),
+        "backtest_measurement": (
+            "backtest-v4",
+            (
+                "backtest_config", "normalization_manifest", "normalized_records",
+                "source_scopes", "product_map", "feature_manifest", "feature_rows",
+            ),
+        ),
+    }
+    product_hashes = [
+        member["sha256"] for member in members if member["role"] == "product_package_member"
+    ]
+    for role, (expected_stage, input_roles) in expected.items():
         member = member_by_role.get(role)
         if member is None:
             continue
         document = phase7.read_json(root / member["path"])
         if document.get("stage") != expected_stage:
             raise EvidenceError("EvidenceV2LineageMismatch", f"{role} stage differs")
-        identities = document.get("identity_files", [])
-        hashes = [item.get("sha256") for item in identities]
-        if not identities or len(hashes) != len(set(hashes)) or not set(hashes).issubset(known_hashes):
+        expected_hashes = [
+            member_by_role[input_role]["sha256"]
+            for input_role in input_roles
+            if input_role in member_by_role
+        ]
+        if role == "normalization_measurement" and product_hashes:
+            expected_hashes.extend(product_hashes)
+        actual_hashes = [item.get("sha256") for item in document.get("identity_files", [])]
+        if Counter(actual_hashes) != Counter(expected_hashes):
             raise EvidenceError("EvidenceV2LineageMismatch", f"{role} identity files differ")
-    capture = member_by_role.get("capture_measurement")
-    if capture is not None:
-        document = phase7.read_json(root / capture["path"])
-        expected = {member_by_role[role]["sha256"] for role in ("capture_policy", "raw_frames", "raw_metadata")}
-        if {item.get("sha256") for item in document["identity_files"]} != expected:
-            raise EvidenceError("EvidenceV2LineageMismatch", "capture measurement identities differ")
+
+
+def _verify_normalization_chain(
+    root: Path, selected: list[str], members: list[dict[str, Any]]
+) -> None:
+    by_role = {member["role"]: member for member in members}
+    required = (
+        "raw_frames", "raw_metadata", "normalization_manifest", "normalized_records",
+        "source_scopes", "product_map", "normalization_telemetry",
+    )
+    if any(role not in by_role for role in required):
+        raise EvidenceError("EvidenceV2LineageMismatch", "normalization chain is incomplete")
+    manifest = phase7.read_json(root / by_role["normalization_manifest"]["path"])
+    product_map = phase7.read_json(root / by_role["product_map"]["path"])
+    telemetry = phase7.read_json(root / by_role["normalization_telemetry"]["path"])
+    expected_hashes = {
+        "input_frames_sha256": by_role["raw_frames"]["sha256"],
+        "input_capture_metadata_sha256": by_role["raw_metadata"]["sha256"],
+        "output_records_sha256": by_role["normalized_records"]["sha256"],
+        "output_source_scopes_sha256": by_role["source_scopes"]["sha256"],
+        "output_product_sha256": by_role["product_map"]["sha256"],
+    }
+    if any(manifest.get(key) != value for key, value in expected_hashes.items()):
+        raise EvidenceError("EvidenceV2LineageMismatch", "normalization artifact identity differs")
+    if manifest.get("market_tickers") != selected:
+        raise EvidenceError("EvidenceV2LineageMismatch", "normalization selected markets differ")
+    products = product_map.get("products", [])
+    if [item.get("ticker") for item in products] != selected:
+        raise EvidenceError("EvidenceV2LineageMismatch", "normalization product-map order differs")
+    records_path = root / by_role["normalized_records"]["path"]
+    event_counts: Counter[str] = Counter()
+    discontinuity_counts: Counter[str] = Counter()
+    for row in phase7.iter_jsonl(records_path):
+        ticker = row.get("ticker")
+        if ticker is not None and ticker not in selected:
+            raise EvidenceError("EvidenceV2LineageMismatch", "normalized row names an unselected market")
+        if row.get("kind") == "market_event":
+            event_counts[str(row.get("event_type"))] += 1
+        elif row.get("kind") == "discontinuity":
+            discontinuity_counts[str(row.get("control_type"))] += 1
+    if dict(sorted(event_counts.items())) != manifest.get("event_counts"):
+        raise EvidenceError("EvidenceV2LineageMismatch", "normalization event counts differ")
+    if dict(sorted(discontinuity_counts.items())) != manifest.get("discontinuity_counts"):
+        raise EvidenceError("EvidenceV2LineageMismatch", "normalization discontinuity counts differ")
+    raw_rows = list(phase7.iter_jsonl(root / by_role["raw_frames"]["path"]))
+    raw_count = len(raw_rows)
+    raw_metadata = phase7.read_json(root / by_role["raw_metadata"]["path"])
+    topology = raw_metadata.get("sequence_domain", {}).get("topology")
+    sequence_payloads: dict[tuple[Any, ...], str] = {}
+    duplicate_count = 0
+    reconstructed_samples: list[dict[str, int]] = []
+    for row in raw_rows:
+        sequence = row.get("source_sequence")
+        if sequence is None:
+            continue
+        key: tuple[Any, ...] = (
+            row.get("connection_segment_id"), row.get("subscription_id"), sequence,
+        )
+        if topology == "independent":
+            key = (*key[:2], row.get("market_ticker"), key[2])
+        raw_frame = row.get("raw_frame_utf8")
+        try:
+            message = json.loads(raw_frame) if isinstance(raw_frame, str) else row
+        except json.JSONDecodeError as error:
+            raise EvidenceError("EvidenceV2LineageMismatch", "raw sequence payload is malformed") from error
+        payload_hash = _payload_sha256(message)
+        prior = sequence_payloads.get(key)
+        if prior is not None:
+            if prior != payload_hash:
+                raise EvidenceError("EvidenceV2LineageMismatch", "raw sequence identity conflicts")
+            duplicate_count += 1
+            continue
+        sequence_payloads[key] = payload_hash
+        count = len(sequence_payloads)
+        if count & (count - 1) == 0:
+            reconstructed_samples.append(
+                {
+                    "raw_ingress_ordinal": row["raw_ingress_ordinal"],
+                    "sequenced_unique_identities": count,
+                }
+            )
+    telemetry_expected = {
+        "input_frames_sha256": by_role["raw_frames"]["sha256"],
+        "input_capture_metadata_sha256": by_role["raw_metadata"]["sha256"],
+        "processed_raw_records": raw_count,
+        "sequenced_unique_identities": len(sequence_payloads),
+        "peak_sequenced_unique_identities": len(sequence_payloads),
+        "identical_duplicates_skipped": duplicate_count,
+        "samples": reconstructed_samples,
+    }
+    if any(telemetry.get(key) != value for key, value in telemetry_expected.items()):
+        raise EvidenceError("EvidenceV2LineageMismatch", "normalization telemetry differs")
+    if manifest.get("identical_duplicates_skipped") != duplicate_count:
+        raise EvidenceError("EvidenceV2LineageMismatch", "normalization duplicate count differs")
+    samples = telemetry.get("samples", [])
+    ordinals = [item.get("raw_ingress_ordinal") for item in samples]
+    counts = [item.get("sequenced_unique_identities") for item in samples]
+    if (
+        ordinals != sorted(set(ordinals))
+        or any(not isinstance(value, int) or value > raw_count for value in ordinals)
+        or counts != sorted(counts)
+        or any(value <= 0 or value & (value - 1) for value in counts)
+        or (counts and counts[-1] > telemetry.get("sequenced_unique_identities", -1))
+        or telemetry.get("peak_sequenced_unique_identities", -1)
+        < telemetry.get("sequenced_unique_identities", 0)
+    ):
+        raise EvidenceError("EvidenceV2LineageMismatch", "normalization telemetry samples differ")
+
+
+def _verify_feature_chain(
+    root: Path, selected: list[str], members: list[dict[str, Any]]
+) -> None:
+    by_role = {member["role"]: member for member in members}
+    required = (
+        "raw_frames", "raw_metadata", "normalization_manifest", "normalized_records",
+        "source_scopes", "product_map", "feature_manifest", "feature_rows",
+    )
+    if any(role not in by_role for role in required):
+        raise EvidenceError("EvidenceV2LineageMismatch", "feature chain is incomplete")
+    normalization = phase7.read_json(root / by_role["normalization_manifest"]["path"])
+    product_map = phase7.read_json(root / by_role["product_map"]["path"])
+    manifest = phase7.read_json(root / by_role["feature_manifest"]["path"])
+    inputs = manifest.get("input", {})
+    expected_inputs = {
+        "normalization_manifest_sha256": by_role["normalization_manifest"]["sha256"],
+        "records_sha256": by_role["normalized_records"]["sha256"],
+        "source_scopes_sha256": by_role["source_scopes"]["sha256"],
+        "product_map_sha256": by_role["product_map"]["sha256"],
+    }
+    if any(inputs.get(key) != value for key, value in expected_inputs.items()):
+        raise EvidenceError("EvidenceV2LineageMismatch", "feature upstream identity differs")
+    if inputs.get("capture_identity") != {
+        "frames_sha256": by_role["raw_frames"]["sha256"],
+        "metadata_sha256": by_role["raw_metadata"]["sha256"],
+    }:
+        raise EvidenceError("EvidenceV2LineageMismatch", "feature capture identity differs")
+    if inputs.get("market_tickers") != selected:
+        raise EvidenceError("EvidenceV2LineageMismatch", "feature selected markets differ")
+    for key in ("product_catalog_sha256", "conversion_policy_sha256"):
+        if inputs.get(key) != normalization.get(key):
+            raise EvidenceError("EvidenceV2LineageMismatch", "feature product input differs")
+    rows_path = root / by_role["feature_rows"]["path"]
+    rows = list(phase7.iter_jsonl(rows_path))
+    output = manifest.get("output", {})
+    if output.get("feature_rows_sha256") != by_role["feature_rows"]["sha256"] or output.get(
+        "feature_row_count"
+    ) != len(rows):
+        raise EvidenceError("EvidenceV2LineageMismatch", "feature output identity differs")
+    product_entries = {item["ticker"]: item for item in product_map.get("products", [])}
+    manifest_products = manifest.get("products", [])
+    if [item.get("product_identity", {}).get("ticker") for item in manifest_products] != selected:
+        raise EvidenceError("EvidenceV2LineageMismatch", "feature product order differs")
+    rows_by_ticker: dict[str, list[dict[str, Any]]] = {ticker: [] for ticker in selected}
+    common_lineage = {
+        "input_normalization_manifest_sha256": by_role["normalization_manifest"]["sha256"],
+        "input_records_sha256": by_role["normalized_records"]["sha256"],
+        "input_source_scopes_sha256": by_role["source_scopes"]["sha256"],
+        "input_product_map_sha256": by_role["product_map"]["sha256"],
+    }
+    for row in rows:
+        ticker = row.get("product_identity", {}).get("ticker")
+        if ticker not in rows_by_ticker:
+            raise EvidenceError("EvidenceV2LineageMismatch", "feature row names an unselected market")
+        entry = product_entries[ticker]
+        entry_hash = _payload_sha256(entry)
+        expected_lineage = {**common_lineage, "input_product_entry_sha256": entry_hash}
+        for key in (
+            "product_terms_sha256", "source_manifest_sha256", "review_sha256",
+            "conversion_policy_sha256",
+        ):
+            if key in entry:
+                expected_lineage[key] = entry[key]
+        if row.get("lineage") != expected_lineage or row.get("product_identity", {}).get(
+            "input_product_entry_sha256"
+        ) != entry_hash:
+            raise EvidenceError("EvidenceV2LineageMismatch", "feature row lineage differs")
+        rows_by_ticker[ticker].append(row)
+    for item in manifest_products:
+        ticker = item["product_identity"]["ticker"]
+        entry = product_entries[ticker]
+        entry_hash = _payload_sha256(entry)
+        ticker_rows = rows_by_ticker[ticker]
+        segments = list(dict.fromkeys(row["segment_identity"]["book_segment_id"] for row in ticker_rows))
+        first = None if not ticker_rows else ticker_rows[0]["as_of"]["product_applied_watermark"]
+        last = None if not ticker_rows else ticker_rows[-1]["as_of"]["product_applied_watermark"]
+        expected_reviewed = {
+            "ticker": ticker,
+            **{
+                key: entry.get(key)
+                for key in (
+                    "product_terms_sha256", "source_manifest_sha256", "review_sha256",
+                    "conversion_policy_sha256",
+                )
+            },
+        }
+        if (
+            item.get("product_identity") != entry
+            or item.get("input_product_entry_sha256") != entry_hash
+            or item.get("row_count") != len(ticker_rows)
+            or item.get("segments") != segments
+            or item.get("first_product_applied_watermark") != first
+            or item.get("last_product_applied_watermark") != last
+            or item.get("reviewed_lineage") != expected_reviewed
+        ):
+            raise EvidenceError("EvidenceV2LineageMismatch", "feature product reconstruction differs")
+
+
+def _verify_backtest_upstream_chain(
+    root: Path, selected: list[str], members: list[dict[str, Any]]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    by_role = {member["role"]: member for member in members}
+    required = (
+        "normalization_manifest", "normalized_records", "source_scopes", "product_map",
+        "feature_manifest", "feature_rows", "backtest_config", "result_manifest",
+    )
+    if any(role not in by_role for role in required):
+        raise EvidenceError("EvidenceV2LineageMismatch", "backtest upstream chain is incomplete")
+    config = phase7.read_json(root / by_role["backtest_config"]["path"])
+    result = phase7.read_json(root / by_role["result_manifest"]["path"])
+    product_map = phase7.read_json(root / by_role["product_map"]["path"])
+    feature_manifest = phase7.read_json(root / by_role["feature_manifest"]["path"])
+    normalization_inputs = config.get("inputs", {}).get("normalization", {})
+    feature_inputs = config.get("inputs", {}).get("features", {})
+    expected_normalization = {
+        "manifest_sha256": by_role["normalization_manifest"]["sha256"],
+        "records_sha256": by_role["normalized_records"]["sha256"],
+        "source_scopes_sha256": by_role["source_scopes"]["sha256"],
+        "product_map_sha256": by_role["product_map"]["sha256"],
+    }
+    expected_features = {
+        "manifest_sha256": by_role["feature_manifest"]["sha256"],
+        "rows_sha256": by_role["feature_rows"]["sha256"],
+        "feature_definition_sha256": _payload_sha256(feature_manifest.get("feature_definitions")),
+    }
+    if any(normalization_inputs.get(key) != value for key, value in expected_normalization.items()):
+        raise EvidenceError("EvidenceV2LineageMismatch", "backtest normalization input differs")
+    if any(feature_inputs.get(key) != value for key, value in expected_features.items()):
+        raise EvidenceError("EvidenceV2LineageMismatch", "backtest feature input differs")
+    entries = {item["ticker"]: item for item in product_map.get("products", [])}
+    products = config.get("products", [])
+    if [item.get("product_identity", {}).get("ticker") for item in products] != selected:
+        raise EvidenceError("EvidenceV2LineageMismatch", "backtest product order differs")
+    for product in products:
+        ticker = product["product_identity"]["ticker"]
+        entry = entries.get(ticker)
+        if entry is None or product["product_identity"].get("input_product_entry_sha256") != _payload_sha256(entry):
+            raise EvidenceError("EvidenceV2LineageMismatch", "backtest product entry differs")
+        reviewed = {
+            "ticker": ticker,
+            **{
+                key: entry.get(key)
+                for key in (
+                    "product_terms_sha256", "source_manifest_sha256", "review_sha256",
+                    "conversion_policy_sha256",
+                )
+            },
+        }
+        if product.get("reviewed_lineage") != reviewed:
+            raise EvidenceError("EvidenceV2LineageMismatch", "backtest reviewed lineage differs")
+    if (
+        result.get("config_sha256") != by_role["backtest_config"]["sha256"]
+        or result.get("inputs") != config.get("inputs")
+        or result.get("feature_definition_sha256")
+        != expected_features["feature_definition_sha256"]
+        or [item.get("product_identity") for item in result.get("products", [])]
+        != [item.get("product_identity") for item in products]
+    ):
+        raise EvidenceError("EvidenceV2LineageMismatch", "Result upstream lineage differs")
+    return config, result
 
 
 def _validate_outcome(payload: dict[str, Any]) -> None:
@@ -755,19 +1091,27 @@ def verify_evidence_manifest_v2(
         raise EvidenceError("EvidenceV2MembershipMismatch", "raw record counts differ") from error
     _verify_selected_markets(payload["market_tickers"], raw_metadata)
     _verify_measurement_identities(root, members)
+    if _STAGE_ORDER.index(stage) >= _STAGE_ORDER.index("normalization_record_only"):
+        _verify_normalization_chain(root, payload["market_tickers"], members)
+    if _STAGE_ORDER.index(stage) >= _STAGE_ORDER.index("features_v3"):
+        _verify_feature_chain(root, payload["market_tickers"], members)
+    backtest_documents: tuple[dict[str, Any], dict[str, Any]] | None = None
+    if stage == "backtest_v4":
+        backtest_documents = _verify_backtest_upstream_chain(
+            root, payload["market_tickers"], members
+        )
     if payload["repetitions"]:
         _verify_repetitions(root, payload["repetitions"], members)
     if stage == "backtest_v4":
-        config_document = phase7.read_json(
-            root / next(member["path"] for member in members if member["role"] == "backtest_config")
-        )
-        result_document = phase7.read_json(
-            root / next(member["path"] for member in members if member["role"] == "result_manifest")
-        )
+        assert backtest_documents is not None
+        config_document, result_document = backtest_documents
         _verify_selected_markets(
             payload["market_tickers"], raw_metadata, config_document, result_document
         )
-        _verify_backtest_descriptors(config_document, result_document, members)
+        result_member = next(member for member in members if member["role"] == "result_manifest")
+        _verify_backtest_descriptors(
+            config_document, result_document, members, result_member["path"]
+        )
         _verify_backtest_rows_and_telemetry(root, config_document, result_document, members)
     return {"schema": EVIDENCE_V2_SCHEMA, "verified": True, "artifacts_verified": True, "member_count": len(members)}
 

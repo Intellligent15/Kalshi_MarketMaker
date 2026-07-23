@@ -97,14 +97,16 @@
           "type": "array",
           "items": {
             "type": "object", "additionalProperties": false,
-            "required": ["ticker", "package_root", "conversion_policy_path"],
+            "required": ["ticker", "package_root", "conversion_policy_path", "truth_category"],
             "properties": {
               "ticker": {"type": "string", "minLength": 1},
               "package_root": {"$ref": "#/$defs/relativePath"},
-              "conversion_policy_path": {"$ref": "#/$defs/relativePath"}
+              "conversion_policy_path": {"$ref": "#/$defs/relativePath"},
+              "truth_category": {"enum": ["Observed", "Synthetic"]}
             }
           }
         },
+        "product_catalog_path": {"$ref": "#/$defs/relativePath"},
         "furthest_materialized_stage": {"$ref": "#/$defs/stage"},
         "furthest_eligible_stage": {"$ref": "#/$defs/stage"},
         "members": {

@@ -227,6 +227,7 @@ def _build_package(root: Path, suffix: str) -> terms.ProductPackage:
 
 def build_synthetic_product_catalog(root: Path) -> terms.ProductCatalog:
     """Create and validate a three-market, distinct-series Synthetic catalog."""
+    root = root.resolve()
     root.mkdir(parents=True, exist_ok=False)
     packages = [_build_package(root, suffix) for suffix in ("A", "B", "C")]
     entries = []

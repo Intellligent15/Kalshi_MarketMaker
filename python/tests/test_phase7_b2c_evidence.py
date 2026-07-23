@@ -18,6 +18,11 @@ if str(PYTHON_ROOT) not in sys.path:
 import pmm_phase7 as phase7
 import pmm_phase7_evidence as evidence
 from python.tests.b2c_v2_fixture_builder import build_v2_package
+from python.tests.b2c_v2_strict_fixture_builder import (
+    build_strict_v2_evidence_package,
+    build_strict_v2_pipeline,
+)
+from python.tests.synthetic_product_package_builder import build_synthetic_product_catalog
 
 
 class B2cEvidenceTests(unittest.TestCase):
@@ -39,6 +44,20 @@ class B2cEvidenceTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("".join(phase7.canonical_json(row) + "\n" for row in rows), encoding="utf-8")
         return path
+
+    @staticmethod
+    def _strict_primary_members(fixture) -> list[dict]:
+        members = []
+        for role, path in fixture.primary_members().items():
+            member = {
+                "role": role,
+                "path": path.relative_to(fixture.root).as_posix(),
+                "sha256": phase7.sha256_file(path),
+            }
+            if path.suffix == ".jsonl":
+                member["record_count"] = sum(1 for _ in phase7.iter_jsonl(path))
+            members.append(member)
+        return members
 
     def build_package(self) -> tuple[Path, dict]:
         tickers = ["KX-A", "KX-B", "KX-C"]
@@ -924,6 +943,79 @@ class B2cEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2MembershipMismatch"):
             evidence._verify_product_packages(self.root, payload, set())
 
+    def test_verify_product_packages_resolve_exact_distinct_series_catalog(self) -> None:
+        catalog_root = self.root / "catalog"
+        catalog = build_synthetic_product_catalog(catalog_root)
+        conversion_source = (
+            phase7.REPOSITORY_ROOT
+            / "configs/product_catalog/conversion_policies/"
+            "integer_cents_whole_contracts_v1.json"
+        )
+        conversion_path = self.root / "conversion-policy.json"
+        shutil.copy2(conversion_source, conversion_path)
+        declarations = []
+        for ticker in ("SYNTH-A", "SYNTH-B", "SYNTH-C"):
+            package = catalog.resolve(
+                {
+                    "ticker": ticker,
+                    "capture_started_at_utc_ns": 1_767_225_600_000_000_000,
+                    "capture_ended_at_utc_ns": 1_767_268_800_000_000_000,
+                }
+            )
+            declarations.append(
+                {
+                    "ticker": ticker,
+                    "package_root": package.path.relative_to(self.root.resolve()).as_posix(),
+                    "conversion_policy_path": conversion_path.name,
+                    "truth_category": "Synthetic",
+                }
+            )
+        payload = {
+            "market_tickers": ["SYNTH-A", "SYNTH-B", "SYNTH-C"],
+            "product_lineage": [
+                {"ticker": ticker, "status": "bracketed"}
+                for ticker in ("SYNTH-A", "SYNTH-B", "SYNTH-C")
+            ],
+            "product_packages": declarations,
+            "product_catalog_path": "catalog/manifest.json",
+            "capture_spec": {
+                "started_at_utc": "2026-01-01T00:00:00Z",
+                "ended_at_utc": "2026-01-01T12:00:00Z",
+            },
+        }
+        product_paths = {
+            path.resolve().relative_to(self.root.resolve()).as_posix()
+            for path in catalog_root.rglob("*")
+            if path.is_file()
+        }
+        product_paths.add(conversion_path.name)
+
+        statuses = evidence._verify_product_packages(self.root, payload, product_paths)
+
+        self.assertEqual(
+            statuses,
+            {ticker: "bracketed" for ticker in ("SYNTH-A", "SYNTH-B", "SYNTH-C")},
+        )
+
+    def test_v2_schema_accepts_explicit_product_truth_and_catalog_path(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        fixture.manifest["payload"]["product_catalog_path"] = "catalog/manifest.json"
+        fixture.manifest["payload"]["product_packages"] = [
+            {
+                "ticker": "SYNTH-A",
+                "package_root": "catalog/packages/SYNTH-A",
+                "conversion_policy_path": "control/conversion-policy.json",
+                "truth_category": "Synthetic",
+            }
+        ]
+        fixture.rewrite_manifest()
+
+        phase7.validate_historical_schema(
+            fixture.manifest,
+            "b2c-evidence-manifest-v2.schema.json",
+            "EvidenceV2ManifestSchemaMismatch",
+        )
+
     def test_verify_selected_markets_match_raw_config_and_result(self) -> None:
         selected = ["SYNTH-A", "SYNTH-B", "SYNTH-C"]
         raw = {"market_tickers": selected}
@@ -949,6 +1041,90 @@ class B2cEvidenceTests(unittest.TestCase):
                 fixture.manifest_path, artifact_root=self.root, require_artifacts=True
             )
 
+    def test_verify_capture_measurement_requires_only_pre_run_policy_identity(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        measurement_path = self.root / "measurements/capture.json"
+        measurement = phase7.read_json(measurement_path)
+        policy_member = next(
+            item
+            for item in fixture.manifest["payload"]["members"]
+            if item["role"] == "capture_policy"
+        )
+        measurement["identity_files"] = [
+            {
+                "path": str((self.root / policy_member["path"]).resolve()),
+                "sha256": policy_member["sha256"],
+            }
+        ]
+        phase7.write_json(measurement_path, measurement)
+        measurement_member = next(
+            item
+            for item in fixture.manifest["payload"]["members"]
+            if item["role"] == "capture_measurement"
+        )
+        measurement_member["byte_length"] = measurement_path.stat().st_size
+        measurement_member["sha256"] = phase7.sha256_file(measurement_path)
+        fixture.refresh_credential_report()
+
+        result = evidence.verify_evidence_manifest_v2(
+            fixture.manifest_path, artifact_root=self.root, require_artifacts=True
+        )
+
+        self.assertTrue(result["verified"])
+
+    def test_verify_capture_measurement_rejects_duplicate_input_identity(self) -> None:
+        fixture = build_v2_package(self.root, product_status="unavailable")
+        measurement_path = self.root / "measurements/capture.json"
+        measurement = phase7.read_json(measurement_path)
+        measurement["identity_files"].append(dict(measurement["identity_files"][0]))
+        phase7.write_json(measurement_path, measurement)
+        measurement_member = next(
+            item
+            for item in fixture.manifest["payload"]["members"]
+            if item["role"] == "capture_measurement"
+        )
+        measurement_member["byte_length"] = measurement_path.stat().st_size
+        measurement_member["sha256"] = phase7.sha256_file(measurement_path)
+        fixture.refresh_credential_report()
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+            evidence.verify_evidence_manifest_v2(
+                fixture.manifest_path, artifact_root=self.root, require_artifacts=True
+            )
+
+    def test_verify_normalization_measurement_requires_exact_stage_inputs(self) -> None:
+        frames = self.write_jsonl("raw/frames.jsonl", [])
+        metadata = self.write_json("raw/metadata.json", {"schema": "synthetic"})
+        measurement = self.write_json(
+            "measurements/normalization.json",
+            {
+                "stage": "normalization-v3",
+                "identity_files": [
+                    {"path": str(frames), "sha256": phase7.sha256_file(frames)}
+                ],
+            },
+        )
+        members = [
+            {
+                "role": "raw_frames",
+                "path": "raw/frames.jsonl",
+                "sha256": phase7.sha256_file(frames),
+            },
+            {
+                "role": "raw_metadata",
+                "path": "raw/metadata.json",
+                "sha256": phase7.sha256_file(metadata),
+            },
+            {
+                "role": "normalization_measurement",
+                "path": "measurements/normalization.json",
+                "sha256": phase7.sha256_file(measurement),
+            },
+        ]
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+            evidence._verify_measurement_identities(self.root, members)
+
     def test_verify_backtest_rows_telemetry_and_aggregate_counts(self) -> None:
         digest = "1" * 64
         config = {
@@ -965,7 +1141,7 @@ class B2cEvidenceTests(unittest.TestCase):
         trace = {"ticker": "SYNTH-A", "contract_id": 1, "path": trace_path.name, "sha256": phase7.sha256_file(trace_path), "row_count": 0}
         result = {
             "run_id": "synthetic-run", "feature_definition_sha256": digest,
-            "artifacts": artifacts, "aggregate_counts": {name: 0 for name in evidence.V4_ARTIFACT_SCHEMAS},
+            "artifacts": artifacts, "aggregate_counts": {},
             "risk": {"traces": [trace]},
             "products": [{"product_identity": {"ticker": "SYNTH-A"}, "contract_identity": {"contract_id": 1}, "risk_trace": trace}],
         }
@@ -982,6 +1158,202 @@ class B2cEvidenceTests(unittest.TestCase):
         phase7.write_json(telemetry_path, telemetry)
         with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
             evidence._verify_backtest_rows_and_telemetry(self.root, config, result, members)
+
+    def test_verify_real_pipeline_reconstructs_normalization_and_feature_lineage(self) -> None:
+        processed = phase7.REPOSITORY_ROOT / "data" / "processed"
+        processed.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=processed) as temporary:
+            fixture = build_strict_v2_pipeline(Path(temporary) / "package")
+            members = []
+            for role, path in fixture.primary_members().items():
+                member = {
+                    "role": role,
+                    "path": path.relative_to(fixture.root).as_posix(),
+                    "sha256": phase7.sha256_file(path),
+                }
+                if path.suffix == ".jsonl":
+                    member["record_count"] = sum(1 for _ in phase7.iter_jsonl(path))
+                members.append(member)
+
+            evidence._verify_normalization_chain(
+                fixture.root, ["SYNTH-A", "SYNTH-B", "SYNTH-C"], members
+            )
+            evidence._verify_feature_chain(
+                fixture.root, ["SYNTH-A", "SYNTH-B", "SYNTH-C"], members
+            )
+            evidence._verify_backtest_upstream_chain(
+                fixture.root, ["SYNTH-A", "SYNTH-B", "SYNTH-C"], members
+            )
+
+            feature_manifest_path = fixture.feature_roots[0] / "manifest.json"
+            feature_manifest_bytes = feature_manifest_path.read_bytes()
+            feature_manifest = phase7.read_json(feature_manifest_path)
+            feature_manifest["input"]["records_sha256"] = "0" * 64
+            phase7.write_json(feature_manifest_path, feature_manifest)
+            with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+                evidence._verify_feature_chain(
+                    fixture.root, ["SYNTH-A", "SYNTH-B", "SYNTH-C"], members
+                )
+            feature_manifest_path.write_bytes(feature_manifest_bytes)
+
+            config_bytes = fixture.backtest_config_path.read_bytes()
+            config = phase7.read_json(fixture.backtest_config_path)
+            config["inputs"]["features"]["rows_sha256"] = "0" * 64
+            phase7.write_json(fixture.backtest_config_path, config)
+            with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+                evidence._verify_backtest_upstream_chain(
+                    fixture.root, ["SYNTH-A", "SYNTH-B", "SYNTH-C"], members
+                )
+            fixture.backtest_config_path.write_bytes(config_bytes)
+
+            telemetry_bytes = fixture.normalization_telemetry_path.read_bytes()
+            telemetry = phase7.read_json(fixture.normalization_telemetry_path)
+            telemetry["input_frames_sha256"] = "0" * 64
+            phase7.write_json(fixture.normalization_telemetry_path, telemetry)
+            with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+                evidence._verify_normalization_chain(
+                    fixture.root, ["SYNTH-A", "SYNTH-B", "SYNTH-C"], members
+                )
+            fixture.normalization_telemetry_path.write_bytes(telemetry_bytes)
+            telemetry = phase7.read_json(fixture.normalization_telemetry_path)
+            telemetry["sequenced_unique_identities"] += 1
+            telemetry["peak_sequenced_unique_identities"] += 1
+            phase7.write_json(fixture.normalization_telemetry_path, telemetry)
+            with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+                evidence._verify_normalization_chain(
+                    fixture.root, ["SYNTH-A", "SYNTH-B", "SYNTH-C"], members
+                )
+
+    def test_verify_v2_accepts_fully_mounted_synthetic_three_market_strict_chain(self) -> None:
+        processed = phase7.REPOSITORY_ROOT / "data" / "processed"
+        processed.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=processed) as temporary:
+            fixture = build_strict_v2_evidence_package(Path(temporary) / "package")
+
+            result = fixture.verify()
+
+            self.assertTrue(result["verified"])
+            self.assertTrue(result["artifacts_verified"])
+            self.assertEqual(
+                fixture.manifest["payload"]["market_tickers"],
+                ["SYNTH-A", "SYNTH-B", "SYNTH-C"],
+            )
+            self.assertEqual(
+                fixture.manifest["payload"]["furthest_eligible_stage"],
+                "backtest_v4",
+            )
+
+    def test_verify_real_normalization_lineage_mutation_matrix(self) -> None:
+        processed = phase7.REPOSITORY_ROOT / "data" / "processed"
+        processed.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=processed) as temporary:
+            fixture = build_strict_v2_pipeline(Path(temporary) / "package")
+            members = self._strict_primary_members(fixture)
+            selected = ["SYNTH-A", "SYNTH-B", "SYNTH-C"]
+            manifest_path = fixture.normalization_roots[0] / "manifest.json"
+            telemetry_path = fixture.normalization_telemetry_path
+            product_path = fixture.normalization_roots[0] / "product.json"
+            cases = (
+                (manifest_path, lambda value: value.__setitem__("input_frames_sha256", "0" * 64)),
+                (manifest_path, lambda value: value.__setitem__("input_capture_metadata_sha256", "0" * 64)),
+                (manifest_path, lambda value: value.__setitem__("output_records_sha256", "0" * 64)),
+                (manifest_path, lambda value: value.__setitem__("output_source_scopes_sha256", "0" * 64)),
+                (manifest_path, lambda value: value.__setitem__("output_product_sha256", "0" * 64)),
+                (manifest_path, lambda value: value["market_tickers"].reverse()),
+                (manifest_path, lambda value: value["event_counts"].__setitem__("book_snapshot", 99)),
+                (manifest_path, lambda value: value.__setitem__("identical_duplicates_skipped", 1)),
+                (telemetry_path, lambda value: value.__setitem__("processed_raw_records", 0)),
+                (telemetry_path, lambda value: value.__setitem__("sequenced_unique_identities", 99)),
+                (telemetry_path, lambda value: value.__setitem__("peak_sequenced_unique_identities", 0)),
+                (telemetry_path, lambda value: value["samples"].pop()),
+                (product_path, lambda value: value["products"][0].__setitem__("ticker", "WRONG")),
+            )
+            for index, (path, mutation) in enumerate(cases):
+                with self.subTest(case=index):
+                    original = path.read_bytes()
+                    value = phase7.read_json(path)
+                    mutation(value)
+                    phase7.write_json(path, value)
+                    with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+                        evidence._verify_normalization_chain(fixture.root, selected, members)
+                    path.write_bytes(original)
+
+    def test_verify_real_feature_lineage_mutation_matrix(self) -> None:
+        processed = phase7.REPOSITORY_ROOT / "data" / "processed"
+        processed.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=processed) as temporary:
+            fixture = build_strict_v2_pipeline(Path(temporary) / "package")
+            members = self._strict_primary_members(fixture)
+            selected = ["SYNTH-A", "SYNTH-B", "SYNTH-C"]
+            manifest_path = fixture.feature_roots[0] / "manifest.json"
+            cases = (
+                lambda value: value["input"].__setitem__("normalization_manifest_sha256", "0" * 64),
+                lambda value: value["input"].__setitem__("records_sha256", "0" * 64),
+                lambda value: value["input"].__setitem__("source_scopes_sha256", "0" * 64),
+                lambda value: value["input"].__setitem__("product_map_sha256", "0" * 64),
+                lambda value: value["input"]["capture_identity"].__setitem__("frames_sha256", "0" * 64),
+                lambda value: value["input"]["market_tickers"].reverse(),
+                lambda value: value["output"].__setitem__("feature_rows_sha256", "0" * 64),
+                lambda value: value["output"].__setitem__("feature_row_count", 99),
+                lambda value: value["products"][0].__setitem__("input_product_entry_sha256", "0" * 64),
+                lambda value: value["products"][0].__setitem__("row_count", 99),
+                lambda value: value["products"][0]["reviewed_lineage"].__setitem__("review_sha256", "0" * 64),
+            )
+            for index, mutation in enumerate(cases):
+                with self.subTest(case=index):
+                    original = manifest_path.read_bytes()
+                    value = phase7.read_json(manifest_path)
+                    mutation(value)
+                    phase7.write_json(manifest_path, value)
+                    with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+                        evidence._verify_feature_chain(fixture.root, selected, members)
+                    manifest_path.write_bytes(original)
+
+            rows_path = fixture.feature_roots[0] / "features.jsonl"
+            for field in ("input_records_sha256", "input_product_entry_sha256"):
+                with self.subTest(row_lineage=field):
+                    original = rows_path.read_bytes()
+                    rows = list(phase7.iter_jsonl(rows_path))
+                    rows[0]["lineage"][field] = "0" * 64
+                    rows_path.write_text(
+                        "".join(phase7.canonical_json(row) + "\n" for row in rows),
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+                        evidence._verify_feature_chain(fixture.root, selected, members)
+                    rows_path.write_bytes(original)
+
+    def test_verify_real_backtest_upstream_mutation_matrix(self) -> None:
+        processed = phase7.REPOSITORY_ROOT / "data" / "processed"
+        processed.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=processed) as temporary:
+            fixture = build_strict_v2_pipeline(Path(temporary) / "package")
+            members = self._strict_primary_members(fixture)
+            selected = ["SYNTH-A", "SYNTH-B", "SYNTH-C"]
+            config_path = fixture.backtest_config_path
+            result_path = fixture.backtest_roots[0] / "manifest.json"
+            cases = (
+                (config_path, lambda value: value["inputs"]["normalization"].__setitem__("manifest_sha256", "0" * 64)),
+                (config_path, lambda value: value["inputs"]["normalization"].__setitem__("records_sha256", "0" * 64)),
+                (config_path, lambda value: value["inputs"]["features"].__setitem__("manifest_sha256", "0" * 64)),
+                (config_path, lambda value: value["inputs"]["features"].__setitem__("rows_sha256", "0" * 64)),
+                (config_path, lambda value: value["inputs"]["features"].__setitem__("feature_definition_sha256", "0" * 64)),
+                (config_path, lambda value: value["products"][0]["product_identity"].__setitem__("input_product_entry_sha256", "0" * 64)),
+                (config_path, lambda value: value["products"][0]["reviewed_lineage"].__setitem__("source_manifest_sha256", "0" * 64)),
+                (result_path, lambda value: value.__setitem__("config_sha256", "0" * 64)),
+                (result_path, lambda value: value.__setitem__("feature_definition_sha256", "0" * 64)),
+                (result_path, lambda value: value["inputs"]["features"].__setitem__("rows_sha256", "0" * 64)),
+                (result_path, lambda value: value["products"][0]["product_identity"].__setitem__("ticker", "WRONG")),
+            )
+            for index, (path, mutation) in enumerate(cases):
+                with self.subTest(case=index):
+                    original = path.read_bytes()
+                    value = phase7.read_json(path)
+                    mutation(value)
+                    phase7.write_json(path, value)
+                    with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
+                        evidence._verify_backtest_upstream_chain(fixture.root, selected, members)
+                    path.write_bytes(original)
 
     def test_verify_lineage_rejects_missing_and_extra_edges(self) -> None:
         fixture = build_v2_package(
@@ -1089,16 +1461,16 @@ class B2cEvidenceTests(unittest.TestCase):
             ],
         }
         members = [
-            {"role": f"v4_{item['name']}", "path": item["path"], "sha256": digest, "record_count": 0}
+            {"role": f"v4_{item['name']}", "path": f"result/{item['path']}", "sha256": digest, "record_count": 0}
             for item in artifacts
         ] + [
-            {"role": f"risk_trace_{item['contract_id']}", "path": item["path"], "sha256": digest, "record_count": 0, "contract_id": item["contract_id"]}
+            {"role": f"risk_trace_{item['contract_id']}", "path": f"result/{item['path']}", "sha256": digest, "record_count": 0, "contract_id": item["contract_id"]}
             for item in traces
         ]
-        evidence._verify_backtest_descriptors(config, result, members)
+        evidence._verify_backtest_descriptors(config, result, members, "result/manifest.json")
         result["products"][0]["risk_trace"]["contract_id"] = 2
         with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
-            evidence._verify_backtest_descriptors(config, result, members)
+            evidence._verify_backtest_descriptors(config, result, members, "result/manifest.json")
 
 
 if __name__ == "__main__":
