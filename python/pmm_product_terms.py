@@ -310,6 +310,29 @@ def approved_source_url(value: Any, context: str) -> str:
     return url
 
 
+def synthetic_source_url(value: Any, context: str) -> str:
+    url = require_string(value, context)
+    parsed = urlparse(url)
+    try:
+        port = parsed.port
+    except ValueError as error:
+        fail("AcquisitionUrlRejected", f"{context} has an invalid port: {error}")
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "synthetic.invalid"
+        or parsed.netloc not in {"synthetic.invalid", "synthetic.invalid:443"}
+        or port not in {None, 443}
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        fail(
+            "AcquisitionUrlRejected",
+            f"{context} is not an approved synthetic.invalid HTTPS URL",
+        )
+    return url
+
+
 def utc_ns_to_datetime(value: Any, context: str) -> datetime:
     if isinstance(value, bool):
         fail("TermsNoncanonical", f"{context} must be an integer nanosecond timestamp")
@@ -621,12 +644,13 @@ def _validate_acquisition_summary(value: Any) -> None:
 
 
 def _validate_acquired_source_metadata(
-    source: dict[str, Any], context: str, role: str
+    source: dict[str, Any], context: str, role: str, truth_category: str = "Observed"
 ) -> None:
     if role not in ROLE_POLICIES:
         fail("TermsNoncanonical", f"{context}.role is unsupported")
-    requested_url = approved_source_url(source["requested_url"], f"{context}.requested_url")
-    final_url = approved_source_url(source["final_url"], f"{context}.final_url")
+    url_validator = synthetic_source_url if truth_category == "Synthetic" else approved_source_url
+    requested_url = url_validator(source["requested_url"], f"{context}.requested_url")
+    final_url = url_validator(source["final_url"], f"{context}.final_url")
     redirects = source["redirect_history"]
     if not isinstance(redirects, list) or len(redirects) > MAX_REDIRECTS:
         fail("TermsNoncanonical", f"{context}.redirect_history is invalid")
@@ -644,7 +668,7 @@ def _validate_acquired_source_metadata(
         if require_integer(redirect["status_code"], f"{redirect_context}.status_code") not in REDIRECT_STATUSES:
             fail("TermsNoncanonical", f"{redirect_context}.status_code is not a supported redirect")
         require_string(redirect["location"], f"{redirect_context}.location")
-        resolved_url = approved_source_url(
+        resolved_url = url_validator(
             redirect["resolved_url"], f"{redirect_context}.resolved_url"
         )
         if urljoin(current_url, redirect["location"]) != resolved_url:
@@ -692,6 +716,7 @@ class SourceEvidence:
     schema: str
     acquisition_policy: AcquisitionPolicy | None
     evidence_profile: EvidenceProfile | None
+    truth_category: str
 
     @classmethod
     def load(cls, package: Path) -> "SourceEvidence":
@@ -744,9 +769,12 @@ class SourceEvidence:
                     "venue", "environment", "acquisition_policy_sha256",
                     "evidence_profile_sha256", "acquisitions", "sources",
                 },
-                set(),
+                {"truth_category"},
                 "source payload",
             )
+        truth_category = payload.get("truth_category", "Observed")
+        if truth_category not in {"Observed", "Synthetic"}:
+            fail("TermsNoncanonical", "source truth_category must be Observed or Synthetic")
         if payload["venue"] != "kalshi" or payload["environment"] != "production":
             fail("TermsNoncanonical", "source venue/environment must be kalshi/production")
         sources = payload["sources"]
@@ -793,7 +821,9 @@ class SourceEvidence:
                     fail("SourceMissing", str(error))
                 parse_utc(source["retrieved_at_utc"], f"{context}.retrieved_at_utc")
             else:
-                _validate_acquired_source_metadata(source, context, role)
+                _validate_acquired_source_metadata(
+                    source, context, role, truth_category
+                )
             require_string(source["media_type"], f"{context}.media_type")
             if source.get("venue_updated_at") is not None:
                 parse_utc(source["venue_updated_at"], f"{context}.venue_updated_at")
@@ -932,6 +962,7 @@ class SourceEvidence:
             schema,
             acquisition_policy,
             evidence_profile,
+            truth_category,
         )
 
 

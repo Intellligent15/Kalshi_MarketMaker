@@ -657,6 +657,85 @@ class ProductTermsTests(unittest.TestCase):
         self.assertEqual(package.review.evidence_map.schema, terms.EVIDENCE_MAP_V2_SCHEMA)
         self.assertIsNotNone(package.evidence.evidence_profile)
 
+    def test_source_manifest_v4_defaults_missing_truth_category_to_observed(self) -> None:
+        package_path = self.make_successor_hmonth_package("observed-default")
+        with mock.patch.object(
+            terms,
+            "_tool_version",
+            side_effect=[terms.SUPPORTED_PDFINFO_VERSION, terms.SUPPORTED_PDFTOTEXT_VERSION],
+        ):
+            package = terms.ProductPackage.load(package_path)
+        self.assertEqual(package.evidence.truth_category, "Observed")
+        manifest = json.loads((package_path / "source_manifest.json").read_text())
+        self.assertNotIn("truth_category", manifest["payload"])
+
+    def test_source_manifest_v4_accepts_explicit_synthetic_sources(self) -> None:
+        package_path = self.make_successor_hmonth_package("synthetic-truth")
+        manifest_path = package_path / "source_manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["payload"]["truth_category"] = "Synthetic"
+        for source in manifest["payload"]["sources"]:
+            url = f"https://synthetic.invalid/{source['id']}"
+            source["requested_url"] = url
+            source["final_url"] = url
+        self.write_envelope(manifest_path, manifest)
+        self.schema_validator("source-manifest-v4.schema.json").validate(manifest)
+        review_path = package_path / "review.json"
+        review = json.loads(review_path.read_text())
+        review["payload"]["source_manifest_sha256"] = manifest["payload_sha256"]
+        self.write_envelope(review_path, review)
+
+        with mock.patch.object(
+            terms,
+            "_tool_version",
+            side_effect=[terms.SUPPORTED_PDFINFO_VERSION, terms.SUPPORTED_PDFTOTEXT_VERSION],
+        ):
+            package = terms.ProductPackage.load(package_path)
+        self.assertEqual(package.evidence.truth_category, "Synthetic")
+
+    def test_source_manifest_v4_synthetic_refuses_non_synthetic_url(self) -> None:
+        package_path = self.make_successor_hmonth_package("synthetic-url-refusal")
+        manifest_path = package_path / "source_manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["payload"]["truth_category"] = "Synthetic"
+        self.write_envelope(manifest_path, manifest)
+        with self.assertRaises(ValidationError):
+            self.schema_validator("source-manifest-v4.schema.json").validate(manifest)
+        with self.assertRaisesRegex(terms.ProductTermsError, "AcquisitionUrlRejected"):
+            terms.ProductPackage.load(package_path)
+
+    def test_source_manifest_v4_truth_category_schema_and_runtime_match(self) -> None:
+        package_path = self.make_successor_hmonth_package("truth-category-parity")
+        manifest_path = package_path / "source_manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["payload"]["truth_category"] = "Fabricated"
+        self.write_envelope(manifest_path, manifest)
+        with self.assertRaises(ValidationError):
+            self.schema_validator("source-manifest-v4.schema.json").validate(manifest)
+        with self.assertRaisesRegex(terms.ProductTermsError, "TermsNoncanonical"):
+            terms.ProductPackage.load(package_path)
+
+    def test_synthetic_product_builder_creates_three_distinct_valid_packages(self) -> None:
+        from python.tests.synthetic_product_package_builder import (
+            build_synthetic_product_catalog,
+        )
+
+        catalog_root = self.generated_root / "synthetic-catalog"
+        catalog = build_synthetic_product_catalog(catalog_root)
+        self.assertEqual(
+            [entry["market_ticker"] for entry in catalog.payload["entries"]],
+            ["SYNTH-A", "SYNTH-B", "SYNTH-C"],
+        )
+        packages = [catalog._package_for(entry) for entry in catalog.payload["entries"]]
+        self.assertEqual(
+            {package.terms.identity["series_ticker"] for package in packages},
+            {"SYNTH-SERIES-A", "SYNTH-SERIES-B", "SYNTH-SERIES-C"},
+        )
+        self.assertEqual(
+            {package.evidence.truth_category for package in packages},
+            {"Synthetic"},
+        )
+
     def test_successor_profile_hash_mutations_refuse_at_each_boundary(self) -> None:
         cases = (
             ("manifest", "source_manifest.json", "evidence_profile_sha256"),
