@@ -512,7 +512,9 @@ def run_measurement_v2(
             raise MeasurementRefusal(
                 "MeasurementPathUnsafe", f"identity file cannot be hashed: {item}"
             ) from error
-        identity_records.append({"path": str(resolved), "sha256": identity_sha256})
+        identity_records.append(
+            {"path": resolved.relative_to(package_root).as_posix(), "sha256": identity_sha256}
+        )
     if free_space(package_root) < controls.minimum_free_bytes:
         raise MeasurementRefusal("MeasurementFreeSpaceInsufficient", "available space is below policy minimum")
     initial_aggregate = _package_bytes(package_root)

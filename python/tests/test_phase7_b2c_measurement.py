@@ -212,7 +212,7 @@ class B2cMeasurementV2Tests(unittest.TestCase):
         )
         self.assertEqual(
             result.report["identity_files"],
-            [{"path": str(identity.resolve()), "sha256": expected_sha256}],
+            [{"path": "control.json", "sha256": expected_sha256}],
         )
 
     def test_measurement_identity_schema_rejects_undeclared_fields(self) -> None:
@@ -756,7 +756,7 @@ class B2cMeasurementV2Tests(unittest.TestCase):
                 self.wrapped = wrapped
 
             def read1(self, _size: int):
-                release.wait(timeout=0.3)
+                release.wait()
                 return b""
 
             read = read1

@@ -558,11 +558,6 @@ def normalize_capture_v3(
         raise HistoricalDataError(
             "PartialOutputExists", f"temporary normalization output already exists: {temporary}"
         )
-    temporary.mkdir(parents=True)
-    records_path = temporary / "records.jsonl"
-    scope_path = temporary / "source_scopes.json"
-    product_path = temporary / "product.json"
-    manifest_path = temporary / "manifest.json"
     instrumentation_path = None if instrumentation_output is None else instrumentation_output.resolve()
     instrumentation_partial = (
         None
@@ -584,6 +579,11 @@ def normalize_capture_v3(
             raise HistoricalDataError(
                 "InstrumentationPathInvalid", "instrumentation output must be outside normalization output"
             )
+    temporary.mkdir(parents=True)
+    records_path = temporary / "records.jsonl"
+    scope_path = temporary / "source_scopes.json"
+    product_path = temporary / "product.json"
+    manifest_path = temporary / "manifest.json"
 
     next_normalized_ordinal = 1
     last_raw_ordinal = 0

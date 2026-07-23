@@ -227,7 +227,7 @@ def build_v2_package(
         "machine": {"system": "synthetic"},
         "identity_files": [
             {
-                "path": str(files["capture_policy"][0].resolve()),
+                "path": files["capture_policy"][0].relative_to(root).as_posix(),
                 "sha256": phase7.sha256_file(files["capture_policy"][0]),
             }
         ],

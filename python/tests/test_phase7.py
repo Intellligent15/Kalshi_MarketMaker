@@ -558,12 +558,14 @@ class Phase7Tests(unittest.TestCase):
         )
         self.assertTrue(telemetry["samples"])
         with self.assertRaisesRegex(ValueError, "InstrumentationOutputExists"):
+            refused_output = self.generated_root / "normalization-telemetry-refused"
             phase7.normalize_capture_v3(
                 capture,
-                self.generated_root / "normalization-telemetry-refused",
+                refused_output,
                 instrumentation_output=telemetry_path,
             )
-        self.assertFalse((self.generated_root / "normalization-telemetry-refused").exists())
+        self.assertFalse(refused_output.exists())
+        self.assertFalse(refused_output.with_name(f"{refused_output.name}.partial").exists())
 
     def test_v3_telemetry_and_normalization_publish_as_one_unit(self) -> None:
         capture = self.make_v2_capture()
