@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "payload", "payload_sha256"],
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "time": {"type": "string", "format": "date-time"}
+  },
+  "properties": {
+    "schema": {"const": "pmm.phase7.b2c_candidate_snapshot.v1"},
+    "payload_sha256": {"$ref": "#/$defs/sha"},
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment", "activity_field", "retrieval_started_at_utc", "retrieval_completed_at_utc", "query", "pagination_complete", "pages", "capture_window", "candidates", "selected_market_tickers"],
+      "properties": {
+        "environment": {"const": "production"},
+        "activity_field": {"const": "volume_24h_fp"},
+        "retrieval_started_at_utc": {"$ref": "#/$defs/time"},
+        "retrieval_completed_at_utc": {"$ref": "#/$defs/time"},
+        "query": {"type": "object", "additionalProperties": false, "required": ["endpoint", "parameters"], "properties": {"endpoint": {"type": "string", "minLength": 1}, "parameters": {"type": "object"}}},
+        "pagination_complete": {"const": true},
+        "pages": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "cursor_in", "cursor_out"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}, "cursor_in": {"type": ["string", "null"]}, "cursor_out": {"type": ["string", "null"]}}}},
+        "capture_window": {"type": "object", "additionalProperties": false, "required": ["started_at_utc", "ended_at_utc", "closing_margin_seconds"], "properties": {"started_at_utc": {"$ref": "#/$defs/time"}, "ended_at_utc": {"$ref": "#/$defs/time"}, "closing_margin_seconds": {"const": 1800}}},
+        "candidates": {"type": "array", "minItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["ticker", "event_ticker", "series_ticker", "contract_kind", "status", "close_time_utc", "volume_24h_fp"], "properties": {"ticker": {"type": "string", "minLength": 1}, "event_ticker": {"type": "string", "minLength": 1}, "series_ticker": {"type": "string", "minLength": 1}, "contract_kind": {"const": "binary"}, "status": {"const": "open"}, "close_time_utc": {"$ref": "#/$defs/time"}, "volume_24h_fp": {"type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"}}}},
+        "selected_market_tickers": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "payload", "payload_sha256"],
+  "$defs": {"sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "time": {"type": "string", "format": "date-time"}},
+  "properties": {
+    "schema": {"const": "pmm.phase7.b2c_run_approval.v1"},
+    "payload_sha256": {"$ref": "#/$defs/sha"},
+    "payload": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_snapshot_sha256", "policy_sha256", "selected_market_tickers", "capture_window", "operator", "reviewer", "acquisition_specs", "storage", "approved_by", "approved_at_utc"],
+      "properties": {
+        "candidate_snapshot_sha256": {"$ref": "#/$defs/sha"}, "policy_sha256": {"$ref": "#/$defs/sha"},
+        "selected_market_tickers": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "capture_window": {"type": "object", "additionalProperties": false, "required": ["started_at_utc", "ended_at_utc"], "properties": {"started_at_utc": {"$ref": "#/$defs/time"}, "ended_at_utc": {"$ref": "#/$defs/time"}}},
+        "operator": {"type": "string", "minLength": 1}, "reviewer": {"type": "string", "minLength": 1},
+        "acquisition_specs": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["ticker", "opening_path", "opening_sha256", "closing_path", "closing_sha256"], "properties": {"ticker": {"type": "string", "minLength": 1}, "opening_path": {"type": "string", "minLength": 1}, "opening_sha256": {"$ref": "#/$defs/sha"}, "closing_path": {"type": "string", "minLength": 1}, "closing_sha256": {"$ref": "#/$defs/sha"}}}},
+        "storage": {"type": "object", "additionalProperties": false, "required": ["owner", "readers", "primary_path", "backup_path", "retention", "owner_only_writes_during_construction", "immutable_after_verification", "hash_restore_check_required"], "properties": {"owner": {"type": "string", "minLength": 1}, "readers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "primary_path": {"type": "string", "minLength": 1}, "backup_path": {"type": "string", "minLength": 1}, "retention": {"const": "project_lifetime"}, "owner_only_writes_during_construction": {"const": true}, "immutable_after_verification": {"const": true}, "hash_restore_check_required": {"const": true}}},
+        "approved_by": {"type": "string", "minLength": 1}, "approved_at_utc": {"$ref": "#/$defs/time"}
+      }
+    }
+  }
+}
