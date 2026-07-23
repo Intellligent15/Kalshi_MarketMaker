@@ -193,10 +193,11 @@ instrumentation-on and instrumentation-off bytes. Capture V2 interruption/failur
 derived-stage partial cleanup remain intentionally different.
 
 No retained product evidence or observed capture was created by this package. B2A-10/11 and
-B2B2-05/06 remain open or measurement-pending. The initial B2c-H slice now owns V2 process-group
-supervision, bounded streams, explicit sampling validity, and initial verifier helpers. The complete
-role/lineage/repetition/scanner matrix is still open, so B2c-H remains current and B2c-P is blocked.
+B2B2-05/06 remain open or measurement-pending. B2c-H later closed the offline V2 process-group,
+bounded-stream, sampling, membership, schema, canonical-repetition, truth/catalog, lineage,
+operational-approval, and scanner controls. Its fully mounted positive is Synthetic verifier data,
+not observed evidence or a twelve-hour measurement.
 
 The B2c-H design is recorded separately with a plain-language explanation and a severity-ranked
-critique. Commits `842db83`, `d19ac3b`, and `38fb667` implement the first V2 slice but not closure.
-No product evidence or observed capture is authorized.
+critique. B2c-P is current but remains stopped at Gate A. No product evidence or observed capture is
+authorized.

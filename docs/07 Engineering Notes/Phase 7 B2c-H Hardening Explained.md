@@ -2,8 +2,8 @@
 
 ## The short version
 
-B2c-H is the safety inspection and evidence audit that must happen before anyone uses the B2c
-tooling for the one real twelve-hour capture.
+B2c-H is the completed offline safety inspection and evidence-verifier hardening that precedes the
+separately approved B2c-P evidence acquisition and one real twelve-hour capture.
 
 ## What is implemented so far
 
@@ -22,15 +22,15 @@ The earlier B2c package built useful offline tools, but a deeper review found tw
 2. some evidence claims were declarations that the verifier trusted instead of facts it rebuilt.
 
 The remediation fixes those gaps without changing how market data, features, backtests, or risk
-work. B2c-H remains open for a different reason: there is no truthful fully mounted strict
-twelve-hour/three-market positive package, and exhaustive normalization-telemetry/upstream-identity
-mutations remain incomplete.
+work. The closure slice adds exact identity paths, atomic telemetry refusal behavior, manifest-wide
+truth binding, strict catalog/distinct-series proof, portable mounted Backtest paths, canonical
+repetition binding, and complete normalization/Result lineage mutations.
 
 ## What we did in the design review
 
-We first verified the repository state and authority order. The living roadmap identified B2c-H as
-the next bounded package. Accepted ADRs defined which artifact meanings must remain frozen. Source
-and tests showed what the current tooling actually does.
+At the start of the design review, we verified the repository state and authority order. The living
+roadmap then identified B2c-H as the next bounded package. Accepted ADRs defined which artifact
+meanings had to remain frozen. Source and tests showed what the tooling actually did.
 
 We then reviewed the problem through three connected lenses:
 
@@ -234,22 +234,21 @@ reinterpreted.
 
 ## What remains intentionally unfinished
 
-B2c-H does not create the evidence it is designed to verify. The repository has only two reviewed
-product packages, and only HMONTH brackets about 81 seconds, so it cannot honestly construct the
-fully mounted strict twelve-hour/three-market positive required for closure. Exhaustive
-normalization-telemetry/upstream-identity mutations also remain unfinished. Product acquisition,
-durable storage, operator/window approval, and the one real capture remain B2c-P and are not
-authorized while B2c-H is open.
+B2c-H does not create production evidence. Its fully mounted twelve-hour/three-market positive uses
+Synthetic product packages and generated pipeline bytes. Its Measurement V2 documents are
+constructed conformance inputs identified as `synthetic-fixture-v1`; they were not emitted by a
+twelve-hour supervisor run. The fixture proves verifier behavior, not venue access, production
+throughput, resource use, long-run stability, or capture readiness. Product acquisition, durable
+storage activation, and the one real capture remain B2c-P and require separate human approvals.
 
 It also does not optimize the duplicate table, stream Result V4, reuse risk-oracle processes, make
 telemetry publication crash-atomic, or create path-independent normalization identities. Those items
 remain measured or deferred because changing them before obtaining measurements would mix evidence
 collection with architectural redesign.
 
-## Why B2c-P remains blocked
+## Why B2c-P is still approval-gated
 
-The audited operator-safety and declaration-trust defects are now fixed, but component fixtures are
-not a substitute for the missing truthful strict mounted package or the unfinished identity-mutation
-matrix. B2c-P becomes next only after those final B2c-H gates close under independent review. B3
-remains later because research reporting should not be built on evidence whose operational and
-verification boundaries are still open.
+B2c-P is now the current package, but no external action is authorized. Gate A must approve the
+candidate query, evidence-source plan, exact window, people, and storage before venue access. Gate B
+must approve the verified candidate snapshot, exact selected markets, product-evidence plan, and run
+document before capture. B3 remains later because reporting must not outrun retained evidence.

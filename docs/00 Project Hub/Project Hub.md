@@ -20,12 +20,10 @@ fees, collateral, settlement, durable persistence, and gateways remain intention
 
 Phase 7 now also has an additive multi-market backtest implementation: one global causal schedule,
 independent per-product baseline state, and one canonical C++ risk projection per contract. Its
-focused and full offline closure gates pass. B2c now has offline evidence-index, measurement, and
-instrumentation tooling, but no retained capture. Its deeper review found operator-interrupt and
-independent-verification blockers. The B2c-H hardening design is documented and approved for bounded
-implementation. The first additive V2 supervisor/verifier/schema slice and focused offline coverage
-are now implemented, but the complete design acceptance matrix is still open. B2c-H remains current;
-the separately approved B2c-P product-evidence and capture gate remains blocked.
+focused and full offline closure gates pass. B2c-H is closed as offline evidence-verifier and
+measurement-lifecycle hardening, with real supervisor subprocess coverage and a separate fully
+mounted Synthetic verifier-conformance package. No retained observed capture exists. B2c-P is the
+current two-gate product-evidence/capture package; venue access remains stopped at Gate A.
 
 A local Graphify navigation index is available for repository discovery. Its first snapshot has
 6,062 nodes and 9,165 built edges, but also reports dangling, collapsed, and AST-empty coverage
@@ -68,6 +66,7 @@ authoritative.
 - [[07 Engineering Notes/Phase 7 B2c-H Hardening Design|B2c-H reviewed implementation design]]
 - [[07 Engineering Notes/Phase 7 B2c-H Hardening Explained|B2c-H plain-language explanation]]
 - [[07 Engineering Notes/Phase 7 B2c-H Hardening Critique|B2c-H design critique and debt register]]
+- [[07 Engineering Notes/Phase 7 B2c-P Approval Controls|B2c-P two-gate approval controls]]
 - [[07 Engineering Notes/Phase 7 Segment-Aware Features|B2b-1 implementation and operator guide]]
 - [[07 Engineering Notes/Phase 7 Segment-Aware Features Explained|B2b-1 plain-language walkthrough]]
 - [[07 Engineering Notes/Phase 7 Segment-Aware Features Critique|B2b-1 severity-ranked critique]]

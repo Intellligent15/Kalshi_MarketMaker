@@ -93,15 +93,15 @@ joined signals, portfolio-wide risk, calibrated execution, accounting, fees, PnL
 
 B2c tooling adds a fixed twelve-hour/three-market evidence policy, compact package index and offline
 verifier, process-tree resource measurement with disk-budget interruption, normalization duplicate-
-state telemetry, and per-contract oracle telemetry. B2c-H commits `df905ff` and `ce0218f` harden the
-additive V2 boundary: the supervisor owns process-group shutdown and direct-child reap, drains stdout
-and stderr independently under 64 MiB ceilings, rejects invalid sampling and unsafe accounting
-layouts, and publishes storage-complete reports; the mounted verifier now enforces its private role
-registry, runtime schemas, exact membership, repetition bytes, lineage, product coverage, and a
-recomputed credential scan. V1 `measure` and `verify` behavior remains frozen. No retained B2c capture
-exists, the repository has no truthful mounted strict twelve-hour/three-market positive package, and
-some exhaustive normalization-telemetry/upstream-identity mutations remain open. B2c-H therefore
-remains current and B2c-P remains blocked.
+state telemetry, and per-contract oracle telemetry. B2c-H is closed as an offline control-plane
+hardening milestone. The real V2 supervisor is covered by subprocess tests for process-group
+shutdown, reap, sampling, bounded streams, storage, immutable input identity, and publication. The
+mounted verifier reconstructs exact membership, schemas, repetition, lineage, product truth and
+catalog coverage, operational approvals, and credential scanning. Its fully mounted twelve-hour/
+three-market positive is Synthetic verifier-conformance data, not a supervisor-emitted twelve-hour
+run or venue evidence. V1 `measure` and `verify` behavior remains frozen. No retained B2c capture or
+production measurement exists. B2c-P is current but stopped at its first explicit human-approval
+gate; venue access, acquisition, and capture remain unauthorized.
 
 ## Quick start
 

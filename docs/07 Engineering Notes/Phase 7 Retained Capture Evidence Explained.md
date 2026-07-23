@@ -90,10 +90,9 @@ member symlinks, byte lengths, SHA-256 values, JSONL counts, raw ingress ordinal
 normalization counts, feature counts, selected Result V4 descriptors, and risk trace cardinality.
 Missing, extra, truncated, stale, or unsafe members fail closed.
 
-The deeper critique found an important limit: several lineage and repetition statements are still
-validated as consistent declarations rather than independently reconstructed facts. Likewise, not
-every tagged JSON member is revalidated against its schema. Those are B2c-H blockers, not completed
-evidence claims.
+The later B2c-H closure addresses the deeper critique: V2 mounted verification reconstructs exact
+schema, identity, truth/catalog, canonical-repetition, lineage, approval, and scanner facts. The
+mounted positive remains Synthetic verifier-conformance data, not observed evidence.
 
 ### 4. A generic process measurement wrapper
 
@@ -115,10 +114,9 @@ The report is a create-new sidecar. Measurement timestamps and RSS values are no
 they must never enter canonical normalization, feature, result, or risk-trace bytes.
 
 The current sampler uses host `ps` and recursively scans declared output paths. Its RSS is a useful
-descriptive number, not a portable benchmark. The deeper critique also found that wrapper
-KeyboardInterrupt does not yet guarantee child-process teardown, `ps` failure can appear as zero,
-and total/log budgets are incomplete. The documented live command must not be used until B2c-H
-closes those issues.
+descriptive number, not a portable benchmark. B2c-H closes the audited teardown, invalid-sample, and
+budget-accounting defects in additive Measurement V2. The documented live command still requires
+B2c-P Gate B approval.
 
 ### 5. Normalization duplicate-state telemetry
 

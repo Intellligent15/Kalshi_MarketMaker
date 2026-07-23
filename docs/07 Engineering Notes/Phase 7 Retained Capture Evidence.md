@@ -3,10 +3,9 @@
 ## Status and authority
 
 This is the B2c operator guide for the additive evidence tooling. It does not authorize product
-acquisition or a venue capture. A post-implementation review found process-lifecycle and
-independent-verification gaps that must first close in B2c-H. The later B2c-P package must name the
-selection snapshot, activity field, three markets, reviewed acquisition responsibility, durable
-storage owner, and storage destination before an operator uses the live-capture steps below.
+acquisition or a venue capture. B2c-H offline hardening is closed. B2c-P is current, but it has two
+explicit human gates before any capture: Gate A before venue access and candidate/product evidence
+acquisition, and Gate B after the retained candidate snapshot and opening evidence are verified.
 
 The fixed policy is `configs/phase7/b2c_evidence_policy_v1.json`. The run is one 43,200-second,
 three-market attempt on the existing `single_connection_v1` Capture V2 path. It has a 1 GiB raw
@@ -15,7 +14,21 @@ exists, the attempt is retained regardless of outcome and is never replaced by a
 
 ## Approval gates
 
-Before capture, record and review all of the following:
+Before Gate A, propose and obtain explicit user approval for:
+
+1. The candidate-query time and fixed `volume_24h_fp` activity field.
+2. The exact proposed twelve-hour capture window.
+3. The complete opening/closing acquisition-source plan and responsible reviewer/operator.
+4. Exact absolute primary and backup storage paths, owner, readers, and retention policy.
+
+Do not access the venue or acquire candidate/product bytes before Gate A.
+
+After Gate A, retain the complete paginated market-listing responses and verify the candidate
+snapshot with `pmm_b2c_operator.verify_candidate_snapshot`. The verifier requires the open-market
+endpoint/status query, first-to-final cursor chain, page hashes, exact candidate projection, close
+margin, descending fixed-point volume with ticker tie-break, and exactly three distinct series.
+
+Before Gate B, record and verify all of the following:
 
 1. One fixed candidate-selection timestamp and the retained candidate snapshot.
 2. One exact venue activity field, descending ordering, and ticker-ascending tie break.
@@ -24,6 +37,11 @@ Before capture, record and review all of the following:
 5. The repository human responsible for closing acquisition and review.
 6. A durable storage destination, owner, read policy, and backup promise.
 7. At least 10 GiB free and readable environment-only credentials.
+
+The `pmm.phase7.b2c_run_approval.v1` document binds the candidate snapshot, fixed policy, exact
+selection/window, opening/closing acquisition-spec paths and hashes, people, and durable storage.
+Verify it with `pmm_b2c_operator.verify_run_approval`, then present it for explicit human Gate B
+approval. Do not start the capture before Gate B.
 
 Closing acquisitions start immediately after the capture. Their reviewed effective intervals must
 cover the exact capture start and end before strict normalization may use the packages. Failure to
@@ -40,10 +58,9 @@ stderr and does not retain their bytes. The mounted-package verifier rejects PEM
 ## Measured commands
 
 > [!CAUTION]
-> Do not use the measurement wrapper for a live capture yet. The additive `measure-v2` lifecycle and
-> `verify-v2` mounted checks are implemented, but B2c-H is not closed: no truthful fully mounted
-> strict twelve-hour/three-market positive exists, and exhaustive normalization-telemetry/upstream-
-> identity mutations remain incomplete.
+> Do not use the measurement wrapper for a live capture until B2c-P Gate B is explicitly approved.
+> B2c-H closes offline tooling risk only; it is not venue, product-evidence, storage, credential, or
+> capture authorization.
 
 The measurement wrapper starts an unchanged command in a fresh process group, samples process-group
 RSS/count, accounts for raw roots and the complete package, drains stdout and stderr concurrently
@@ -51,8 +68,8 @@ under independent 64 MiB limits, and owns bounded SIGINT -> SIGTERM -> SIGKILL e
 child reap, live-group quiescence, and create-new report publication. Reports are control-plane
 sidecars and are not part of deterministic derived outputs.
 
-After B2c-H closure and B2c-P approval, the capture command has this shape (use `measure-v2`, never
-the frozen V1 `measure` command):
+After B2c-H closure and explicit B2c-P Gate B approval, the capture command has this shape (use
+`measure-v2`, never the frozen V1 `measure` command):
 
 ```sh
 UV_CACHE_DIR=/tmp/pmm-uv-cache uv run python python/pmm_phase7_evidence.py measure-v2 \

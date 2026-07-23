@@ -23,18 +23,19 @@ complete, this current-state document wins; the older note remains useful histor
 
 | Field | Current value |
 | --- | --- |
-| Last reviewed | 2026-07-21 |
-| B2c tooling status | Additive V2 lifecycle and mounted-verifier audit defects remediated; B2c-H remains open on a truthful strict mounted positive and exhaustive remaining identity mutations |
+| Last reviewed | 2026-07-22 |
+| B2c tooling status | B2c-H closed as an offline control-plane milestone; Synthetic mounted verifier conformance and real supervisor subprocess coverage are intentionally separate |
 | B2c retained evidence status | Not acquired; B2A-10/11 and B2B2-05/06 remain open or measurement-pending |
 | B2c tooling implementation and test commits | `e6a211b` and `4f77020` |
 | B2c deeper review commit | `bdb5ea1` |
-| B2c-H implementation commits | Initial slice `842db83`, `d19ac3b`, `38fb667`; audit remediation `df905ff`, `ce0218f` |
+| B2c-H closure implementation commits | `e70098e`, `4236943`, `aa04c70`, `6b6c176`, `b1d6b2f`, and `65b5989` |
+| B2c-P offline approval-control commits | `3bf4c34` and `7db8dd4`; no venue access or acquisition performed |
 | B2c-H design and critique commit | `580da7a` |
 | Baseline before B2c-H implementation handoff | `5d4da2d`; clean `main`; ten commits ahead of `origin/main` |
 | Graphify workflow integration commit | `39b57c0` |
 | Baseline before B2c-H design review | `343cbbc`; clean `main`; seven commits ahead of `origin/main` |
 | B2b-2 implementation status | Complete |
-| Last completed package | B2c offline evidence and measurement tooling implementation; B2c-H remains current |
+| Last completed package | B2c-H offline evidence-verifier and measurement-lifecycle hardening |
 | B2b-2 implementation and test commits | `a0faa89` and `77cf533` |
 | B2b-2 documentation and review commits | `9f8e3a4` and `025508e` |
 | Baseline before B2c roadmap handoff | `025508e`; clean `main`; synchronized with `origin/main` |
@@ -50,23 +51,24 @@ complete, this current-state document wins; the older note remains useful histor
 | Recent B1b-2 review commits | `73dc566`, `6e22b27`, and `61a2188` |
 | Recent B1b-1 commits | `902a2df`, `5d40d64`, `e33885a`, `3d6bf54`, `6d489e3`, and `dbd6fd8` |
 | Recent B1a commits | `ba01e9f`, `113a4bd`, `8a867d7`, `fc2dd88`, and `6dc3000` |
-| C++/CTest validation | 78 tests passing (post-remediation) |
-| Python validation | 268 tests passing (post-remediation) |
+| C++/CTest validation | 78 tests passing (B2c-H closure) |
+| Python validation | 307 tests passing (B2c-H closure) |
 | Focused capture validation | 15 tests passing |
 | Focused Phase 7 validation | 43 tests passing |
 | Focused B2b-2 validation | 10 tests passing |
-| Focused B2c measurement validation | 66 tests passing |
-| Focused B2c evidence plus multimarket validation | 63 tests passing |
-| Integrated focused compatibility validation | 116 tests passing before final full-suite gate |
-| Focused product-term validation | 42 tests passing |
+| Focused B2c measurement validation | 68 tests passing |
+| Focused B2c evidence validation | 72 tests passing |
+| Focused B2c operator validation | 11 tests passing |
+| Integrated B2c/product/Phase 7/multimarket validation | 253 tests passing |
+| Focused product-term validation | 47 tests passing |
 | Focused checkpoint-reader validation | 17 tests passing |
 | Focused fixture-integrity validation | 17 tests passing |
 | Lifecycle conformance corpus | 16 reviewed fixture pairs |
 | Checkpoint conformance corpus | 26 reviewed fixture pairs |
 | Local Graphify navigation | Refreshed at `5d4da2d`: 6,120 nodes, 9,236 built edges, 475 communities; advisory only, and earlier raw-extraction health warnings are not claimed closed |
 | Current roadmap phase | Phase 7 foundation implemented; research-validity work remains |
-| Next bounded package | B2c-H evidence-verifier and measurement-lifecycle hardening |
-| Immediate next action | Build a truthful fully mounted strict 12-hour/three-market positive fixture and close exhaustive normalization-telemetry/upstream-identity mutations; do not acquire product evidence or capture |
+| Next bounded package | B2c-P contemporaneous product evidence and one retained capture, approval-gated |
+| Immediate next action | Prepare Gate A with the proposed candidate-query time, activity field, capture window, acquisition-source plan, reviewer/operator, and exact primary/backup storage paths; do not access the venue until the user explicitly approves it |
 
 These counts and commit references are evidence snapshots, not timeless guarantees. The next agent
 must verify the current git state and test counts rather than copying them forward blindly.
@@ -104,6 +106,7 @@ Use these documents to verify or deepen a claim in this roadmap:
 - [[07 Engineering Notes/Phase 7 B2c-H Hardening Explained|B2c-H plain-language explanation]]
 - [[07 Engineering Notes/Phase 7 B2c-H Hardening Critique|B2c-H design critique and debt register]]
 - [[07 Engineering Notes/Phase 7 B2c-H Refusal Codes|B2c-H additive V2 refusal-code reference]]
+- [[07 Engineering Notes/Phase 7 B2c-P Approval Controls|B2c-P two-gate approval controls]]
 - [[02 Architecture/ADR-011 Bracketed Product Evidence and Review Responsibility|Bracketed evidence and review responsibility]]
 - [[02 Architecture/ADR-012 Deterministic Document Evidence and Completeness Profiles|Deterministic document evidence and completeness profiles]]
 - [[07 Engineering Notes/Phase 7 Critique|Original Phase 7 critique]]
@@ -151,9 +154,8 @@ largest remaining gaps are no longer basic matching or simulation mechanics. The
 7. machine-learning datasets, baselines, training, and evaluation;
 8. operational gateways, reconciliation, monitoring, and safety controls.
 
-The immediate risk-conformance tail should be finished, but it must not consume the project
-indefinitely. After the two highest-value remaining parity packages, work should return to Phase 7
-research validity.
+Canonical risk and checkpoint conformance are closed at their accepted boundary. Current work has
+returned to Phase 7 research validity through the approval-gated B2c retained-evidence package.
 
 ## What is complete now
 
@@ -710,7 +712,7 @@ manifest identity, bounded duplicate memory, deterministic subscription batching
 long-capture evidence. They should not be pulled into B2a-1 unless a concrete correctness
 dependency is demonstrated.
 
-#### B2b. Multi-market projection, features, and replay — current; B2b-1 complete
+#### B2b. Multi-market projection, features, and replay — complete through B2b-2
 
 B2b is split into two bounded packages so projection truth is fixed before replay and backtest
 orchestration depend on it. Both packages must consume B2a-1 records without merging incomparable
@@ -900,7 +902,7 @@ B2b-2 therefore satisfies its closure rule. See
 [[07 Engineering Notes/Phase 7 Multi-Market Replay and Backtesting]], the explanation, and the
 severity-ranked critique.
 
-#### B2c. Retained full-capture regression evidence — tooling implemented; hardening and evidence pending
+#### B2c. Retained full-capture regression evidence — B2c-H closed; B2c-P Gate A pending
 
 Goal: design and, only after approval, retain reviewed longer-duration multi-market Capture V2
 evidence, then exercise the accepted normalization V3, feature V2/manifest V3, and Backtest V4
@@ -932,13 +934,10 @@ Implemented B2c tooling includes:
 This implementation does not close the retained-evidence acceptance gate. B2A-10/11 and B2B2-05/06
 remain open or measurement-pending until reviewed artifacts and actual measurements exist.
 
-Commits `842db83`, `d19ac3b`, and `38fb667` address the initial V2 slice. Audit-remediation commits
-`df905ff` and `ce0218f` close the confirmed process-group ownership, reap, second-interrupt, sampler,
-bounded-stream, storage-accounting, path/symlink, role/schema, membership, repetition, lineage,
-product-coverage, and credential-scan defects. They keep the V1 `measure` and `verify` surfaces
-frozen. The documented live command remains unauthorized because the repository does not yet have a
-truthful fully mounted strict twelve-hour/three-market positive package and exhaustive normalization-
-telemetry/upstream-identity mutation coverage remains incomplete.
+The B2c-H closure series through `65b5989` closes the confirmed process-group ownership, reap,
+second-interrupt, sampler, bounded-stream, storage-accounting, path/symlink, role/schema, membership,
+canonical-repetition, product-truth/catalog, measurement-identity, normalization/Result lineage,
+operational-approval, and credential-scan defects. V1 `measure` and `verify` remain frozen.
 
 The B2c-H design is documented in
 [[07 Engineering Notes/Phase 7 B2c-H Hardening Design]], its plain-language explanation, and its
@@ -946,12 +945,17 @@ severity-ranked design critique. The design selects one bounded process supervis
 control-plane documents, independent repetition and lineage reconstruction, exact stage/outcome
 membership, explicit sampler validity, complete storage accounting, and a retained deterministic
 credential-scan result. The user approved this bounded design for implementation handoff on
-2026-07-20. The remediated V2 slice is current behavior; no finding is closed merely by approval,
-and synthetic positive fixtures do not substitute for the missing truthful strict mounted package.
+2026-07-20. The fully mounted twelve-hour/three-market package is explicitly Synthetic. Its
+`synthetic-fixture-v1` Measurement V2 documents are constructed verifier-conformance inputs, not
+reports emitted by a twelve-hour supervisor run. It proves mounted schemas, membership, lineage,
+repetition, telemetry, eligibility, and portability only. Real supervisor behavior is established
+separately by named subprocess tests. Neither layer proves venue access, production resource use,
+long-run stability, or capture readiness.
 
-Post-remediation validation passes formatting, 66 focused measurement tests, 63 focused evidence-
-plus-multimarket tests, all 268 Python tests, and all 78 CTests. An earlier integrated focused gate
-passed 116 tests. Every added test is offline, deterministic, bounded, and uses synthetic secrets.
+Closure validation passes formatting, 68 focused measurement tests, 72 focused evidence tests, 11
+operator-control tests, a 253-test integrated B2c/product/Phase 7/multimarket gate, all 307 Python
+tests, and all 78 CTests. Every added test is offline, deterministic, bounded, and uses synthetic
+secrets.
 
 What B2c inherits as complete:
 
@@ -1415,44 +1419,37 @@ but it must remain labelled experimental and must not bypass its promotion gates
 
 ## Current next package
 
-The next bounded package remains **B2c-H evidence-verifier and measurement-lifecycle hardening**.
-The audited lifecycle, resource, mounted-membership, role/schema, repetition, lineage, and scanner
-defects are closed by `df905ff` and `ce0218f`. The remaining closure package must add a truthful fully
-mounted strict twelve-hour/three-market positive using reviewed product coverage and finish the
-exhaustive normalization-telemetry/upstream-identity mutation matrix. Do not acquire product bytes
-or start a venue capture during B2c-H.
-
-The design, explanation, critique, operator guide, and refusal-code reference now reconcile the
-implemented V2 controls and the remaining blockers. The remediation used named offline tests and
-logical green commits. It does not authorize B2c-P: closure still requires the two evidence/mutation
-gaps above and a final independent review.
+The next bounded package is **B2c-P contemporaneous product evidence and one retained capture**.
+B2c-H is closed only as offline control-plane hardening. No product bytes, candidate pages, venue
+messages, retained capture, or production measurements were acquired during closure.
 
 Tests must be written first and observed failing locally within each slice, but every recorded commit
 must pass its scoped gates. New V2 refusal codes must be additive and documented; accepted V1 codes,
 stdout/stderr behavior, exit meanings, and first-failure ordering remain frozen.
 
-The implementation agent should use a hub-and-spoke review with bounded sub-agents for measurement
-lifecycle, evidence/schema/lineage, and compatibility/security/documentation. Graphify is the first
-navigation index, but source, tests, accepted ADRs, and this roadmap remain authority. The Graphify,
-test-driven-development, and systematic-debugging skills are applicable; external connectors are
-not needed because B2c-H is an offline repository package.
+The B2c-P control plane is implemented offline in `pmm_b2c_operator.py` and its two V1 schemas. A
+candidate snapshot is accepted only when the complete retained page/cursor chain hashes correctly,
+its candidate projection matches those bytes, and the fixed `volume_24h_fp` ranking reconstructs
+exactly three open binary markets from distinct series. A run approval binds that snapshot, the
+frozen policy, exact window/selection, opening/closing acquisition-spec bytes, operator/reviewer,
+and distinct nonoverlapping durable primary/backup paths.
 
 Graphify is advisory navigation only. Version-controlled hooks now refresh code navigation after
 commits and branch changes, while material documentation changes still require a manual semantic
 `$graphify . --update` before final handoff. A refresh does not approve implementation or close a
 roadmap gate.
 
-After B2c-H closes, **B2c-P contemporaneous product evidence and capture execution** becomes next.
-Its first turn must remain an approval packet, not an acquisition: pin one candidate-selection
-timestamp, one venue activity field, three eligible distinct-series markets, the complete
-opening/closing source plan, reviewer responsibility, durable storage owner/location/read/backup
-policy, scheduled capture window, and operator. Do not acquire bytes or capture until that packet is
-explicitly approved.
+Gate A is the next action. Present the proposed candidate-query time, fixed activity field, exact
+capture window, opening/closing source plan, reviewer/operator, and exact primary/backup storage
+paths to the user. Do not query the venue or acquire candidate/product bytes until Gate A is
+explicitly approved. After Gate A, retain and verify the complete candidate pages and finish opening
+product evidence. Then present the generated run-approval document as Gate B. Do not run the capture
+until Gate B is explicitly approved.
 
-After approval, B2c-P opening evidence must complete before the one fixed capture attempt. Closing
-evidence begins immediately afterward. The strict chain runs only if every reviewed effective
-interval covers the exact capture; otherwise retain the raw outcome honestly and stop at its eligible
-boundary. Do not promote B3 until the applicable B2c evidence gates actually close.
+After Gate B, perform at most the one fixed capture attempt. Closing evidence begins immediately
+afterward. The strict chain runs only if every reviewed effective interval covers the exact capture;
+otherwise retain the raw outcome honestly and stop at its eligible boundary. Do not promote B3 until
+the applicable B2c retained-evidence gates actually close.
 
 B2a establishes explicit multi-scope capture and reconnect-aware normalization successors. B2a-1
 closes their reviewed truth-contract blockers. B2b-1 now consumes that boundary for complete-input

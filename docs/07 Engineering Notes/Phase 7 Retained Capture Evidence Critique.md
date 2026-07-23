@@ -12,9 +12,9 @@ V2 through Result V4 chain instead of changing capture, normalization, features,
 risk semantics merely to collect measurements. The implementation also correctly keeps telemetry
 outside canonical deterministic outputs.
 
-The deeper review found two impact-5 hardening defects. They must be fixed before B2c-P is allowed to
-acquire product evidence or start the live capture. Consequently, B2c tooling remains implemented,
-but it is not yet operator-ready.
+The deeper review found two impact-5 hardening defects. The later B2c-H closure series fixes those
+defects and the subsequent independent-verifier findings. B2c-H is now closed as offline hardening;
+B2c-P is current but Gate A still precedes venue access and Gate B still precedes capture.
 
 ## Impact scale
 
@@ -170,11 +170,11 @@ but the deeper audit found operator-lifecycle and independent-verification gaps 
 critique missed. B2c is therefore:
 
 - **implemented** as an additive offline control plane;
-- **not operator-ready** until R01 and R02 close;
+- **operator-controlled** for offline verification, with R01 and R02 closed by B2c-H;
 - **not evidence-complete** until product/storage prerequisites and the one retained attempt close;
   and
 - **not a scalability proof** until B2A-10/11 and B2B2-05/06 have actual measurements and reviewed
   artifacts.
 
-The next bounded package is B2c-H hardening for R01, R02, R05 through R09, and their focused tests.
-B2c-P follows only after that package passes review. B3 remains later.
+The next bounded package is B2c-P. No external action is authorized until its two explicit approval
+gates pass. B3 remains later.

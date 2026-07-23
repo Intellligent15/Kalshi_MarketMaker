@@ -102,6 +102,7 @@ ordering than the implementation and frozen compatibility tests establish.
 ## Compatibility and closure boundary
 
 V2 codes are additive and must not be interpreted as stronger meanings for V1 artifacts. A green
-V2 component test suite does not close B2c-H: the truthful fully mounted strict twelve-hour/three-
-market positive and exhaustive normalization-telemetry/upstream-identity mutations remain open.
-B2c-P and the documented live capture command remain unauthorized.
+B2c-H is closed as offline control-plane hardening. Real subprocess tests validate the supervisor;
+the fully mounted twelve-hour/three-market Synthetic package validates the verifier and is not a
+production measurement. B2c-P is current, but venue access, acquisition, and the documented live
+capture command remain unauthorized until its separate human approval gates pass.

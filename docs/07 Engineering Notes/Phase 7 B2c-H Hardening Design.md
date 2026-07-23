@@ -11,7 +11,7 @@ B2c-H is an additive control-plane hardening package. It must preserve every acc
 normalization V3, feature V3, Backtest V4, Result V4, product, conversion, risk, checkpoint, and
 refusal contract.
 
-## Implementation status: audited V2 remediation
+## Implementation status: closed offline milestone
 
 Commits `842db83`, `d19ac3b`, and `38fb667` implement the initial additive V2 slice. Commits
 `df905ff` and `ce0218f` close the audited supervisor and mounted-verifier defects: post-leader-exit
@@ -20,12 +20,18 @@ failures are explicit, storage/path invariants fail closed, and mounted evidence
 an immutable role registry, runtime schemas, exact membership, repetition bytes, reconstructed
 lineage, product coverage, and a recomputed credential scan. V1 commands remain unchanged.
 
-Validation passes formatting, 66 focused measurement tests, 63 focused evidence-plus-multimarket
-tests, 78 CTests, and 268 Python tests; an earlier integrated focused gate passed 116 tests. B2c-H is
-not closed. The repository has only two reviewed product packages, only the HMONTH package brackets
-about 81 seconds, and therefore no truthful fully mounted strict twelve-hour/three-market positive
-exists. Exhaustive normalization-telemetry/upstream-identity mutations are also incomplete. B2c-P
-remains blocked.
+The closure series `e70098e`, `4236943`, `aa04c70`, `6b6c176`, `b1d6b2f`, and `65b5989`
+adds Synthetic product truth, immutable pre-spawn identities, atomic telemetry refusal behavior, a
+fully mounted strict verifier-conformance package, exact path/hash and product/Result lineage,
+canonical repetition binding, portable mounted Backtest paths, and operational-approval checks.
+Validation passes formatting, 68 measurement, 72 evidence, 11 operator, 253 integrated B2c/product/
+Phase 7/multimarket, 307 full Python, and 78 CTest tests.
+
+B2c-H is closed as an offline control-plane milestone. Real subprocess tests validate Measurement
+V2 lifecycle behavior. The fully mounted twelve-hour/three-market package is Synthetic; its
+`synthetic-fixture-v1` measurement documents are constructed verifier inputs, not twelve-hour
+supervisor output. It does not prove venue access, observed product coverage, production resource
+use, long-run stability, or capture readiness. B2c-P is current but remains stopped at Gate A.
 
 ## Objective
 
@@ -546,15 +552,15 @@ deferred performance redesign into these commits.
 | B2CH-T01 child/grandchild interruption | Closed by named tests in `df905ff`. |
 | B2CH-T02 bounded escalation and quiescence | Closed by named SIGINT, SIGTERM, SIGKILL, second-interrupt, ESRCH, EPERM, and absence-timeout tests in `df905ff`. |
 | B2CH-T03 sampler validity and zero RSS | Closed by launch, exit, malformed/duplicate row, no-sample, zombie, and valid-zero tests in `df905ff`. |
-| B2CH-T04 stage/outcome role matrix | Structural required/forbidden and eligibility cases are implemented in `ce0218f`; a truthful fully mounted strict twelve-hour/three-market positive remains blocking. |
-| B2CH-T05 repetition inventories | Closed by mounted rebuild, symlink, inventory mutation, and exact-byte tests in `ce0218f`. |
+| B2CH-T04 stage/outcome role matrix | Closed for offline conformance by the fully mounted Synthetic strict package; Observed execution is not evaluated and transfers to B2c-P. |
+| B2CH-T05 repetition inventories | Closed by mounted rebuild, canonical-output binding, symlink, inventory mutation, and exact-byte tests. |
 | B2CH-T06 mounted schema validation | Closed for registered JSON/JSONL roles, discriminator binding, record counts, and risk-trace V2 parity in `ce0218f`. |
-| B2CH-T07 cross-artifact identity | Result/risk/product/measurement/selected-market edges are implemented; exhaustive normalization-telemetry and upstream-identity mutations remain blocking. |
+| B2CH-T07 cross-artifact identity | Closed by path-plus-hash measurement identities, truth/catalog/product reconstruction, normalization/feature/Result mutations, portable Backtest path binding, and operational approval. |
 | B2CH-T08 credential scan | Implemented with synthetic PEM/header/assignment tests and recomputed report binding in `ce0218f`; real secrets remain prohibited from fixtures. |
-| B2CH-T09 telemetry publication/repeat invocation | Still open for the exhaustive normalization telemetry rename/repeated-invocation matrix; canonical telemetry publication remains non-atomic characterized debt. |
+| B2CH-T09 telemetry publication/repeat invocation | Closed by atomic normalization/telemetry publication cleanup, rename-failure, and repeated-invocation tests. |
 
-The closed entries above are component controls, not a B2c-H closure claim. The two open evidence
-gaps keep the live command unauthorized and B2c-P blocked.
+All B2c-H offline controls above are closed. The live command remains unauthorized because B2c-P's
+external-evidence and human-approval gates are separate from offline hardening.
 
 B2c-H closes only after:
 

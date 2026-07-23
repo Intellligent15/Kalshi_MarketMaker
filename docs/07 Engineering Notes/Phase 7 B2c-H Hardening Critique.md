@@ -12,22 +12,24 @@ until implementation and validation prove it.
 Commits `842db83`, `d19ac3b`, and `38fb667` deliver the initial slice. Audit-remediation commits
 `df905ff` and `ce0218f` close the confirmed lifecycle, sampler, stream, storage/path, role/schema,
 membership, repetition, lineage, product-coverage, and scanner defects while preserving V1 behavior.
-Validation passes formatting, 66 focused measurement tests, 63 focused evidence-plus-multimarket
-tests, 78 CTests, and 268 Python tests; an earlier integrated focused gate passed 116 tests.
+The closure series through `65b5989` adds the independent mutation and mounted-positive work found
+by the post-remediation audit. Validation passes 68 measurement, 72 evidence, 11 operator, 253
+integrated B2c/product/Phase 7/multimarket, 307 full Python, and 78 CTest tests.
 
 | Finding | Reconciled status |
 | --- | --- |
 | B2CH-T01 | Closed by child/grandchild KeyboardInterrupt tests in `df905ff`. |
 | B2CH-T02 | Closed by bounded escalation, second-interrupt, reap, and quiescence tests in `df905ff`. |
 | B2CH-T03 | Closed by explicit sampler-failure, zero-RSS, zombie, and no-sample tests in `df905ff`. |
-| B2CH-T04 | Structural role/stage/outcome matrix implemented in `ce0218f`; truthful fully mounted strict twelve-hour/three-market positive remains blocking. |
-| B2CH-T05 | Closed by independent inventory rebuild and exact-byte mutation tests in `ce0218f`. |
+| B2CH-T04 | Closed for offline verifier conformance by the fully mounted Synthetic twelve-hour/three-market package; Observed execution is not evaluated and belongs to B2c-P. |
+| B2CH-T05 | Closed by independent inventory rebuild, canonical-output binding, and exact-byte mutations. |
 | B2CH-T06 | Closed for the registered mounted JSON/JSONL schema families in `ce0218f`. |
-| B2CH-T07 | Major cross-boundary identities are reconstructed; exhaustive normalization-telemetry/upstream-identity mutations remain blocking. |
+| B2CH-T07 | Closed by exact measurement path/hash, product truth/catalog, normalization, feature, Backtest, Result, and operational-approval reconstruction and mutations. |
 | B2CH-T08 | Closed for the implemented deterministic rules with synthetic canaries and scan-report rebinding in `ce0218f`. |
-| B2CH-T09 | Still open for exhaustive normalization telemetry rename/repeated-invocation coverage. |
+| B2CH-T09 | Closed by atomic two-output rename/refusal cleanup and repeated-invocation tests. |
 
-B2c-H therefore remains open and B2c-P remains unauthorized. Result V4 in-memory publication,
+B2c-H is closed as offline hardening. B2c-P is current but external action remains unauthorized until
+its explicit gates pass. Result V4 in-memory publication,
 two-rename telemetry publication, escaped-daemon containment, and measurement-dependent
 optimizations remain characterized or deferred.
 
@@ -105,12 +107,13 @@ The POSIX process-group boundary is honest but not universal containment. Docume
 better than adding fragile PID-chasing logic. Platform-specific containment should be considered only
 if future commands need to daemonize or run in environments where PGID inspection is insufficient.
 
-### Missing tests
+### Test boundary
 
 The high-impact child/grandchild teardown, signal escalation, independent inventory rebuild,
-mounted-schema, scanner, and most lineage/stage cases now have named offline tests. The remaining
-acceptance gaps are the truthful fully mounted strict twelve-hour/three-market positive and the
-exhaustive normalization-telemetry/upstream-identity mutation matrix.
+mounted-schema, scanner, lineage/stage, publication, and upstream mutation cases have named offline
+tests. The fully mounted strict positive is Synthetic verifier-conformance data. Observed twelve-hour
+execution, production resource measurements, and retained evidence are intentionally not evaluated
+by B2c-H and remain B2c-P work.
 
 Tests must remain offline, bounded, and synthetic. Process tests need PID handshakes and bounded
 polling rather than sleeps that can hang CI. Evidence mutations must update outer hashes so each test
@@ -147,7 +150,6 @@ process, trace, and lineage cardinality. Neither axis should be extrapolated fro
 
 ## Judgment
 
-The design remains coherent and the remediation substantially reduces its highest-impact risks. The
-remaining blocker is evidence completeness rather than the audited process-control defects: without
-the strict mounted positive and exhaustive remaining identity mutations, neither this review nor the
-green component suites close B2c-H or authorize B2c-P.
+The design remains coherent and the closure series addresses the audited offline process-control and
+independent-verification risks. B2c-H is closed at that boundary. This judgment does not authorize
+external action: B2c-P Gate A still precedes venue access, and Gate B still precedes capture.

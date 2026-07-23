@@ -245,13 +245,20 @@ uv run python python/pmm_phase7_evidence.py verify-v2 \
   --require-artifacts
 ```
 
-The frozen V1 `measure` and `verify` commands retain their original behavior. B2c-H is still open:
-there is no truthful fully mounted strict twelve-hour/three-market positive package, and exhaustive
-normalization-telemetry/upstream-identity mutation coverage is incomplete. B2c-P remains blocked.
+The frozen V1 `measure` and `verify` commands retain their original behavior. B2c-H is closed as an
+offline control-plane milestone. The mounted twelve-hour/three-market positive is Synthetic and
+proves verifier integration only; it is not a real measurement or venue capture. B2c-P is current,
+but venue access, acquisition, and capture remain blocked on its separate human approval gates.
+
+`pmm_b2c_operator.py` verifies the offline B2c-P candidate-snapshot and run-approval documents. It
+reconstructs selection from retained paginated market-listing bytes and binds exact acquisition-spec
+bytes, window, policy, operator/reviewer, and durable primary/backup policy. These verification
+functions do not fetch venue data and do not themselves authorize a run.
 
 The fixed policy is `configs/phase7/b2c_evidence_policy_v1.json`. It is not capture authorization.
-See `docs/07 Engineering Notes/Phase 7 Retained Capture Evidence.md` before implementing B2c-H or
-proposing B2c-P product acquisition or a live capture.
+See `docs/07 Engineering Notes/Phase 7 Retained Capture Evidence.md` and
+`Phase 7 B2c-P Approval Controls.md` before proposing B2c-P venue access, product acquisition, or a
+live capture.
 
 See `docs/07 Engineering Notes/Phase 7 B2c-H Refusal Codes.md` for the additive V2 exit, stream,
 report-publication, and refusal-code contracts.

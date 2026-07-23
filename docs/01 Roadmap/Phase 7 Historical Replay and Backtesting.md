@@ -149,8 +149,8 @@ offline result verification. Cross-market signals and portfolio risk remain excl
 
 Focused B2b-2, Phase 7, capture, product-term, checkpoint-reader, fixture-integrity, formatting,
 full Python, and CTest gates pass. The accidental retained-package deletions were restored exactly
-from Git and B2b-2 is closed. B2c retained full-capture regression evidence is the next read-only
-design gate; no capture or retained acquisition should occur before that design is approved.
+from Git and B2b-2 is closed. The B2c design and offline B2c-H hardening are also closed. B2c-P is
+current, but no venue access or retained acquisition may occur before explicit Gate A approval.
 
 ## B2c evidence tooling implemented; retained run pending
 
@@ -160,18 +160,16 @@ interruption, duplicate-table telemetry, per-contract oracle telemetry, and one-
 coverage. These are additive control-plane formats; accepted raw, normalized, feature, backtest,
 result, product, conversion, risk, and refusal contracts retain their meanings.
 
-No B2c product evidence or venue capture has been acquired. B2c-H commits `df905ff` and `ce0218f`
-close the audited process-group lifecycle, sampler, stream, storage-accounting, role/schema,
-membership, repetition, lineage, product-coverage, and credential-scan defects in the additive V2
-surfaces while freezing V1 behavior. B2c-H remains open because the repository still has no truthful
-fully mounted strict twelve-hour/three-market positive package and exhaustive normalization-
-telemetry/upstream-identity mutation coverage is incomplete. B2c-P must separately pin and approve
-the actual candidate snapshot, activity field, three distinct-series markets, opening/closing
-acquisition plan, reviewer, durable storage ownership, capture window, and operator. B3 remains
-blocked until applicable retained-evidence gates actually close.
+No B2c product evidence or venue capture has been acquired. The closure series through `65b5989`
+closes B2c-H as offline control-plane hardening while freezing V1 behavior. Real subprocess tests
+validate the supervisor. A fully mounted Synthetic twelve-hour/three-market package validates the
+verifier, including exact identity, truth/catalog, canonical repetition, lineage, operational-
+approval, and portability mutations; it is not a production run. B2c-P must separately pin and
+approve the actual candidate snapshot, activity field, three distinct-series markets, opening/
+closing acquisition plan, reviewer, durable storage ownership, capture window, and operator. B3
+remains blocked until applicable retained-evidence gates actually close.
 
 The B2c-H design packet is recorded in the hardening design, explanation, critique, and refusal-code
-reference. Commits `842db83`, `d19ac3b`, and `38fb667` implement the initial V2 slice; commits
-`df905ff` and `ce0218f` implement the audit remediation. Validation passes formatting, 78 CTests,
-268 Python tests, 66 focused measurement tests, and 63 focused evidence-plus-multimarket tests.
-B2c-P remains blocked and B2c-H remains the current bounded package.
+reference. Closure validation passes 68 measurement, 72 evidence, 11 operator, 253 integrated
+B2c/product/Phase 7/multimarket, 307 full Python, and 78 CTest tests. B2c-P is the current package but
+remains stopped at Gate A; no venue access, acquisition, or capture is authorized.
