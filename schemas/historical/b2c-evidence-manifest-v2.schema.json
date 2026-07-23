@@ -129,7 +129,7 @@
                 "if": {"properties": {"kind": {"const": "opaque"}}},
                 "then": {
                   "properties": {
-                    "role": {"enum": ["product_package_member", "repetition_member"]},
+                    "role": {"enum": ["product_package_member", "repetition_member", "operational_control_member"]},
                     "schema_file": {"type": "null"}
                   }
                 },

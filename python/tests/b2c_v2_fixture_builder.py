@@ -243,6 +243,7 @@ def build_v2_package(
         if (
             role in files
             or role == "credential_scan_report"
+            or role in evidence._OPTIONAL_CONTROL_ROLES
             or evidence._STAGE_ORDER.index(spec.introduced_at) > stage_ceiling
         ):
             continue

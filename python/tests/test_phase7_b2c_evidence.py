@@ -17,6 +17,7 @@ if str(PYTHON_ROOT) not in sys.path:
 
 import pmm_phase7 as phase7
 import pmm_phase7_evidence as evidence
+import pmm_b2c_operator as operator
 from python.tests.b2c_v2_fixture_builder import build_v2_package
 from python.tests.b2c_v2_strict_fixture_builder import (
     build_strict_v2_evidence_package,
@@ -728,6 +729,179 @@ class B2cEvidenceTests(unittest.TestCase):
         )
         self.assertTrue(evidence.verify_evidence_manifest_v2(fixture.manifest_path)["verified"])
 
+    def test_verify_observed_strict_package_requires_operational_approval(self) -> None:
+        fixture = build_v2_package(
+            self.root, eligible_stage="normalization_record_only", product_status="unavailable"
+        )
+        metadata_path = self.root / "raw/metadata.json"
+        metadata = phase7.read_json(metadata_path)
+        metadata["truth_category"] = "Observed"
+        phase7.write_json(metadata_path, metadata)
+        member = next(
+            item
+            for item in fixture.manifest["payload"]["members"]
+            if item["role"] == "raw_metadata"
+        )
+        member["byte_length"] = metadata_path.stat().st_size
+        member["sha256"] = phase7.sha256_file(metadata_path)
+        fixture.refresh_credential_report()
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2RoleMissing"):
+            evidence.verify_evidence_manifest_v2(
+                fixture.manifest_path, artifact_root=self.root, require_artifacts=True
+            )
+
+    def test_verify_observed_package_accepts_verified_operational_approval(self) -> None:
+        fixture = build_v2_package(
+            self.root, eligible_stage="normalization_record_only", product_status="unavailable"
+        )
+        metadata_path = self.root / "raw/metadata.json"
+        metadata = phase7.read_json(metadata_path)
+        metadata["truth_category"] = "Observed"
+        phase7.write_json(metadata_path, metadata)
+        metadata_member = next(
+            item for item in fixture.manifest["payload"]["members"]
+            if item["role"] == "raw_metadata"
+        )
+        metadata_member["byte_length"] = metadata_path.stat().st_size
+        metadata_member["sha256"] = phase7.sha256_file(metadata_path)
+
+        candidates = [
+            {
+                "ticker": ticker,
+                "event_ticker": f"EVENT-{ticker}",
+                "series_ticker": f"SERIES-{index}",
+                "contract_kind": "binary",
+                "status": "open",
+                "close_time_utc": "2026-07-19T00:00:00Z",
+                "volume_24h_fp": str(10 - index),
+            }
+            for index, ticker in enumerate(("SYNTH-A", "SYNTH-B", "SYNTH-C"), start=1)
+        ]
+        page_path = self.write_json(
+            "control/candidate-page.json", {"markets": candidates, "cursor": None}
+        )
+        snapshot_payload = {
+            "environment": "production",
+            "activity_field": "volume_24h_fp",
+            "retrieval_started_at_utc": "2026-07-17T22:00:00Z",
+            "retrieval_completed_at_utc": "2026-07-17T22:01:00Z",
+            "query": {"endpoint": "/trade-api/v2/markets", "parameters": {"status": "open"}},
+            "pagination_complete": True,
+            "pages": [{
+                "path": page_path.relative_to(self.root).as_posix(),
+                "sha256": phase7.sha256_file(page_path),
+                "cursor_in": None,
+                "cursor_out": None,
+            }],
+            "capture_window": {
+                "started_at_utc": "2026-07-18T00:00:00Z",
+                "ended_at_utc": "2026-07-18T12:00:00Z",
+                "closing_margin_seconds": 1800,
+            },
+            "candidates": candidates,
+            "selected_market_tickers": ["SYNTH-A", "SYNTH-B", "SYNTH-C"],
+        }
+        snapshot_path = self.write_json(
+            "control/candidate-snapshot.json",
+            {
+                "schema": operator.CANDIDATE_SNAPSHOT_SCHEMA,
+                "payload": snapshot_payload,
+                "payload_sha256": operator.payload_sha256(snapshot_payload),
+            },
+        )
+        acquisition_specs = []
+        operational_members = [page_path]
+        for ticker in ("SYNTH-A", "SYNTH-B", "SYNTH-C"):
+            opening = self.write_json(
+                f"control/specs/{ticker}-opening.json",
+                {"schema": "synthetic.acquisition", "ticker": ticker, "observation": "opening"},
+            )
+            closing = self.write_json(
+                f"control/specs/{ticker}-closing.json",
+                {"schema": "synthetic.acquisition", "ticker": ticker, "observation": "closing"},
+            )
+            operational_members.extend((opening, closing))
+            acquisition_specs.append({
+                "ticker": ticker,
+                "opening_path": opening.relative_to(self.root).as_posix(),
+                "opening_sha256": phase7.sha256_file(opening),
+                "closing_path": closing.relative_to(self.root).as_posix(),
+                "closing_sha256": phase7.sha256_file(closing),
+            })
+        approval_payload = {
+            "candidate_snapshot_sha256": phase7.sha256_file(snapshot_path),
+            "policy_sha256": phase7.sha256_file(
+                phase7.REPOSITORY_ROOT / "configs/phase7/b2c_evidence_policy_v1.json"
+            ),
+            "selected_market_tickers": ["SYNTH-A", "SYNTH-B", "SYNTH-C"],
+            "capture_window": {
+                "started_at_utc": "2026-07-18T00:00:00Z",
+                "ended_at_utc": "2026-07-18T12:00:00Z",
+            },
+            "operator": "test-operator",
+            "reviewer": "test-reviewer",
+            "acquisition_specs": acquisition_specs,
+            "storage": {
+                "owner": "test-owner",
+                "readers": ["test-owner"],
+                "primary_path": str((self.root / "durable-primary").resolve()),
+                "backup_path": str((self.root / "durable-backup").resolve()),
+                "retention": "project_lifetime",
+                "owner_only_writes_during_construction": True,
+                "immutable_after_verification": True,
+                "hash_restore_check_required": True,
+            },
+            "approved_by": "test-approver",
+            "approved_at_utc": "2026-07-17T23:00:00Z",
+        }
+        approval_path = self.write_json(
+            "control/run-approval.json",
+            {
+                "schema": operator.RUN_APPROVAL_SCHEMA,
+                "payload": approval_payload,
+                "payload_sha256": operator.payload_sha256(approval_payload),
+            },
+        )
+        for role, path, schema_file, kind in (
+            ("candidate_snapshot", snapshot_path, "b2c-candidate-snapshot-v1.schema.json", "json"),
+            ("run_approval", approval_path, "b2c-run-approval-v1.schema.json", "json"),
+        ):
+            fixture.manifest["payload"]["members"].append({
+                "role": role,
+                "path": path.relative_to(self.root).as_posix(),
+                "schema_file": schema_file,
+                "kind": kind,
+                "byte_length": path.stat().st_size,
+                "sha256": phase7.sha256_file(path),
+            })
+        for path in operational_members:
+            fixture.manifest["payload"]["members"].append({
+                "role": "operational_control_member",
+                "path": path.relative_to(self.root).as_posix(),
+                "schema_file": None,
+                "kind": "opaque",
+                "byte_length": path.stat().st_size,
+                "sha256": phase7.sha256_file(path),
+            })
+        fixture.manifest["payload"]["lineage_edges"] = evidence._derive_role_lineage(
+            fixture.manifest["payload"]["members"], "raw"
+        )
+        fixture.refresh_credential_report()
+
+        result = evidence.verify_evidence_manifest_v2(
+            fixture.manifest_path, artifact_root=self.root, require_artifacts=True
+        )
+
+        self.assertTrue(result["artifacts_verified"])
+
+    def test_verify_truth_boundary_rejects_raw_product_mismatch(self) -> None:
+        with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2EligibilityMismatch"):
+            evidence._verify_truth_boundary(
+                {"truth_category": "Observed"},
+                {"product_packages": [{"truth_category": "Synthetic"}]},
+            )
+
     def test_verify_exit_one_rejects_normalization_v3_stage(self) -> None:
         fixture = build_v2_package(
             self.root, materialized_stage="normalization_v3", eligible_stage="raw", capture_exit=1
@@ -1052,7 +1226,7 @@ class B2cEvidenceTests(unittest.TestCase):
         )
         measurement["identity_files"] = [
             {
-                "path": str((self.root / policy_member["path"]).resolve()),
+                "path": policy_member["path"],
                 "sha256": policy_member["sha256"],
             }
         ]
@@ -1243,22 +1417,109 @@ class B2cEvidenceTests(unittest.TestCase):
                 "backtest_v4",
             )
 
+    def test_verify_strict_package_is_portable_across_mount_roots(self) -> None:
+        processed = phase7.REPOSITORY_ROOT / "data" / "processed"
+        processed.mkdir(parents=True, exist_ok=True)
+        mounted = self.root / "mounted"
+        with tempfile.TemporaryDirectory(dir=processed) as temporary:
+            fixture = build_strict_v2_evidence_package(Path(temporary) / "package")
+            shutil.copytree(fixture.root, mounted)
+
+        result = evidence.verify_evidence_manifest_v2(
+            mounted / fixture.manifest_path.name,
+            artifact_root=mounted,
+            require_artifacts=True,
+        )
+
+        self.assertTrue(result["artifacts_verified"])
+
+    def test_verify_strict_backtest_requires_mounted_product_catalog(self) -> None:
+        processed = phase7.REPOSITORY_ROOT / "data" / "processed"
+        processed.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=processed) as temporary:
+            fixture = build_strict_v2_evidence_package(Path(temporary) / "package")
+            payload = dict(fixture.manifest["payload"])
+            payload.pop("product_catalog_path")
+            product_paths = {
+                member["path"]
+                for member in payload["members"]
+                if member["role"] == "product_package_member"
+                and member["path"] != "catalog/manifest.json"
+            }
+
+            with self.assertRaisesRegex(
+                evidence.EvidenceError, "EvidenceV2EligibilityMismatch"
+            ):
+                evidence._verify_product_packages(fixture.root, payload, product_paths)
+
+    def test_verify_strict_backtest_rejects_dangling_config_paths(self) -> None:
+        processed = phase7.REPOSITORY_ROOT / "data" / "processed"
+        processed.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=processed) as temporary:
+            fixture = build_strict_v2_evidence_package(Path(temporary) / "package")
+            members = fixture.manifest["payload"]["members"]
+
+            evidence._verify_backtest_upstream_chain(
+                fixture.root, ["SYNTH-A", "SYNTH-B", "SYNTH-C"], members
+            )
+            config = phase7.read_json(fixture.root / "backtest/config.json")
+            for group, fields in (
+                ("normalization", ("manifest_path", "records_path", "source_scopes_path", "product_map_path")),
+                ("features", ("manifest_path", "rows_path")),
+            ):
+                for field in fields:
+                    declared = phase7.REPOSITORY_ROOT / config["inputs"][group][field]
+                    self.assertTrue(declared.is_file(), f"dangling {group}.{field}")
+
+    def test_verify_measurement_identity_rejects_path_only_mutation(self) -> None:
+        processed = phase7.REPOSITORY_ROOT / "data" / "processed"
+        processed.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=processed) as temporary:
+            fixture = build_strict_v2_evidence_package(Path(temporary) / "package")
+            measurement = phase7.read_json(fixture.root / "measurements/capture.json")
+            measurement["identity_files"][0]["path"] = "unrelated/capture-policy.json"
+            phase7.write_json(fixture.root / "measurements/capture.json", measurement)
+
+            with self.assertRaisesRegex(
+                evidence.EvidenceError, "EvidenceV2LineageMismatch"
+            ):
+                evidence._verify_measurement_identities(
+                    fixture.root, fixture.manifest["payload"]["members"]
+                )
+
+    def test_normalization_sequence_identity_canonicalizes_subscription_id(self) -> None:
+        numeric = {
+            "connection_segment_id": 1,
+            "subscription_id": 11,
+            "market_ticker": "SYNTH-A",
+            "source_sequence": 7,
+        }
+        textual = {**numeric, "subscription_id": "11"}
+
+        self.assertEqual(
+            evidence._normalization_sequence_identity(numeric, "independent"),
+            evidence._normalization_sequence_identity(textual, "independent"),
+        )
+
     def test_verify_real_normalization_lineage_mutation_matrix(self) -> None:
         processed = phase7.REPOSITORY_ROOT / "data" / "processed"
         processed.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=processed) as temporary:
-            fixture = build_strict_v2_pipeline(Path(temporary) / "package")
-            members = self._strict_primary_members(fixture)
+            fixture = build_strict_v2_evidence_package(Path(temporary) / "package")
+            members = fixture.manifest["payload"]["members"]
             selected = ["SYNTH-A", "SYNTH-B", "SYNTH-C"]
-            manifest_path = fixture.normalization_roots[0] / "manifest.json"
-            telemetry_path = fixture.normalization_telemetry_path
-            product_path = fixture.normalization_roots[0] / "product.json"
+            manifest_path = fixture.root / "normalization/manifest.json"
+            telemetry_path = fixture.root / "telemetry/normalization.json"
+            product_path = fixture.root / "normalization/product.json"
             cases = (
                 (manifest_path, lambda value: value.__setitem__("input_frames_sha256", "0" * 64)),
                 (manifest_path, lambda value: value.__setitem__("input_capture_metadata_sha256", "0" * 64)),
                 (manifest_path, lambda value: value.__setitem__("output_records_sha256", "0" * 64)),
                 (manifest_path, lambda value: value.__setitem__("output_source_scopes_sha256", "0" * 64)),
                 (manifest_path, lambda value: value.__setitem__("output_product_sha256", "0" * 64)),
+                (manifest_path, lambda value: value.__setitem__("product_catalog_sha256", "0" * 64)),
+                (manifest_path, lambda value: value.__setitem__("conversion_policy_sha256", "0" * 64)),
+                (manifest_path, lambda value: value["product_lineage"][0].__setitem__("review_sha256", "0" * 64)),
                 (manifest_path, lambda value: value["market_tickers"].reverse()),
                 (manifest_path, lambda value: value["event_counts"].__setitem__("book_snapshot", 99)),
                 (manifest_path, lambda value: value.__setitem__("identical_duplicates_skipped", 1)),
@@ -1275,7 +1536,9 @@ class B2cEvidenceTests(unittest.TestCase):
                     mutation(value)
                     phase7.write_json(path, value)
                     with self.assertRaisesRegex(evidence.EvidenceError, "EvidenceV2LineageMismatch"):
-                        evidence._verify_normalization_chain(fixture.root, selected, members)
+                        evidence._verify_normalization_chain(
+                            fixture.root, selected, members, fixture.manifest["payload"]
+                        )
                     path.write_bytes(original)
 
     def test_verify_real_feature_lineage_mutation_matrix(self) -> None:
@@ -1334,6 +1597,7 @@ class B2cEvidenceTests(unittest.TestCase):
             result_path = fixture.backtest_roots[0] / "manifest.json"
             cases = (
                 (config_path, lambda value: value["inputs"]["normalization"].__setitem__("manifest_sha256", "0" * 64)),
+                (config_path, lambda value: value["inputs"]["normalization"].__setitem__("manifest_path", "data/processed/stale/normalization/manifest.json")),
                 (config_path, lambda value: value["inputs"]["normalization"].__setitem__("records_sha256", "0" * 64)),
                 (config_path, lambda value: value["inputs"]["features"].__setitem__("manifest_sha256", "0" * 64)),
                 (config_path, lambda value: value["inputs"]["features"].__setitem__("rows_sha256", "0" * 64)),
@@ -1341,9 +1605,12 @@ class B2cEvidenceTests(unittest.TestCase):
                 (config_path, lambda value: value["products"][0]["product_identity"].__setitem__("input_product_entry_sha256", "0" * 64)),
                 (config_path, lambda value: value["products"][0]["reviewed_lineage"].__setitem__("source_manifest_sha256", "0" * 64)),
                 (result_path, lambda value: value.__setitem__("config_sha256", "0" * 64)),
+                (result_path, lambda value: value.__setitem__("run_id", "wrong-run")),
+                (result_path, lambda value: value["execution"].__setitem__("model", "trade_touch_v1")),
                 (result_path, lambda value: value.__setitem__("feature_definition_sha256", "0" * 64)),
                 (result_path, lambda value: value["inputs"]["features"].__setitem__("rows_sha256", "0" * 64)),
                 (result_path, lambda value: value["products"][0]["product_identity"].__setitem__("ticker", "WRONG")),
+                (result_path, lambda value: value["products"][0]["reviewed_lineage"].__setitem__("review_sha256", "0" * 64)),
             )
             for index, (path, mutation) in enumerate(cases):
                 with self.subTest(case=index):
@@ -1374,9 +1641,12 @@ class B2cEvidenceTests(unittest.TestCase):
             evidence.verify_evidence_manifest_v2(fixture.manifest_path)
 
     def test_verify_repetition_rebuilds_and_byte_compares_both_roots(self) -> None:
+        canonical = self.root / "normalization"
         first, second = self.root / "first", self.root / "second"
+        canonical.mkdir()
         first.mkdir()
         second.mkdir()
+        (canonical / "records.jsonl").write_bytes(b"same\n")
         (first / "records.jsonl").write_bytes(b"same\n")
         (second / "records.jsonl").write_bytes(b"same\n")
         first_inventory = evidence.build_repetition_inventory(first)
@@ -1396,14 +1666,48 @@ class B2cEvidenceTests(unittest.TestCase):
         }]
         evidence._verify_repetitions(self.root, repetitions, members)
 
+    def test_verify_repetition_rejects_canonical_output_divergence(self) -> None:
+        canonical = self.root / "normalization"
+        first, second = self.root / "first", self.root / "second"
+        for path in (canonical, first, second):
+            path.mkdir()
+        (canonical / "records.jsonl").write_bytes(b"canonical differs\n")
+        (first / "records.jsonl").write_bytes(b"repeat\n")
+        (second / "records.jsonl").write_bytes(b"repeat\n")
+        first_path = self.write_json(
+            "control/first-inventory.json", evidence.build_repetition_inventory(first)
+        )
+        second_path = self.write_json(
+            "control/second-inventory.json", evidence.build_repetition_inventory(second)
+        )
+        members = [
+            {"role": "normalization_inventory_first", "path": first_path.relative_to(self.root).as_posix()},
+            {"role": "normalization_inventory_second", "path": second_path.relative_to(self.root).as_posix()},
+            {"role": "repetition_member", "path": "first/records.jsonl"},
+            {"role": "repetition_member", "path": "second/records.jsonl"},
+        ]
+        repetitions = [{
+            "stage": "normalization_v3", "first_root": "first", "second_root": "second",
+            "first_inventory_role": "normalization_inventory_first",
+            "second_inventory_role": "normalization_inventory_second",
+        }]
+
+        with self.assertRaisesRegex(
+            evidence.EvidenceError, "EvidenceV2RepetitionMismatch"
+        ):
+            evidence._verify_repetitions(self.root, repetitions, members)
+
     def test_verify_repetition_rejects_inventory_and_byte_mutations(self) -> None:
         for defect in ("stale_inventory", "byte_mismatch", "extra_path", "undeclared_member"):
             with self.subTest(defect=defect):
                 shutil.rmtree(self.root)
                 self.root.mkdir()
                 first, second = self.root / "first", self.root / "second"
+                canonical = self.root / "normalization"
+                canonical.mkdir()
                 first.mkdir()
                 second.mkdir()
+                (canonical / "records.jsonl").write_bytes(b"same\n")
                 (first / "records.jsonl").write_bytes(b"same\n")
                 (second / "records.jsonl").write_bytes(b"same\n")
                 first_inventory = evidence.build_repetition_inventory(first)

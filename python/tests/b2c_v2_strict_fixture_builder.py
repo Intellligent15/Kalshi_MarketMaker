@@ -461,6 +461,27 @@ def _copy_member(source: Path, root: Path, relative: str) -> Path:
     return destination
 
 
+def _rewrite_mounted_result(
+    result_root: Path, config: dict[str, Any], config_sha256: str
+) -> None:
+    manifest_path = result_root / "manifest.json"
+    manifest = phase7.read_json(manifest_path)
+    manifest["config_sha256"] = config_sha256
+    manifest["inputs"] = config["inputs"]
+    for descriptor in manifest["artifacts"]:
+        artifact_path = result_root / descriptor["path"]
+        rows = list(phase7.iter_jsonl(artifact_path))
+        for row in rows:
+            row["configuration_sha256"] = config_sha256
+        artifact_path.write_text(
+            "".join(phase7.canonical_json(row) + "\n" for row in rows),
+            encoding="utf-8",
+        )
+        descriptor["sha256"] = phase7.sha256_file(artifact_path)
+        descriptor["row_count"] = len(rows)
+    phase7.write_json(manifest_path, manifest)
+
+
 def _measurement(stage: str, identities: list[tuple[str, str]]) -> dict[str, Any]:
     empty_hash = hashlib.sha256(b"").hexdigest()
     return {
@@ -625,8 +646,23 @@ def build_strict_v2_evidence_package(root: Path) -> StrictV2EvidenceFixture:
             "json",
         )
 
+        mounted_config = phase7.read_json(pipeline.backtest_config_path)
+        mounted_config["inputs"]["normalization"].update({
+            "manifest_path": _repo_relative(root / "normalization/manifest.json"),
+            "records_path": _repo_relative(root / "normalization/records.jsonl"),
+            "source_scopes_path": _repo_relative(root / "normalization/source_scopes.json"),
+            "product_map_path": _repo_relative(root / "normalization/product.json"),
+        })
+        mounted_config["inputs"]["features"].update({
+            "manifest_path": _repo_relative(root / "features/manifest.json"),
+            "rows_path": _repo_relative(root / "features/features.jsonl"),
+        })
+        mounted_config_path = root / "backtest/config.json"
+        mounted_config_path.parent.mkdir(parents=True)
+        phase7.write_json(mounted_config_path, mounted_config)
+        mounted_config_sha256 = phase7.sha256_file(mounted_config_path)
         fixed["backtest_config"] = (
-            _copy_member(pipeline.backtest_config_path, root, "backtest/config.json"),
+            mounted_config_path,
             "backtest-v4.schema.json",
             "json",
         )
@@ -656,11 +692,17 @@ def build_strict_v2_evidence_package(root: Path) -> StrictV2EvidenceFixture:
                 "risk-conformance-trace-v2.schema.json",
                 "jsonl",
             )
+        _rewrite_mounted_result(
+            root / "backtest/result", mounted_config, mounted_config_sha256
+        )
         fixed["risk_telemetry"] = (
             _copy_member(pipeline.risk_telemetry_path, root, "telemetry/risk.json"),
             "b2c-risk-telemetry-v1.schema.json",
             "json",
         )
+        risk_telemetry = phase7.read_json(fixed["risk_telemetry"][0])
+        risk_telemetry["config_sha256"] = mounted_config_sha256
+        phase7.write_json(fixed["risk_telemetry"][0], risk_telemetry)
 
         catalog_root = root / "catalog"
         shutil.copytree(pipeline.catalog_root, catalog_root)
@@ -689,6 +731,10 @@ def build_strict_v2_evidence_package(root: Path) -> StrictV2EvidenceFixture:
             ):
                 mounted_root = root / "repetitions" / prefix / label
                 shutil.copytree(source_root, mounted_root)
+                if stage == "backtest_v4":
+                    _rewrite_mounted_result(
+                        mounted_root, mounted_config, mounted_config_sha256
+                    )
                 mounted_roots.append(mounted_root)
                 for path in sorted(mounted_root.rglob("*")):
                     if path.is_file():
