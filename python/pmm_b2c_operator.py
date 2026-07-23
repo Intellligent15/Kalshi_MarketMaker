@@ -121,7 +121,7 @@ def verify_candidate_snapshot(path: Path, *, artifact_root: Path | None = None) 
     query = payload["query"]
     if (
         query["endpoint"] != "/trade-api/v2/markets"
-        or query["parameters"].get("status") != "open"
+        or query["parameters"] != {"status": "open"}
     ):
         raise OperatorError(
             "CandidateSnapshotQueryMismatch", "candidate query must list open production markets"

@@ -1528,6 +1528,14 @@ class B2cEvidenceTests(unittest.TestCase):
                 (telemetry_path, lambda value: value.__setitem__("peak_sequenced_unique_identities", 0)),
                 (telemetry_path, lambda value: value["samples"].pop()),
                 (product_path, lambda value: value["products"][0].__setitem__("ticker", "WRONG")),
+                (product_path, lambda value: value["products"][0].__setitem__("venue_market_id", "wrong-market-id")),
+                (product_path, lambda value: value["products"][0].__setitem__("venue_market_id_authority", "wrong-authority")),
+                (product_path, lambda value: value["products"][0].__setitem__("source_fidelity", "wrong-fidelity")),
+                (product_path, lambda value: value["products"][0]["authoritative_identity"].__setitem__("series_ticker", "WRONG-SERIES")),
+                (product_path, lambda value: value["products"][0].__setitem__("product_terms_sha256", "0" * 64)),
+                (product_path, lambda value: value["products"][0].__setitem__("source_manifest_sha256", "0" * 64)),
+                (product_path, lambda value: value["products"][0].__setitem__("review_sha256", "0" * 64)),
+                (product_path, lambda value: value["products"][0].__setitem__("conversion_policy_sha256", "0" * 64)),
             )
             for index, (path, mutation) in enumerate(cases):
                 with self.subTest(case=index):

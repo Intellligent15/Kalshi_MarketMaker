@@ -272,6 +272,16 @@ class B2cOperatorTests(unittest.TestCase):
         for label, field, value in (
             ("endpoint", "endpoint", "/trade-api/v2/events"),
             ("status", "parameters", {"status": "closed"}),
+            (
+                "cursor suffix",
+                "parameters",
+                {"status": "open", "cursor": "skip-earlier-pages"},
+            ),
+            (
+                "narrowing filter",
+                "parameters",
+                {"status": "open", "series_ticker": "ONLY-ONE-SERIES"},
+            ),
         ):
             with self.subTest(label=label):
                 document = self.snapshot()

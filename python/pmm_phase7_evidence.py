@@ -732,6 +732,36 @@ def _verify_normalization_chain(
     products = product_map.get("products", [])
     if [item.get("ticker") for item in products] != selected:
         raise EvidenceError("EvidenceV2LineageMismatch", "normalization product-map order differs")
+    raw_rows = list(phase7.iter_jsonl(root / by_role["raw_frames"]["path"]))
+    raw_market_ids: dict[str, str] = {}
+    try:
+        for line_number, row in enumerate(raw_rows, start=1):
+            if row.get("kind") != "inbound_frame":
+                continue
+            if row.get("message_type") not in {
+                "orderbook_snapshot", "orderbook_delta", "trade",
+            }:
+                continue
+            parsed_type, message = phase7.parse_raw_message(row, line_number)
+            ticker, market_id, _ = phase7.normalized_payload(parsed_type, message)
+            if ticker not in selected:
+                raise EvidenceError(
+                    "EvidenceV2LineageMismatch",
+                    "raw frame names an unselected market",
+                )
+            if market_id is None:
+                continue
+            previous = raw_market_ids.setdefault(ticker, market_id)
+            if previous != market_id:
+                raise EvidenceError(
+                    "EvidenceV2LineageMismatch",
+                    "raw market identity changes within the capture",
+                )
+    except ValueError as error:
+        raise EvidenceError(
+            "EvidenceV2LineageMismatch",
+            "raw market identity cannot be reconstructed",
+        ) from error
     if payload is not None and payload.get("product_packages"):
         catalog_path = payload.get("product_catalog_path")
         if catalog_path is None:
@@ -753,17 +783,41 @@ def _verify_normalization_chain(
                     "EvidenceV2LineageMismatch",
                     "normalization conversion policy is not singular",
                 )
-            expected_product_lineage = []
+            policy_sha256 = next(iter(policies))
+            packages_by_ticker: dict[str, product_terms.ProductPackage] = {}
+            expected_product_entries = []
             for item in declarations:
                 package = product_terms.ProductPackage.load(
                     _safe_member(root, item["package_root"])
                 )
-                expected_product_lineage.append({
-                    "ticker": item["ticker"],
+                ticker = item["ticker"]
+                packages_by_ticker[ticker] = package
+                market_id = raw_market_ids.get(ticker)
+                if market_id is None:
+                    raise EvidenceError(
+                        "EvidenceV2LineageMismatch",
+                        "raw market identity is absent",
+                    )
+                expected_product_entries.append({
+                    "ticker": ticker,
+                    "venue_market_id": market_id,
+                    "venue_market_id_authority": "capture_only_not_in_terms_source",
+                    "source_fidelity": "level_2",
+                    "authoritative_identity": package.terms.identity,
                     "product_terms_sha256": package.terms.payload_sha256,
                     "source_manifest_sha256": package.evidence.payload_sha256,
                     "review_sha256": package.review.payload_sha256,
+                    "conversion_policy_sha256": policy_sha256,
                 })
+            expected_product_lineage = [
+                {
+                    "ticker": ticker,
+                    "product_terms_sha256": packages_by_ticker[ticker].terms.payload_sha256,
+                    "source_manifest_sha256": packages_by_ticker[ticker].evidence.payload_sha256,
+                    "review_sha256": packages_by_ticker[ticker].review.payload_sha256,
+                }
+                for ticker in sorted(packages_by_ticker)
+            ]
         except ValueError as error:
             raise EvidenceError(
                 "EvidenceV2LineageMismatch",
@@ -771,8 +825,9 @@ def _verify_normalization_chain(
             ) from error
         if (
             manifest.get("product_catalog_sha256") != catalog.payload_sha256
-            or manifest.get("conversion_policy_sha256") != next(iter(policies))
+            or manifest.get("conversion_policy_sha256") != policy_sha256
             or manifest.get("product_lineage") != expected_product_lineage
+            or products != expected_product_entries
         ):
             raise EvidenceError(
                 "EvidenceV2LineageMismatch",
@@ -793,7 +848,6 @@ def _verify_normalization_chain(
         raise EvidenceError("EvidenceV2LineageMismatch", "normalization event counts differ")
     if dict(sorted(discontinuity_counts.items())) != manifest.get("discontinuity_counts"):
         raise EvidenceError("EvidenceV2LineageMismatch", "normalization discontinuity counts differ")
-    raw_rows = list(phase7.iter_jsonl(root / by_role["raw_frames"]["path"]))
     raw_count = len(raw_rows)
     raw_metadata = phase7.read_json(root / by_role["raw_metadata"]["path"])
     topology = raw_metadata.get("sequence_domain", {}).get("topology")
