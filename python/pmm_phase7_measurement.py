@@ -110,6 +110,8 @@ _TERMINATION_DIAGNOSTICS = {
 
 
 def _measurement_diagnostic(report: dict[str, Any]) -> str:
+    if report["sampling"]["error_code"] == "MeasurementIdentityChanged":
+        return "MeasurementIdentityChanged"
     reason = report["termination"]["reason"]
     if reason == "completed":
         return (
@@ -493,6 +495,7 @@ def run_measurement_v2(
                     "MeasurementRawRootNotEmpty", f"capture raw root is not empty: {raw_root}"
                 )
     resolved_identity_files: list[Path] = []
+    identity_records: list[dict[str, str]] = []
     for item in identity_files or []:
         if item.is_symlink():
             raise MeasurementRefusal("MeasurementPathUnsafe", f"symlinked identity file: {item}")
@@ -503,6 +506,13 @@ def run_measurement_v2(
                 "MeasurementPathUnsafe", f"identity path is not a regular file: {item}"
             )
         resolved_identity_files.append(resolved)
+        try:
+            identity_sha256 = phase7.sha256_file(resolved)
+        except OSError as error:
+            raise MeasurementRefusal(
+                "MeasurementPathUnsafe", f"identity file cannot be hashed: {item}"
+            ) from error
+        identity_records.append({"path": str(resolved), "sha256": identity_sha256})
     if free_space(package_root) < controls.minimum_free_bytes:
         raise MeasurementRefusal("MeasurementFreeSpaceInsufficient", "available space is below policy minimum")
     initial_aggregate = _package_bytes(package_root)
@@ -675,6 +685,18 @@ def run_measurement_v2(
         aggregate_final_without_report = initial_aggregate
         raw_final = initial_raw
 
+    identity_changed = False
+    for item, record in zip(resolved_identity_files, identity_records, strict=True):
+        try:
+            identity_changed = identity_changed or phase7.sha256_file(item) != record["sha256"]
+        except OSError:
+            identity_changed = True
+    if identity_changed:
+        sampling_error = "MeasurementIdentityChanged"
+        termination_reason = "wrapper_failure"
+        policy_stop = False
+        operator_stop = False
+
     final_policy_eligible = (
         termination_reason == "completed"
         and sampling_error is None
@@ -751,7 +773,7 @@ def run_measurement_v2(
             "publication_reserve_bytes": controls.publication_reserve_bytes,
         },
         "machine": {"platform": platform.platform(), "architecture": platform.machine(), "python": platform.python_version()},
-        "identity_files": [{"path": str(item), "sha256": phase7.sha256_file(item)} for item in resolved_identity_files],
+        "identity_files": identity_records,
     }
     rendered_report, aggregate_final = _account_for_serialized_report(
         report, aggregate_final_without_report

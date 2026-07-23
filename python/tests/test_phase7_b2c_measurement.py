@@ -191,6 +191,47 @@ class B2cMeasurementV2Tests(unittest.TestCase):
             )
         self.assertFalse(marker.exists())
 
+    def test_measurement_identity_changed_by_child_fails_with_pre_run_hash(self) -> None:
+        identity = self.root / "control.json"
+        identity.write_text("before", encoding="utf-8")
+        expected_sha256 = phase7.sha256_file(identity)
+
+        result = self.measure(
+            "from pathlib import Path; import time; "
+            f"Path({str(identity)!r}).write_text('after', encoding='utf-8'); "
+            "time.sleep(.05)",
+            identity_files=[identity],
+        )
+
+        self.assertEqual(result.exit_status, 1)
+        self.assertEqual(result.diagnostic_code, "MeasurementIdentityChanged")
+        self.assertTrue(result.report_published)
+        self.assertEqual(result.report["termination"]["reason"], "wrapper_failure")
+        self.assertEqual(
+            result.report["sampling"]["error_code"], "MeasurementIdentityChanged"
+        )
+        self.assertEqual(
+            result.report["identity_files"],
+            [{"path": str(identity.resolve()), "sha256": expected_sha256}],
+        )
+
+    def test_measurement_identity_schema_rejects_undeclared_fields(self) -> None:
+        identity = self.root / "control.json"
+        identity.write_text("unchanged", encoding="utf-8")
+        result = self.measure(
+            "import time; time.sleep(.05)", identity_files=[identity]
+        )
+        result.report["identity_files"][0]["unexpected"] = True
+
+        with self.assertRaisesRegex(
+            phase7.HistoricalDataError, "MeasurementV2SchemaMismatch"
+        ):
+            phase7.validate_historical_schema(
+                result.report,
+                "b2c-measurement-v2.schema.json",
+                "MeasurementV2SchemaMismatch",
+            )
+
     def test_measurement_accounting_root_escape_refuses_before_spawn(self) -> None:
         outside = Path(self.temp.name) / "outside"
         with self.assertRaisesRegex(measurement.MeasurementRefusal, "MeasurementPathUnsafe"):
